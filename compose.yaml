@@ -44,7 +44,7 @@ services:
   storage:
     # S3 兼容存储（master + volume + filer + s3 单进程）；桶在首次 PUT 时自动创建，
     # 不开放公开读取，所有访问经 API 签名（DESIGN 18.1）
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:3.96
     environment:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-mangashelf}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-mangashelf-secret}
@@ -53,7 +53,8 @@ services:
       - -c
       - |
         mkdir -p /etc/seaweedfs
-        printf '{"identities":[{"name":"mangashelf","access_key":"%s","secret_key":"%s","actions":["Admin","Read","Write","List"]}]}' "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /etc/seaweedfs/s3.json
+        # SeaweedFS s3.json 身份格式：identities[].credentials[]（proto JSON，大小写敏感）
+        printf '{"identities":[{"name":"mangashelf","actions":["Admin","Read","Write","List"],"credentials":[{"accessKey":"%s","secretKey":"%s"}]}]}' "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /etc/seaweedfs/s3.json
         exec weed server -dir=/data -master.volumeSizeLimitMB=4096 -filer -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3.json
     ports:
       - "${S3_PORT:-9000}:9000"

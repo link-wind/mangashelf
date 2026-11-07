@@ -5,6 +5,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import com.mangashelf.config.JdbcTime;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -30,7 +32,8 @@ public class UploadSessionRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, session.id(), session.ownerId(), session.assetId(), session.purpose(),
                 session.objectKey(), session.expectedSize(), session.expectedSha256(),
-                session.status(), session.idempotencyKey(), session.requestHash(), session.expiresAt());
+                session.status(), session.idempotencyKey(), session.requestHash(),
+                JdbcTime.t(session.expiresAt()));
     }
 
     public Optional<UploadSession> findById(UUID id) {
@@ -50,7 +53,7 @@ public class UploadSessionRepository {
     public int countExpiredPending(Instant now) {
         Integer n = jdbc.queryForObject(
                 "SELECT count(*) FROM upload_sessions WHERE status = 'PENDING' AND expires_at < ?",
-                Integer.class, now);
+                Integer.class, JdbcTime.t(now));
         return n == null ? 0 : n;
     }
 }

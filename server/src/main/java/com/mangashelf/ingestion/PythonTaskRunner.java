@@ -48,6 +48,7 @@ public class PythonTaskRunner {
                 props.processing().pythonBinary(), "-m", "processing.run",
                 "--task", taskJson.toString());
         pb.directory(workDir.toFile());
+        // package-root 指向包含 processing 包的目录（仓库根），Python 不感知宿主其余路径
         pb.environment().put("PYTHONPATH", packageRoot.toString());
         pb.environment().put("PYTHONUNBUFFERED", "1");
         pb.redirectError(workDir.resolve("python.stderr.log").toFile());

@@ -15,7 +15,7 @@ public class AssetRepository {
     private static final String SELECT = """
             SELECT id, owner_id, object_key, kind, state, size_bytes, declared_sha256,
                    verified_sha256, content_type,
-                   metadata->>'upload_session_id' AS upload_session_id,
+                   NULLIF(metadata->>'upload_session_id', '')::uuid AS upload_session_id,
                    created_at, updated_at
             FROM assets
             """;

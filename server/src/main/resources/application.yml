@@ -19,9 +19,7 @@ spring:
         prefetch: 1
         default-requeue-rejected: false
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
+  # Jackson 3（Boot 4 默认）日期默认输出 ISO-8601，无需 write-dates-as-timestamps 配置
 
 server:
   port: ${MANGASHELF_PORT:8080}
@@ -53,6 +51,7 @@ mangashelf:
 
   processing:
     python-binary: ${MANGASHELF_PYTHON:python3}
-    package-root: ${MANGASHELF_PROCESSING_ROOT:../processing}
+    # 包含 processing 包的目录（仓库根），Python 经 PYTHONPATH 导入
+    package-root: ${MANGASHELF_PROCESSING_ROOT:..}
     work-root: ${MANGASHELF_WORK_ROOT:./data/jobs}
     task-timeout-seconds: 600

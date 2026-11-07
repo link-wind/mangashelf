@@ -75,7 +75,8 @@ public class JobExecutor {
                 commitFailure(job.id(), token, "NO_HANDLER", "no handler for kind " + job.kind());
                 return;
             }
-            int attempt = job.attempt() + 1;
+            // tryClaim 的 UPDATE ... RETURNING 已返回自增后的 attempt，不再叠加
+            int attempt = job.attempt();
             Path workDir = Path.of(props.processing().workRoot())
                     .resolve(job.id().toString())
                     .resolve("attempt-" + attempt);
