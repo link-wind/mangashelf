@@ -1,0 +1,4 @@
+# Worker 角色：不执行迁移（迁移由 API 角色单一执行，DESIGN 20.1）
+spring:
+  flyway:
+    enabled: false

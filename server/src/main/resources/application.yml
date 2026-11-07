@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: mangashelf
+
+  datasource:
+    url: ${MANGASHELF_DB_URL:jdbc:postgresql://localhost:5432/mangashelf}
+    username: ${MANGASHELF_DB_USER:mangashelf}
+    password: ${MANGASHELF_DB_PASSWORD:mangashelf}
+
+  flyway:
+    enabled: true
+
+  rabbitmq:
+    addresses: ${MANGASHELF_RABBITMQ_ADDRESSES:localhost:5672}
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        default-requeue-rejected: false
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${MANGASHELF_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+mangashelf:
+  # M0 固定演示 owner；M1 identity 落地后移除（validate-core-stack tasks.md 收尾项）
+  demo-owner-id: ${MANGASHELF_DEMO_OWNER_ID:00000000-0000-0000-0000-000000000001}
+
+  storage:
+    endpoint: ${MANGASHELF_S3_ENDPOINT:http://localhost:9000}
+    region: ${MANGASHELF_S3_REGION:us-east-1}
+    bucket: ${MANGASHELF_S3_BUCKET:mangashelf}
+    access-key: ${MANGASHELF_S3_ACCESS_KEY:mangashelf}
+    secret-key: ${MANGASHELF_S3_SECRET_KEY:mangashelf-secret}
+    path-style: true
+    presign-ttl-seconds: ${MANGASHELF_PRESIGN_TTL_SECONDS:600}
+
+  jobs:
+    lease-seconds: ${MANGASHELF_JOB_LEASE_SECONDS:120}
+    heartbeat-seconds: 30
+    dispatch-interval-ms: 500
+    max-dispatch-attempts: 5
+
+  processing:
+    python-binary: ${MANGASHELF_PYTHON:python3}
+    package-root: ${MANGASHELF_PROCESSING_ROOT:../processing}
+    work-root: ${MANGASHELF_WORK_ROOT:./data/jobs}
+    task-timeout-seconds: 600
