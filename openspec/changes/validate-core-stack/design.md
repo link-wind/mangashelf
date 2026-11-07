@@ -27,10 +27,21 @@ DESIGN.md 第 6.2/22 节确定了版本系列与 M0 范围，但补丁版本、�
 Spring Boot 4.x / Spring AI 2.x 取官方当前稳定补丁号，构建通过后在 design.md 追加记录，
 并写入 `server/pom.xml`。不照抄设计文档中的"最新"字样。（DESIGN 版本说明 [R1][R2]）
 
+**实测追加（2026-11-07）**：Spring Boot 4.1.2（4.2.0-RC2 存在但非稳定）；
+Jackson 3.1.7（Boot 4 默认 tools.jackson，spring-amqp 用 JacksonJsonMessageConverter）；
+Flyway 12.4.0（须用 spring-boot-starter-flyway，裸 flyway-core 不触发 Boot 4 自动配置）；
+AWS SDK 2.39.6；Spring AI 本阶段未引入，M4 前实测锁定。
+
 ### D2：镜像标签拉取实测后锁定
 
 `pgvector/pgvector:pg18` 优先，拉取失败回退 `pg17`；RabbitMQ `4-management`；
 MinIO `latest` 并记录实测镜像摘要。锁定结果写入 tasks.md 验证记录。
+
+**实测追加（2026-11-07）**：pgvector/pgvector:pg18（PostgreSQL 18.6）✅；RabbitMQ 4.4.0 ✅；
+**MinIO 已撤下 Docker Hub 官方镜像**（pull access denied），quay.io 与国内代理在本机 Docker
+环境下不可达（401/403），开发存储改用 **chrislusf/seaweedfs:3.96**（sigv4 预签名、Range 实测通过；
+4.50 的独立 IAM 服务使静态 identities 不再经 -s3.config 生效，故锁定 3.96）。
+完整过程见 docs/validation/m0.md 第 3 节。
 
 ### D3：API 与 Worker 用同一工程 + 运行参数区分
 
@@ -68,5 +79,6 @@ S3 SDK 用 AWS SDK v2（S3 Presigner），对 MinIO 路径风格访问
 
 ## Open Questions
 
-- pgvector 镜像 pg18 标签在本机网络下是否可用（拉取时验证）。
-- Spring Boot 4.x + Java 25 + Spring AI 2.x 组合的具体补丁号（构建时验证）。
+- ~~pgvector 镜像 pg18 标签在本机网络下是否可用~~ → 已解决：pg18 可拉取（PostgreSQL 18.6）。
+- ~~Spring Boot 4.x + Java 25 + Spring AI 2.x 组合的具体补丁号~~ → 已解决：Boot 4.1.2 + Java 25
+  构建通过；Spring AI 2.0.2 已在 Central 确认存在，M4 引入时实测。

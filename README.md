@@ -31,7 +31,7 @@
 
 | 阶段 | 范围 | 状态 |
 | --- | --- | --- |
-| M0 技术验证 | 固定版本、数据库扩展、对象签名、Python 协议 | 进行中 |
+| M0 技术验证 | 固定版本、数据库扩展、对象签名、Python 协议 | ✅ 已完成（2026-11-07，见 docs/validation/m0.md） |
 | M1 漫画阅读 | 身份、作品／章节、图片／CBZ、版本发布、书架、进度 | 未开始 |
 | M2 动画观看 | 动画版本、来源范围、媒体校验、播放器、原作跳转 | 未开始 |
 | M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | 未开始 |
@@ -44,8 +44,21 @@
 
 ```bash
 cp .env.example .env          # 填入本地占位配置
-docker compose up -d          # PostgreSQL + RabbitMQ + MinIO
-cd server && ./mvnw spring-boot:run -Dspring-boot.run.profiles=api
+docker compose up -d          # PostgreSQL 18 + RabbitMQ 4 + SeaweedFS（S3 兼容）
+cd server && ./mvnw package   # Java 25 构建（JAVA_HOME 见下）
+java -jar target/mangashelf-server-0.1.0-SNAPSHOT.jar                 # API 角色（含 Flyway 迁移）
+MANGASHELF_PYTHON=$PWD/../processing/.venv/bin/python \
+MANGASHELF_PROCESSING_ROOT=$PWD/.. \
+MANGASHELF_WORK_ROOT=$PWD/../data/jobs \
+java -jar target/mangashelf-server-0.1.0-SNAPSHOT.jar --mangashelf.role=worker   # Worker 角色
+./scripts/smoke-m0.sh         # M0 全链路冒烟
+```
+
+Python 处理任务 venv：
+
+```bash
+python3 -m venv processing/.venv
+processing/.venv/bin/pip install -r processing/requirements.txt   # Pillow 12.3.0（锁定）
 ```
 
 Java 25 安装（Homebrew，keg-only）：
