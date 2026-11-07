@@ -1,0 +1,2 @@
+# processing 固定依赖（DESIGN 6.2 / 12）；2026-11-07 实测锁定 Pillow 12.3.0（Python 3.14）
+Pillow==12.3.0

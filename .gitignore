@@ -1,0 +1,34 @@
+# Java / Maven
+server/target/
+*.class
+*.jar
+!server/.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/MavenWrapperDownloader.java
+
+# Node / frontend
+web/node_modules/
+web/dist/
+*.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 环境与密钥
+.env
+*.pem
+*.key
+
+# 运行时产物
+data/
+/tmp/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store

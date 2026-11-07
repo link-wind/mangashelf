@@ -1,0 +1,26 @@
+schema: spec-driven
+
+context: |
+  MangaShelf 是漫画阅读与动画内容平台的独立 Web 项目（Java 后端 + React 前端 + Python 固定处理任务），
+  通过开放 API 与 MangaWeaver 桌面创作客户端连接，形成素材获取、动画创作和成片发布的闭环。
+  设计唯一依据是 docs/DESIGN.md（v0.1）；工程约定见根目录 AGENTS.md。
+  后端是一个 Java 工程、两种运行角色：API（Spring Boot 4.x + Spring MVC + Spring JDBC 显式 SQL）
+  与 Worker（共用业务模块），数据库任务为事实、RabbitMQ 只做通知。
+  数据层 PostgreSQL + pgvector / pg_trgm + Flyway；存储为 S3 兼容私有桶 + 签名授权。
+  业务模块：identity、catalog、library、animation、storage、ingestion、retrieval、integration。
+  每个里程碑（M0–M5）只建当期所需表与端点，不预建完整骨架；本阶段是 M0 技术验证。
+  复用 MangaWeaver 预处理组件时固定来源提交（当前基线 e057b32）并核对许可证。
+  优先主路径，显式报错不静默回退；事务、约束和队列行为必须在真实 PostgreSQL／RabbitMQ 环境验证。
+
+rules:
+  proposal:
+    - 用中文说明问题、范围及新增能力，保留模板标题；引用 DESIGN.md 对应章节。
+  specs:
+    - 使用中文描述需求与场景，保留规范要求的标题和 MUST 等关键字。
+    - 规范用户可观察行为，不把草案中的未确认数值直接变成硬性需求。
+  design:
+    - 明确与 DESIGN.md 的对应关系，只记录增量决策，不复制设计内容。
+    - 不新增插件体系、通用状态机或工作流引擎；数据库任务为事实、队列只通知。
+  tasks:
+    - 使用中文任务清单；真实构建与环境验证优先，版本号经实测后才锁定写入。
+    - 验证以小规模真实链路为主（真实 PostgreSQL／RabbitMQ／MinIO），不列覆盖率或大量 Mock 测试任务。

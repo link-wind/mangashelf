@@ -1,0 +1,73 @@
+# MangaShelf 开发环境依赖（DESIGN 第 20.1 节）
+# API 与 Worker 在开发时直接在本机运行，不入 compose；镜像版本在 M0 实测锁定。
+#
+# 对象存储选型记录（2026-11-07，回应 DESIGN 24.1-3）：
+# - MinIO 已从 Docker Hub 撤下官方镜像（pull access denied），quay.io 与国内代理镜像
+#   在本机 Docker 环境下均不可达（401/403），实测记录见 docs/validation/m0.md。
+# - 开发环境改用 SeaweedFS 的 S3 兼容层（sigv4 预签名 PUT/GET、Range 支持），
+#   行为差异以实测为准；生产对象存储后续按部署环境另行决策。
+name: mangashelf
+
+services:
+  db:
+    # PostgreSQL + pgvector 扩展（pg_trgm 随 contrib 自带，由 Flyway 启用）
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mangashelf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
+      POSTGRES_DB: ${POSTGRES_DB:-mangashelf}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG18+ 镜像要求挂载 /var/lib/postgresql（数据在其子目录），便于 pg_upgrade
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mangashelf} -d ${POSTGRES_DB:-mangashelf}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    # 4.x + 管理控制台（:15672）
+    image: rabbitmq:4-management
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_HTTP_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  storage:
+    # S3 兼容存储（master + volume + filer + s3 单进程）；桶在首次 PUT 时自动创建，
+    # 不开放公开读取，所有访问经 API 签名（DESIGN 18.1）
+    image: chrislusf/seaweedfs:latest
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-mangashelf}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-mangashelf-secret}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /etc/seaweedfs
+        printf '{"identities":[{"name":"mangashelf","access_key":"%s","secret_key":"%s","actions":["Admin","Read","Write","List"]}]}' "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /etc/seaweedfs/s3.json
+        exec weed server -dir=/data -master.volumeSizeLimitMB=4096 -filer -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "${S3_PORT:-9000}:9000"
+      - "${S3_CONSOLE_PORT:-9333}:9333"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      # master 仅绑定 IPv4；wget 解析 localhost 会先走 ::1 被拒，须显式 127.0.0.1
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9333/cluster/status >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:
+  rabbitmq-data:
+  storage-data:

@@ -1,0 +1,62 @@
+# MangaShelf · 漫画阅读与动画内容平台
+
+一个支持阅读漫画、观看对应改编动画、按剧情查找内容的 Web 平台。通过开放 API 与
+[MangaWeaver](../MangaWeaver)（独立创作客户端）连接，形成素材获取、动画创作和成片发布的闭环。
+
+没有安装 MangaWeaver 的读者，也可以独立浏览漫画、阅读章节、观看动画、收藏作品并保存进度。
+
+## 文档
+
+- [详细设计 v0.1](docs/DESIGN.md) —— 产品边界、领域模型、异步处理、接入协议与验收标准
+- [系统架构图](docs/architecture.png)（可编辑源文件 [architecture.drawio](docs/architecture.drawio)）
+- [验证记录](docs/validation/) —— 每个里程碑的实测结果
+- [API 文档](docs/api/) —— 按里程碑逐步补充
+
+## 技术形态
+
+一个 Java 工程、两种运行角色（API / Worker），共用业务模块和数据库迁移：
+
+| 层 | 选型 |
+| --- | --- |
+| 后端 | Java 25 · Spring Boot 4.x · Spring Security + Spring Session JDBC · Spring JDBC（显式 SQL） |
+| AI | Spring AI 2.x（仅 Embedding / RAG 接入，创作 Agent 保留在 MangaWeaver） |
+| 数据 | PostgreSQL + pgvector / pg_trgm · Flyway 迁移 |
+| 异步 | RabbitMQ（数据库任务为事实，队列只通知） |
+| 存储 | S3 兼容对象存储（私有桶、签名上传、按需媒体授权） |
+| 处理 | 固定 Python 任务入口 + FFmpeg（分页、媒体校验、OCR、索引） |
+| 前端 | React + TypeScript + Vite |
+| 部署 | Docker Compose（PostgreSQL / RabbitMQ / MinIO / API / Worker） |
+
+## 里程碑（设计第 22 节）
+
+| 阶段 | 范围 | 状态 |
+| --- | --- | --- |
+| M0 技术验证 | 固定版本、数据库扩展、对象签名、Python 协议 | 进行中 |
+| M1 漫画阅读 | 身份、作品／章节、图片／CBZ、版本发布、书架、进度 | 未开始 |
+| M2 动画观看 | 动画版本、来源范围、媒体校验、播放器、原作跳转 | 未开始 |
+| M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | 未开始 |
+| M4 智能检索 | OCR、字面检索、Embedding、混合召回、引用问答 | 未开始 |
+| M5 工程验收 | 中断恢复、权限、部署、备份、容量测量 | 未开始 |
+
+首个完整产品里程碑是 M3。每个里程碑开始时在 `openspec/changes/` 建立对应变更提案。
+
+## 本地开发
+
+```bash
+cp .env.example .env          # 填入本地占位配置
+docker compose up -d          # PostgreSQL + RabbitMQ + MinIO
+cd server && ./mvnw spring-boot:run -Dspring-boot.run.profiles=api
+```
+
+Java 25 安装（Homebrew，keg-only）：
+
+```bash
+brew install openjdk@25
+export JAVA_HOME="/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home"
+# 可选：注册到系统 JVM 目录（需 sudo）
+# sudo ln -sfn /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-25.jdk
+```
+
+## 工程目录
+
+见 [DESIGN.md 第 7 节](docs/DESIGN.md)。目录按里程碑实际需要创建，不预建空骨架。
