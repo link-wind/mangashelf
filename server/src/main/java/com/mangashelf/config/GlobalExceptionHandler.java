@@ -23,7 +23,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApiException(ApiException e) {
         return ResponseEntity.status(e.getStatus())
-                .body(new ApiError(e.getCode(), e.getMessage(), newRequestId(), e.getDetails()));
+                .body(new ApiError(e.getCode(), e.getMessage(), currentRequestId(), e.getDetails()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -35,17 +35,19 @@ public class GlobalExceptionHandler {
             details.put("reason", fe.getDefaultMessage());
         }
         return ResponseEntity.badRequest()
-                .body(new ApiError("INVALID_ARGUMENT", "请求参数不合法。", newRequestId(), details));
+                .body(new ApiError("INVALID_ARGUMENT", "请求参数不合法。", currentRequestId(), details));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception e) {
         log.error("unexpected error", e);
         return ResponseEntity.internalServerError()
-                .body(new ApiError("INTERNAL_ERROR", "服务内部错误。", newRequestId(), Map.of()));
+                .body(new ApiError("INTERNAL_ERROR", "服务内部错误。", currentRequestId(), Map.of()));
     }
 
-    private String newRequestId() {
-        return "req_" + UUID.randomUUID();
+    /** 复用请求可观测性过滤器的 request_id（DESIGN 20.2 日志关联）。 */
+    private String currentRequestId() {
+        String id = org.slf4j.MDC.get("request_id");
+        return id != null ? id : "req_" + UUID.randomUUID();
     }
 }

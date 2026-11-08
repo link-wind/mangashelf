@@ -52,7 +52,7 @@ public class SecurityConfig {
                         org.springframework.security.web.csrf.CsrfFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), CsrfCookieFilter.afterWhichFilter())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/actuator/info",
+                        .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus",
                                 "/api/v1/auth/register", "/api/v1/auth/login")
                         .permitAll()
                         .anyRequest().authenticated())

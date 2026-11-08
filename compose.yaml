@@ -68,7 +68,64 @@ services:
       timeout: 5s
       retries: 30
 
+  # ── 全栈部署（M5）：--profile full 一键起完整栈；日常开发不受影响 ──
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      MANGASHELF_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-mangashelf}
+      MANGASHELF_DB_USER: ${POSTGRES_USER:-mangashelf}
+      MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
+      MANGASHELF_RABBITMQ_ADDRESSES: rabbitmq:5672
+      MANGASHELF_S3_ENDPOINT: http://storage:9000
+      MANGASHELF_PLATFORM_ID: ${MANGASHELF_PLATFORM_ID:-mangashelf-instance-local}
+      MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
+      MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
+    volumes:
+      # e5 模型只读挂载（133MB，不入镜像；前置：server/models/ 已按 README 下载）
+      - ./server/models:/opt/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    ports:
+      - "${MANGASHELF_API_PORT:-8080}:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile.worker
+    environment:
+      MANGASHELF_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-mangashelf}
+      MANGASHELF_DB_USER: ${POSTGRES_USER:-mangashelf}
+      MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
+      MANGASHELF_RABBITMQ_ADDRESSES: rabbitmq:5672
+      MANGASHELF_S3_ENDPOINT: http://storage:9000
+      MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
+      MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
+    volumes:
+      - ./server/models:/opt/models:ro
+      - worker-jobs:/opt/data/jobs
+    depends_on:
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${MANGASHELF_WEB_PORT:-5173}:80"
+
 volumes:
   db-data:
   rabbitmq-data:
   storage-data:
+  worker-jobs:
