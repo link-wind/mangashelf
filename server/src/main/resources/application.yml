@@ -19,6 +19,11 @@ spring:
         prefetch: 1
         default-requeue-rejected: false
 
+  session:
+    jdbc:
+      # 开发环境由 Spring Session JDBC 自动建表（SPRING_SESSION / SPRING_SESSION_ATTRIBUTES）
+      initialize-schema: always
+
   # Jackson 3（Boot 4 默认）日期默认输出 ISO-8601，无需 write-dates-as-timestamps 配置
 
 server:
@@ -47,6 +52,7 @@ mangashelf:
     lease-seconds: ${MANGASHELF_JOB_LEASE_SECONDS:120}
     heartbeat-seconds: 30
     dispatch-interval-ms: 500
+    recovery-interval-ms: 10000
     max-dispatch-attempts: 5
 
   processing:
@@ -55,3 +61,7 @@ mangashelf:
     package-root: ${MANGASHELF_PROCESSING_ROOT:..}
     work-root: ${MANGASHELF_WORK_ROOT:./data/jobs}
     task-timeout-seconds: 600
+    # 解析防护上限（DESIGN 10.3），由 Java 下发给任务，不信任用户声明
+    archive-max-entries: ${MANGASHELF_ARCHIVE_MAX_ENTRIES:2000}
+    archive-max-total-bytes: ${MANGASHELF_ARCHIVE_MAX_TOTAL_BYTES:524288000}
+    archive-max-file-bytes: ${MANGASHELF_ARCHIVE_MAX_FILE_BYTES:104857600}

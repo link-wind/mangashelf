@@ -2,18 +2,16 @@ package com.mangashelf.storage;
 
 import com.mangashelf.config.ApiException;
 import com.mangashelf.config.MangaShelfProperties;
+import com.mangashelf.identity.CurrentUser;
 import com.mangashelf.ingestion.Job;
-import com.mangashelf.ingestion.JobMessage;
+import com.mangashelf.ingestion.JobCreationService;
 import com.mangashelf.ingestion.JobRepository;
-import com.mangashelf.ingestion.OutboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -24,6 +22,7 @@ import java.util.UUID;
 /**
  * 上传协议（DESIGN 10.2）：创建会话与预签名、幂等完成、核验任务编排。
  * 文件验证通过前资产不可绑定；大文件核验走任务，不阻塞 HTTP 请求。
+ * M1 起 verify 不再链式派生：解析由所有者显式创建章节版本触发。
  */
 @Service
 public class UploadService {
@@ -33,26 +32,28 @@ public class UploadService {
     private final UploadSessionRepository sessions;
     private final AssetRepository assets;
     private final PresignService presign;
+    private final JobCreationService jobCreation;
     private final JobRepository jobs;
-    private final OutboxRepository outbox;
     private final S3Client s3;
     private final MangaShelfProperties props;
-    private final ObjectMapper objectMapper;
-    private final TransactionTemplate tx;
 
     public UploadService(UploadSessionRepository sessions, AssetRepository assets,
-                         PresignService presign, JobRepository jobs, OutboxRepository outbox,
-                         S3Client s3, MangaShelfProperties props, ObjectMapper objectMapper,
-                         TransactionTemplate tx) {
+                         PresignService presign, JobCreationService jobCreation,
+                         JobRepository jobs, S3Client s3, MangaShelfProperties props) {
         this.sessions = sessions;
         this.assets = assets;
         this.presign = presign;
+        this.jobCreation = jobCreation;
         this.jobs = jobs;
-        this.outbox = outbox;
         this.s3 = s3;
         this.props = props;
-        this.objectMapper = objectMapper;
-        this.tx = tx;
+    }
+
+    private void requireOwned(CurrentUser user, UploadSession session) {
+        if (!session.ownerId().equals(user.id()) && !user.isAdmin()) {
+            // 按策略不暴露存在性（DESIGN 16.2）
+            throw new ApiException(404, "UPLOAD_NOT_FOUND", "上传会话不存在。");
+        }
     }
 
     public record CreateRequest(String purpose, Long expectedSizeBytes, String expectedSha256,
@@ -102,9 +103,10 @@ public class UploadService {
      * 完成上传：核对对象后创建核验任务；无可信校验信息时由 Worker 流式计算 SHA-256
      * （DESIGN 10.2 步骤 5），返回 202 与任务 ID。
      */
-    public CompleteResult complete(UUID uploadId) {
+    public CompleteResult complete(CurrentUser user, UUID uploadId) {
         UploadSession session = sessions.findById(uploadId).orElseThrow(() ->
                 new ApiException(404, "UPLOAD_NOT_FOUND", "上传会话不存在。"));
+        requireOwned(user, session);
         if (UploadSession.STATUS_VERIFIED.equals(session.status())) {
             // 幂等：已完成的上传返回同一核验任务
             UUID existing = jobs.findByUploadSession(uploadId).stream()
@@ -131,12 +133,8 @@ public class UploadService {
                     java.util.Map.of("expected", session.expectedSize(), "actual", actualSize));
         }
 
-        UUID jobId = tx.execute(status -> {
-            UUID id = jobs.insertOrExisting(Job.KIND_VERIFY, session.ownerId(), uploadId,
-                    "verify:" + uploadId);
-            outbox.insertFirst(id, payloadOf(id));
-            return id;
-        });
+        UUID jobId = jobCreation.create(Job.KIND_VERIFY, session.ownerId(), uploadId,
+                null, "verify:" + uploadId);
         return new CompleteResult(uploadId, session.status(), jobId);
     }
 
@@ -150,9 +148,10 @@ public class UploadService {
         }
     }
 
-    public UploadSnapshot snapshot(UUID uploadId) {
+    public UploadSnapshot snapshot(CurrentUser user, UUID uploadId) {
         UploadSession session = sessions.findById(uploadId).orElseThrow(() ->
                 new ApiException(404, "UPLOAD_NOT_FOUND", "上传会话不存在。"));
+        requireOwned(user, session);
         String assetState = session.assetId() == null ? null : assets.findById(session.assetId())
                 .map(Asset::state).orElse(null);
         java.util.List<UploadSnapshot.JobView> jobViews = jobs.findByUploadSession(uploadId).stream()
@@ -165,16 +164,6 @@ public class UploadService {
                 jobViews, assetViews);
     }
 
-    public PresignService.PresignedUrl assetAccess(UUID ownerId, UUID assetId) {
-        Asset asset = assets.findById(assetId).orElseThrow(() ->
-                new ApiException(404, "ASSET_NOT_FOUND", "资产不存在。"));
-        // M0 单演示 owner；M1 起按所有权与可见性统一判断（DESIGN 3.3）
-        if (!asset.ownerId().equals(ownerId)) {
-            throw new ApiException(403, "FORBIDDEN", "无权访问该资产。");
-        }
-        return presign.presignGet(asset.objectKey());
-    }
-
     private String requestHash(Object... fields) {
         String joined = java.util.Arrays.stream(fields)
                 .map(f -> f == null ? "" : String.valueOf(f))
@@ -185,14 +174,6 @@ public class UploadService {
                     .digest(joined.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
-        }
-    }
-
-    private String payloadOf(UUID jobId) {
-        try {
-            return objectMapper.writeValueAsString(new JobMessage(JobMessage.SCHEMA_VERSION, jobId, 1));
-        } catch (Exception e) {
-            throw new IllegalStateException("payload serialization failed", e);
         }
     }
 }

@@ -71,4 +71,4 @@ def run(spec: dict[str, Any], run_dir: Path,
             "sha256": _sha256(path),
         })
     progress("derive", "产物清单完成")
-    return artifacts
+    return {"artifacts": artifacts}

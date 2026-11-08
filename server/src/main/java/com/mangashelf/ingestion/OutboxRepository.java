@@ -26,12 +26,12 @@ public class OutboxRepository {
         this.jdbc = jdbc;
     }
 
-    /** 新任务的首次派发记录；dispatch_no 固定 1，租约恢复重派发时递增（M1）。 */
-    public void insertFirst(UUID jobId, String payload) {
+    /** 派发记录：新任务 dispatch_no=1；租约恢复重派发时递增（DESIGN 11.3）。 */
+    public void insert(UUID jobId, int dispatchNo, String payload) {
         jdbc.update("""
                 INSERT INTO outbox_events (job_id, dispatch_no, payload)
-                VALUES (?, 1, ?::jsonb)
-                """, jobId, payload);
+                VALUES (?, ?, ?::jsonb)
+                """, jobId, dispatchNo, payload);
     }
 
     /** SKIP LOCKED 支持多角色并发派发而不重复领取。 */

@@ -32,7 +32,7 @@
 | 阶段 | 范围 | 状态 |
 | --- | --- | --- |
 | M0 技术验证 | 固定版本、数据库扩展、对象签名、Python 协议 | ✅ 已完成（2026-11-07，见 docs/validation/m0.md） |
-| M1 漫画阅读 | 身份、作品／章节、图片／CBZ、版本发布、书架、进度 | 未开始 |
+| M1 漫画阅读 | 身份、作品／章节、图片／CBZ、版本发布、书架、进度 | ✅ 已完成（2026-11-08，见 docs/validation/m1.md） |
 | M2 动画观看 | 动画版本、来源范围、媒体校验、播放器、原作跳转 | 未开始 |
 | M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | 未开始 |
 | M4 智能检索 | OCR、字面检索、Embedding、混合召回、引用问答 | 未开始 |
@@ -51,7 +51,10 @@ MANGASHELF_PYTHON=$PWD/../processing/.venv/bin/python \
 MANGASHELF_PROCESSING_ROOT=$PWD/.. \
 MANGASHELF_WORK_ROOT=$PWD/../data/jobs \
 java -jar target/mangashelf-server-0.1.0-SNAPSHOT.jar --mangashelf.role=worker   # Worker 角色
-./scripts/smoke-m0.sh         # M0 全链路冒烟
+./scripts/smoke-m0.sh         # 上传→核验→幂等 冒烟
+./scripts/smoke-m1.sh         # M1 全链路（双用户/发布/阅读/进度/越权）
+
+cd ../web && npm install && npm run dev   # 前端 http://localhost:5173（同源代理 /api 与 /media）
 ```
 
 Python 处理任务 venv：

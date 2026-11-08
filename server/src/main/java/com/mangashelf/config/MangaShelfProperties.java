@@ -33,6 +33,9 @@ public record MangaShelfProperties(
             String pythonBinary,
             String packageRoot,
             String workRoot,
-            int taskTimeoutSeconds) {
+            int taskTimeoutSeconds,
+            int archiveMaxEntries,
+            long archiveMaxTotalBytes,
+            long archiveMaxFileBytes) {
     }
 }

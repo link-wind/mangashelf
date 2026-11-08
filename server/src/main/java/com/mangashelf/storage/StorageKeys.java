@@ -16,4 +16,9 @@ public final class StorageKeys {
     public static String jobArtifact(UUID jobId, int attempt, String artifactName) {
         return "jobs/%s/attempt-%d/%s".formatted(jobId, attempt, artifactName);
     }
+
+    /** 页面产物按 18.1 规范：chapters/<revision-id>/pages/<page-id>/<name>。 */
+    public static String pageArtifact(UUID revisionId, UUID pageId, String name) {
+        return "chapters/%s/pages/%s/%s".formatted(revisionId, pageId, name);
+    }
 }

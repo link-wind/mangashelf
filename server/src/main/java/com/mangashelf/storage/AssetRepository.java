@@ -47,12 +47,44 @@ public class AssetRepository {
                                     content_type, metadata)
                 VALUES (?, ?, ?, ?, 'VERIFIED', ?, ?, ?, jsonb_build_object('upload_session_id', ?::text))
                 """, id, ownerId, objectKey, kind, sizeBytes, verifiedSha256, contentType,
-                uploadSessionId.toString());
+                uploadSessionId == null ? null : uploadSessionId.toString());
         return id;
     }
 
     public Optional<Asset> findById(UUID id) {
         return jdbc.query(SELECT + " WHERE id = ?", mapper, id).stream().findFirst();
+    }
+
+    public Optional<String> findObjectKey(UUID id) {
+        return jdbc.query("SELECT object_key FROM assets WHERE id = ?",
+                (rs, i) -> rs.getString("object_key"), id).stream().findFirst();
+    }
+
+    /** 页面资产追溯到内容链（DESIGN 6.1：访问授权属 storage 模块，跨表只读）。 */
+    public Optional<PageAssetRef> findPageRefByAsset(UUID assetId) {
+        String sql = """
+                SELECT p.id AS page_id, r.id AS revision_id, r.status AS revision_status,
+                       w.id AS work_id, w.visibility AS work_visibility,
+                       w.status AS work_status, w.owner_id AS work_owner_id
+                FROM pages p
+                JOIN chapter_revisions r ON r.id = p.chapter_revision_id
+                JOIN chapters c ON c.id = r.chapter_id
+                JOIN works w ON w.id = c.work_id
+                WHERE p.image_asset_id = ? OR p.thumbnail_asset_id = ?
+                """;
+        return jdbc.query(sql, (rs, i) -> new PageAssetRef(
+                rs.getObject("page_id", UUID.class),
+                rs.getObject("revision_id", UUID.class),
+                rs.getString("revision_status"),
+                rs.getObject("work_id", UUID.class),
+                rs.getString("work_visibility"),
+                rs.getString("work_status"),
+                rs.getObject("work_owner_id", UUID.class)), assetId, assetId).stream().findFirst();
+    }
+
+    public record PageAssetRef(UUID pageId, UUID revisionId, String revisionStatus,
+                               UUID workId, String workVisibility, String workStatus,
+                               UUID workOwnerId) {
     }
 
     public List<Asset> findByUploadSession(UUID uploadSessionId) {

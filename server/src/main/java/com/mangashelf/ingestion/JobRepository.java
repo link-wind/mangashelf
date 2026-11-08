@@ -22,16 +22,18 @@ public class JobRepository {
 
     /**
      * 幂等创建：同 (kind, dedup_key) 返回既有任务（DESIGN 16.2 幂等键语义）。
+     * 目标外键按任务种类由数据库 CHECK（jobs_target_by_kind）约束。
      */
-    public UUID insertOrExisting(String kind, UUID ownerId, UUID uploadSessionId, String dedupKey) {
+    public UUID insertOrExisting(String kind, UUID ownerId, UUID uploadSessionId,
+                                 UUID chapterRevisionId, String dedupKey) {
         UUID id = UUID.randomUUID();
         List<UUID> inserted = jdbc.query("""
-                INSERT INTO jobs (id, kind, owner_id, upload_session_id, dedup_key)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, kind, owner_id, upload_session_id, chapter_revision_id, dedup_key)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (kind, dedup_key) DO NOTHING
                 RETURNING id
                 """, (rs, i) -> rs.getObject("id", UUID.class),
-                id, kind, ownerId, uploadSessionId, dedupKey);
+                id, kind, ownerId, uploadSessionId, chapterRevisionId, dedupKey);
         if (!inserted.isEmpty()) {
             return inserted.getFirst();
         }
@@ -46,6 +48,82 @@ public class JobRepository {
     public List<Job> findByUploadSession(UUID uploadSessionId) {
         return jdbc.query(
                 "SELECT * FROM jobs WHERE upload_session_id = ? ORDER BY created_at", mapper, uploadSessionId);
+    }
+
+    public List<Job> findByChapterRevision(UUID chapterRevisionId) {
+        return jdbc.query(
+                "SELECT * FROM jobs WHERE chapter_revision_id = ? ORDER BY created_at", mapper, chapterRevisionId);
+    }
+
+    /** 取消标志（DESIGN 11.4）：Worker 在阶段边界检查；QUEUED/RUNNING 可取消。 */
+    public boolean requestCancel(UUID jobId, UUID requesterId) {
+        return jdbc.update("""
+                UPDATE jobs SET cancel_requested = true, updated_at = now()
+                WHERE id = ? AND owner_id = ? AND status IN ('QUEUED', 'RUNNING')
+                """, jobId, requesterId) > 0;
+    }
+
+    public boolean isCancelRequested(UUID jobId) {
+        List<Boolean> flags = jdbc.query(
+                "SELECT cancel_requested FROM jobs WHERE id = ?",
+                (rs, i) -> rs.getBoolean("cancel_requested"), jobId);
+        return !flags.isEmpty() && flags.getFirst();
+    }
+
+    /** 显式重试（DESIGN 16.1）：FAILED → QUEUED，租约与取消标志复位；派发由调用方补发。 */
+    public boolean resetForRetry(UUID jobId, UUID requesterId) {
+        return jdbc.update("""
+                UPDATE jobs SET status = 'QUEUED', stage = NULL, progress = NULL,
+                       error_code = NULL, error_message = NULL, cancel_requested = false,
+                       lease_token = NULL, lease_until = NULL, updated_at = now()
+                WHERE id = ? AND owner_id = ? AND status = 'FAILED'
+                """, jobId, requesterId) > 0;
+    }
+
+    /**
+     * 恢复扫描（DESIGN 11.3）：过期租约任务在事务内判断 attempt 上限并重新入队；
+     * 返回需要重派发的任务 id 列表。超限任务由调用方置 FAILED。
+     */
+    public List<UUID> claimExpiredLeases(int batch) {
+        List<ExpiredLease> expired = jdbc.query("""
+                SELECT id, attempt, max_attempt FROM jobs
+                WHERE status = 'RUNNING' AND lease_until < now() AND cancel_requested = false
+                ORDER BY lease_until
+                LIMIT ?
+                """, (rs, i) -> new ExpiredLease(rs.getObject("id", UUID.class),
+                rs.getInt("attempt"), rs.getInt("max_attempt")), batch);
+        return expired.stream()
+                .map(e -> {
+                    if (e.attempt() >= e.maxAttempt()) {
+                        jdbc.update("""
+                                UPDATE jobs SET status = 'FAILED', stage = 'LEASE_EXPIRED',
+                                       error_code = 'LEASE_EXPIRED', error_message = '租约过期且重试已达上限',
+                                       lease_token = NULL, lease_until = NULL, updated_at = now()
+                                WHERE id = ? AND status = 'RUNNING' AND lease_until < now()
+                                """, e.id());
+                        appendEvent(e.id(), "result", "LEASE_EXPIRED", "租约过期且重试已达上限，等待显式重试");
+                        return null;
+                    }
+                    int updated = jdbc.update("""
+                                UPDATE jobs SET status = 'QUEUED', lease_token = NULL, lease_until = NULL,
+                                       heartbeat_at = NULL, updated_at = now()
+                                WHERE id = ? AND status = 'RUNNING' AND lease_until < now()
+                                """, e.id());
+                    return updated > 0 ? e.id() : null;
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    public record ExpiredLease(UUID id, int attempt, int maxAttempt) {
+    }
+
+    /** 重派发：追加 outbox 记录（dispatch_no 递增，DESIGN 11.3 恢复派发）。 */
+    public int nextDispatchNo(UUID jobId) {
+        Integer max = jdbc.queryForObject(
+                "SELECT COALESCE(MAX(dispatch_no), 0) FROM outbox_events WHERE job_id = ?",
+                Integer.class, jobId);
+        return (max == null ? 0 : max) + 1;
     }
 
     public record ClaimResult(Outcome outcome, Job job, UUID leaseToken) {
@@ -109,5 +187,12 @@ public class JobRepository {
     public List<JobEvent> listEvents(UUID jobId) {
         return jdbc.query(
                 "SELECT * FROM job_events WHERE job_id = ? ORDER BY sequence", eventMapper, jobId);
+    }
+
+    /** SSE 补读（DESIGN 11.4）：sequence 大于游标的事件，按序号升序。 */
+    public List<JobEvent> listEventsAfter(UUID jobId, long afterSequence) {
+        return jdbc.query(
+                "SELECT * FROM job_events WHERE job_id = ? AND sequence > ? ORDER BY sequence",
+                eventMapper, jobId, afterSequence);
     }
 }

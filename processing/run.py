@@ -8,11 +8,13 @@ import sys
 from pathlib import Path
 
 from processing import protocol
+from processing.tasks.chapter_parse import run as chapter_parse
 from processing.tasks.image_derive import run as image_derive
 
 # 固定任务清单；不开放任意脚本执行（DESIGN 12.2）
 TASKS = {
     "image.derive": image_derive,
+    "chapter.parse": chapter_parse,
 }
 
 SCHEMA_VERSION = 1

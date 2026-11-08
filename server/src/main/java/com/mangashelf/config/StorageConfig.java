@@ -4,6 +4,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -11,7 +13,11 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
 
-/** S3 客户端与预签名器（MinIO 路径风格访问，DESIGN 18.1）。 */
+/**
+ * S3 客户端与预签名器（MinIO 路径风格访问，DESIGN 18.1）。
+ * 校验和回退到 WHEN_REQUIRED：SDK 默认 CRC32 会以 aws-chunked 编码上传，
+ * SeaweedFS 3.96 不解码该编码、会把分帧字节原样入库（实测记录见 docs/validation/m1.md）。
+ */
 @Configuration
 public class StorageConfig {
 
@@ -26,6 +32,8 @@ public class StorageConfig {
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(s.pathStyle())
                         .build())
+                .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+                .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
                 .build();
     }
 

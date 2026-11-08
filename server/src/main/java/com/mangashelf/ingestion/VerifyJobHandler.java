@@ -19,7 +19,7 @@ import java.util.HexFormat;
 
 /**
  * content.verify：流式计算对象 SHA-256（S3 ETag 不当作通用摘要，DESIGN 10.2）。
- * 通过后资产与会话在同一事务内置 VERIFIED，结果事务再派生 content.process 任务。
+ * 通过后资产与会话在同一事务内置 VERIFIED；不派生后续任务。
  */
 @Component
 public class VerifyJobHandler implements JobHandler {
@@ -87,8 +87,7 @@ public class VerifyJobHandler implements JobHandler {
             assets.markVerified(asset.id(), verifiedSize, verifiedSha256);
             sessions.markStatus(session.id(), UploadSession.STATUS_VERIFIED);
         });
-        return JobResult.success("verified").withChain(new JobResult.ChainedJobSpec(
-                Job.KIND_PROCESS, job.ownerId(), job.uploadSessionId(),
-                "process:" + job.uploadSessionId()));
+        // M1 起 verify 不再链式派生：解析由所有者显式创建章节版本触发（implement-manga-reading D3）
+        return JobResult.success("verified");
     }
 }

@@ -7,8 +7,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import tools.jackson.databind.ObjectMapper;
-
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
@@ -21,7 +19,6 @@ import java.util.stream.Collectors;
 
 /**
  * 任务执行器（DESIGN 11.2）：租约领取 → 心跳续约 → 执行 → 匹配租约令牌提交结果。
- * 链式任务（verify → process）的结果与 outbox 在同一事务提交。
  */
 @Component
 @Profile("worker")
@@ -30,19 +27,15 @@ public class JobExecutor {
     private static final Logger log = LoggerFactory.getLogger(JobExecutor.class);
 
     private final JobRepository jobs;
-    private final OutboxRepository outbox;
     private final MangaShelfProperties props;
-    private final ObjectMapper objectMapper;
     private final TransactionTemplate tx;
     private final Map<String, JobHandler> handlers;
     private final ScheduledExecutorService heartbeatPool = Executors.newScheduledThreadPool(1);
 
-    public JobExecutor(JobRepository jobs, OutboxRepository outbox, MangaShelfProperties props,
-                       ObjectMapper objectMapper, TransactionTemplate tx, java.util.List<JobHandler> handlerList) {
+    public JobExecutor(JobRepository jobs, MangaShelfProperties props,
+                       TransactionTemplate tx, java.util.List<JobHandler> handlerList) {
         this.jobs = jobs;
-        this.outbox = outbox;
         this.props = props;
-        this.objectMapper = objectMapper;
         this.tx = tx;
         this.handlers = handlerList.stream()
                 .collect(Collectors.toUnmodifiableMap(JobHandler::kind, Function.identity()));
@@ -65,7 +58,7 @@ public class JobExecutor {
         long leaseSeconds = props.jobs().leaseSeconds();
         long heartbeatSeconds = props.jobs().heartbeatSeconds();
 
-        log.info("job {} claimed, kind={} attempt={}", job.id(), job.kind(), job.attempt() + 1);
+        log.info("job {} claimed, kind={} attempt={}", job.id(), job.kind(), job.attempt());
         ScheduledFuture<?> heartbeat = heartbeatPool.scheduleAtFixedRate(
                 () -> jobs.heartbeat(job.id(), token, leaseSeconds, null),
                 heartbeatSeconds, heartbeatSeconds, TimeUnit.SECONDS);
@@ -81,7 +74,14 @@ public class JobExecutor {
                     .resolve(job.id().toString())
                     .resolve("attempt-" + attempt);
             JobContext ctx = new JobContext(job, attempt, token, workDir,
-                    (stage, message) -> jobs.appendEvent(job.id(), "progress", stage, message));
+                    (stage, message) -> jobs.appendEvent(job.id(), "progress", stage, message),
+                    () -> jobs.isCancelRequested(job.id()));
+            // 取消在阶段边界生效（DESIGN 11.4）：领取后立即检查取消标志
+            if (ctx.cancelled()) {
+                commitResult(job, token, new JobResult(Job.STATUS_CANCELLED, "cancelled",
+                        null, "CANCELLED", "任务已被所有者取消"));
+                return;
+            }
             JobResult result = handler.run(ctx);
             commitResult(job, token, result);
         } catch (Exception e) {
@@ -102,13 +102,6 @@ public class JobExecutor {
             }
             jobs.appendEvent(job.id(), "result", result.stage(),
                     Job.STATUS_SUCCEEDED.equals(result.status()) ? "任务完成" : "任务失败：" + result.errorMessage());
-            if (result.chain() != null) {
-                JobResult.ChainedJobSpec chain = result.chain();
-                UUID chainedId = jobs.insertOrExisting(chain.kind(), chain.ownerId(),
-                        chain.uploadSessionId(), chain.dedupKey());
-                outbox.insertFirst(chainedId, payloadOf(chainedId));
-                log.info("job {} chained into {} {}", job.id(), chain.kind(), chainedId);
-            }
         });
     }
 
@@ -123,15 +116,6 @@ public class JobExecutor {
             });
         } catch (Exception e) {
             log.error("failed to commit failure for job {}", jobId, e);
-        }
-    }
-
-    private String payloadOf(UUID jobId) {
-        try {
-            return objectMapper.writeValueAsString(
-                    new JobMessage(JobMessage.SCHEMA_VERSION, jobId, 1));
-        } catch (Exception e) {
-            throw new IllegalStateException("payload serialization failed", e);
         }
     }
 }

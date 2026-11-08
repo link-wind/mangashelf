@@ -96,7 +96,7 @@ public class DeriveJobHandler implements JobHandler {
 
         // ── 固定协议运行 Python 任务 ──
         TaskSpec spec = new TaskSpec(TaskSpec.SCHEMA_VERSION, job.id(), ctx.attempt(), "image.derive",
-                java.util.List.of(new TaskSpec.TaskInput("source", "input/source")), "output");
+                java.util.List.of(new TaskSpec.TaskInput("source", "input/source")), "output", null);
         python.run(workDir, spec, line -> ctx.progress().emit(line.stage(), line.message()));
 
         // ── 校验完整清单后才提交（DESIGN 10.3：只有完整清单才可提交）──

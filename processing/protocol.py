@@ -46,8 +46,11 @@ def resolve_inside(run_dir: Path, relative: str) -> Path:
     return resolved
 
 
-def run_task(spec: dict[str, Any], run_dir: Path, impl: Callable[..., list[dict[str, Any]]]) -> int:
-    """统一执行外壳：进度序列、异常处理与 result.json 输出。"""
+def run_task(spec: dict[str, Any], run_dir: Path, impl: Callable[..., dict[str, Any]]) -> int:
+    """统一执行外壳：进度序列、异常处理与 result.json 输出。
+
+    impl 返回结果扩展字典（如 artifacts / pages），与公共字段合并写入 result.json。
+    """
     sequence = 0
 
     def progress(stage: str | None = None, message: str | None = None) -> None:
@@ -56,15 +59,15 @@ def run_task(spec: dict[str, Any], run_dir: Path, impl: Callable[..., list[dict[
         emit_progress(sequence, stage, message)
 
     try:
-        artifacts = impl(spec, run_dir, progress)
-        result = {
+        extra = impl(spec, run_dir, progress)
+        result: dict[str, Any] = {
             "schema_version": spec["schema_version"],
             "job_id": spec["job_id"],
             "task": spec["task"],
             "attempt": spec["attempt"],
             "status": "SUCCEEDED",
-            "artifacts": artifacts,
         }
+        result.update(extra)
         write_result(run_dir, result)
         return 0
     except Exception as exc:  # noqa: BLE001 —— 统一落盘失败清单供 Java 诊断
@@ -77,7 +80,6 @@ def run_task(spec: dict[str, Any], run_dir: Path, impl: Callable[..., list[dict[
             "status": "FAILED",
             "error_code": "TASK_FAILED",
             "message": str(exc),
-            "artifacts": [],
         }
         try:
             write_result(run_dir, result)
