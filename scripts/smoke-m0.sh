@@ -59,6 +59,7 @@ VERIFY_JOB=$(echo "$COMPLETE" | jq -r .jobId)
 echo "   verifyJob=$VERIFY_JOB"
 
 echo "== 5. 轮询核验任务直至成功（M1 起 verify 不再链式派生，解析见 smoke-m1.sh）=="
+VERIFY_OK=0
 for i in $(seq 1 60); do
   SNAP=$(curl -sf "$BASE/api/v1/uploads/$UPLOAD_ID")
   FAILED=$(echo "$SNAP" | jq -r '[.jobs[] | select(.status == "FAILED")] | length')
@@ -66,9 +67,10 @@ for i in $(seq 1 60); do
     echo "   FAIL: 核验失败"; echo "$SNAP" | jq .; exit 1
   fi
   DONE=$(echo "$SNAP" | jq -r '[.jobs[] | select(.kind == "content.verify" and .status == "SUCCEEDED")] | length')
-  if [ "$DONE" -ge 1 ]; then echo "   verify 已成功"; break; fi
+  if [ "$DONE" -ge 1 ]; then VERIFY_OK=1; echo "   verify 已成功"; break; fi
   sleep 1
 done
+[ "$VERIFY_OK" = "1" ] || { echo "   FAIL: 核验超时"; echo "$SNAP" | jq .; exit 1; }
 ASSET_STATE=$(echo "$SNAP" | jq -r .assetState)
 [ "$ASSET_STATE" = "VERIFIED" ] || { echo "   FAIL: 资产未 VERIFIED"; echo "$SNAP" | jq .; exit 1; }
 

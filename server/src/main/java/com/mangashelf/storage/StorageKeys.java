@@ -21,4 +21,9 @@ public final class StorageKeys {
     public static String pageArtifact(UUID revisionId, UUID pageId, String name) {
         return "chapters/%s/pages/%s/%s".formatted(revisionId, pageId, name);
     }
+
+    /** 动画派生产物按 18.1 规范：animations/<revision-id>/<name>。 */
+    public static String animationArtifact(UUID revisionId, String name) {
+        return "animations/%s/%s".formatted(revisionId, name);
+    }
 }

@@ -20,6 +20,9 @@ public record UploadSession(
         Instant updatedAt) {
 
     public static final String PURPOSE_MANGA_PAGE = "MANGA_PAGE";
+    public static final String PURPOSE_ANIMATION_VIDEO = "ANIMATION_VIDEO";
+    public static final String PURPOSE_ANIMATION_POSTER = "ANIMATION_POSTER";
+    public static final String PURPOSE_ANIMATION_SUBTITLE = "ANIMATION_SUBTITLE";
 
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_VERIFIED = "VERIFIED";

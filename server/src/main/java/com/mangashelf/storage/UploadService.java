@@ -84,7 +84,7 @@ public class UploadService {
 
         UUID uploadId = UUID.randomUUID();
         String objectKey = StorageKeys.uploadOriginal(ownerId, uploadId);
-        UUID assetId = assets.insert(ownerId, objectKey, Asset.KIND_ORIGINAL, contentType,
+        UUID assetId = assets.insert(ownerId, objectKey, kindOf(purpose), contentType,
                 request.expectedSizeBytes(), request.expectedSha256());
         UploadSession session = new UploadSession(uploadId, ownerId, assetId, purpose, objectKey,
                 request.expectedSizeBytes(), request.expectedSha256(), UploadSession.STATUS_PENDING,
@@ -134,7 +134,7 @@ public class UploadService {
         }
 
         UUID jobId = jobCreation.create(Job.KIND_VERIFY, session.ownerId(), uploadId,
-                null, "verify:" + uploadId);
+                null, null, "verify:" + uploadId);
         return new CompleteResult(uploadId, session.status(), jobId);
     }
 
@@ -162,6 +162,16 @@ public class UploadService {
                 .toList();
         return new UploadSnapshot(uploadId, session.status(), session.assetId(), assetState,
                 jobViews, assetViews);
+    }
+
+    /** 上传用途决定资产种类（M2：动画视频/封面/字幕）。 */
+    private static String kindOf(String purpose) {
+        return switch (purpose) {
+            case UploadSession.PURPOSE_ANIMATION_VIDEO -> Asset.KIND_VIDEO;
+            case UploadSession.PURPOSE_ANIMATION_POSTER -> Asset.KIND_POSTER;
+            case UploadSession.PURPOSE_ANIMATION_SUBTITLE -> Asset.KIND_SUBTITLE;
+            default -> Asset.KIND_ORIGINAL;
+        };
     }
 
     private String requestHash(Object... fields) {

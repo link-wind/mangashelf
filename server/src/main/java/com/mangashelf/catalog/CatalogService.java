@@ -196,7 +196,7 @@ public class CatalogService {
         return tx.execute(status -> {
             UUID revisionId = catalog.insertRevision(chapterId, revisionNo, session.assetId());
             UUID jobId = jobCreation.create(Job.KIND_CHAPTER_PARSE, user.id(), null,
-                    revisionId, "parse:" + revisionId);
+                    revisionId, null, "parse:" + revisionId);
             log.info("revision {} (#{}) created for chapter {} from upload {}",
                     revisionId, revisionNo, chapterId, uploadId);
             return new RevisionCreated(revisionId, jobId);
@@ -209,6 +209,25 @@ public class CatalogService {
         Chapter chapter = catalog.findChapter(revision.chapterId()).orElseThrow();
         Work work = catalog.findWork(chapter.workId()).orElseThrow();
         if (!work.ownerId().equals(user.id()) && !user.isAdmin()) {
+            throw new ApiException(404, "REVISION_NOT_FOUND", "章节版本不存在。");
+        }
+        return revision;
+    }
+
+    /**
+     * 读者可读校验（DESIGN 3.3/4.1）：owner/admin，或（作品 PUBLIC+PUBLISHED 且版本 PUBLISHED）。
+     * 页级关联查询与阅读清单共用同一判定。
+     */
+    public ChapterRevision requireReadableRevision(CurrentUser viewer, UUID revisionId) {
+        ChapterRevision revision = catalog.findRevision(revisionId).orElseThrow(() ->
+                new ApiException(404, "REVISION_NOT_FOUND", "章节版本不存在。"));
+        Chapter chapter = catalog.findChapter(revision.chapterId()).orElseThrow();
+        Work work = catalog.findWork(chapter.workId()).orElseThrow();
+        boolean owner = work.ownerId().equals(viewer.id()) || viewer.isAdmin();
+        boolean readerVisible = Work.VISIBILITY_PUBLIC.equals(work.visibility())
+                && Work.STATUS_PUBLISHED.equals(work.status())
+                && ChapterRevision.STATUS_PUBLISHED.equals(revision.status());
+        if (!owner && !readerVisible) {
             throw new ApiException(404, "REVISION_NOT_FOUND", "章节版本不存在。");
         }
         return revision;
@@ -311,15 +330,15 @@ public class CatalogService {
 
     // ── 游标（created_at, id 稳定键；页序游标为 ordinal）──
 
-    record Cursor(Instant createdAt, UUID id) {
+    public record Cursor(Instant createdAt, UUID id) {
     }
 
-    static String encodeCursor(Instant createdAt, UUID id) {
+    public static String encodeCursor(Instant createdAt, UUID id) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(
                 (createdAt + "|" + id).getBytes(StandardCharsets.UTF_8));
     }
 
-    static Cursor decodeCursor(String cursor) {
+    public static Cursor decodeCursor(String cursor) {
         if (cursor == null || cursor.isBlank()) {
             return new Cursor(Instant.parse("9999-12-31T00:00:00Z"), new UUID(0, 0));
         }

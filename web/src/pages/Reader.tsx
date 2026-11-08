@@ -26,7 +26,15 @@ interface Progress {
   version: number
 }
 
-/** 阅读器（DESIGN 14.1/14.3）：固定版本页面窗口 + 进度防覆盖同步 + 续读。 */
+interface Adaptation {
+  animationId: string
+  title: string
+  revisionId: string
+  pageStart: number
+  pageEnd: number
+}
+
+/** 阅读器（DESIGN 14.1/14.3/4.1）：固定版本页面窗口 + 进度防覆盖同步 + 续读 + 页级动画入口。 */
 export default function Reader() {
   const { revisionId } = useParams()
   const [windowPages, setWindowPages] = useState<PageView[]>([])
@@ -34,6 +42,7 @@ export default function Reader() {
   const [current, setCurrent] = useState(0) // 1 起页序
   const [version, setVersion] = useState(0)
   const [chapterId, setChapterId] = useState<string | null>(null)
+  const [adaptations, setAdaptations] = useState<Adaptation[]>([])
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const cursorRef = useRef<string | null>(null)
@@ -90,6 +99,19 @@ export default function Reader() {
     }
   }, [revisionId])
 
+  // 页级关联动画（DESIGN 4.1：存在已发布动画时显示入口，不自动播放）
+  useEffect(() => {
+    if (!current || !revisionId) return
+    void (async () => {
+      try {
+        setAdaptations(await api.get<Adaptation[]>(
+          `/api/v1/chapter-revisions/${revisionId}/animations?page=${current}`))
+      } catch {
+        setAdaptations([])
+      }
+    })()
+  }, [current, revisionId])
+
   // 进度保存：页面变更时提交（客户端防抖简化为直接提交，DESIGN 14.3 冲突时刷新版本号）
   const saveProgress = useCallback(async (ordinal: number) => {
     if (!chapterId || !revisionId) return
@@ -135,6 +157,16 @@ export default function Reader() {
           : <p className="muted">加载中…</p>}
         <button className="page-nav" onClick={() => void go(1)} disabled={current >= pageCount}>›</button>
       </div>
+      {adaptations.length > 0 && (
+        <div className="adaptations">
+          <span className="muted">本页有改编动画：</span>
+          {adaptations.map(a => (
+            <Link key={a.animationId} className="btn" to={`/watch/${a.animationId}`}>
+              观看这段动画（第 {a.pageStart}–{a.pageEnd} 页）
+            </Link>
+          ))}
+        </div>
+      )}
     </main>
   )
 }

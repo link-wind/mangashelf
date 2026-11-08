@@ -24,6 +24,9 @@ public record Asset(
     public static final String KIND_ORIGINAL = "ORIGINAL";
     public static final String KIND_READER_IMAGE = "READER_IMAGE";
     public static final String KIND_THUMBNAIL = "THUMBNAIL";
+    public static final String KIND_VIDEO = "VIDEO";
+    public static final String KIND_POSTER = "POSTER";
+    public static final String KIND_SUBTITLE = "SUBTITLE";
 
     public static final String STATE_PENDING = "PENDING";
     public static final String STATE_VERIFIED = "VERIFIED";

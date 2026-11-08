@@ -4,6 +4,7 @@ import LoginPage from './pages/Login'
 import Library from './pages/Library'
 import WorkDetail from './pages/WorkDetail'
 import Reader from './pages/Reader'
+import Watch from './pages/Watch'
 import MyUploads from './pages/MyUploads'
 import Shelf from './pages/Shelf'
 
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/" element={me ? <Library /> : <Navigate to="/login" />} />
         <Route path="/works/:id" element={me ? <WorkDetail /> : <Navigate to="/login" />} />
         <Route path="/read/:revisionId" element={me ? <Reader /> : <Navigate to="/login" />} />
+        <Route path="/watch/:animationId" element={me ? <Watch /> : <Navigate to="/login" />} />
         <Route path="/uploads" element={me ? <MyUploads /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
