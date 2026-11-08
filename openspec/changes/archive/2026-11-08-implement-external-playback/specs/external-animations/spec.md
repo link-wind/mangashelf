@@ -1,6 +1,6 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: 外部集播放
+### Requirement: 外部集站内播放（解析直链 + 浏览器直连）
 
 外部集默认通过站内播放器播放：作品可见者触发解析任务后，由前端 hls.js 直连
 解析出的视频地址播放，不经平台服务器转发。
