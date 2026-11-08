@@ -32,3 +32,6 @@ data/
 *.iml
 .vscode/
 .DS_Store
+
+# 前端构建产物
+web/tsconfig.tsbuildinfo
