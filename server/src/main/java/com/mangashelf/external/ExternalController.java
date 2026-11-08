@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.mangashelf.ingestion.Job;
+
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -28,9 +30,11 @@ import java.util.UUID;
 public class ExternalController {
 
     private final ExternalService externals;
+    private final ExternalCatalogService catalog;
 
-    public ExternalController(ExternalService externals) {
+    public ExternalController(ExternalService externals, ExternalCatalogService catalog) {
         this.externals = externals;
+        this.catalog = catalog;
     }
 
     // ── 规则源管理（管理员）──
@@ -125,5 +129,37 @@ public class ExternalController {
     public ExternalService.ResolveStatus resolveStatus(@AuthUser CurrentUser user,
                                                        @PathVariable UUID id) {
         return externals.resolveStatus(user, id);
+    }
+
+    // ── 资源目录（M8）──
+
+    public record SyncRequest(@NotNull UUID sourceId, List<Integer> categories, String mode) {}
+
+    @PostMapping("/admin/catalog-sync")
+    public ExternalCatalogService.SyncStarted triggerSync(@AuthUser CurrentUser user,
+                                                          @Valid @RequestBody SyncRequest request) {
+        return catalog.triggerSync(user, request.sourceId(), request.categories(), request.mode());
+    }
+
+    @GetMapping("/admin/catalog-sync")
+    public Job syncStatus(@AuthUser CurrentUser user, @RequestParam UUID sourceId) {
+        return catalog.syncStatus(user, sourceId);
+    }
+
+    @GetMapping("/catalog-items")
+    public ExternalCatalogService.CatalogItemPage catalogItems(
+            @AuthUser CurrentUser user,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "24") int limit,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) UUID sourceId,
+            @RequestParam(required = false) Integer categoryId) {
+        return catalog.listItems(cursor, limit, q, sourceId, categoryId);
+    }
+
+    @PostMapping("/catalog-items/{id}/materialize")
+    public ExternalCatalogService.Materialized materialize(@AuthUser CurrentUser user,
+                                                           @PathVariable UUID id) {
+        return catalog.materialize(user, id);
     }
 }

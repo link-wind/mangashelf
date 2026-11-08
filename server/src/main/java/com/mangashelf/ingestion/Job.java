@@ -17,6 +17,8 @@ public record Job(
         UUID animationRevisionId,
         UUID indexGenerationId,
         UUID externalEpisodeId,
+        UUID syncSourceId,
+        String params,
         String dedupKey,
         String status,
         String stage,
@@ -38,6 +40,7 @@ public record Job(
     public static final String KIND_ANIMATION_VERIFY = "animation.verify";
     public static final String KIND_INDEX_BUILD = "index.build";
     public static final String KIND_EXTERNAL_RESOLVE = "external.resolve";
+    public static final String KIND_CATALOG_SYNC = "catalog.sync";
 
     public static final String STATUS_QUEUED = "QUEUED";
     public static final String STATUS_RUNNING = "RUNNING";

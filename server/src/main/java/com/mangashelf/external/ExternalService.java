@@ -171,7 +171,7 @@ public class ExternalService {
         if (!active) {
             long window = java.time.Instant.now().getEpochSecond() / RESOLVE_DEDUP_WINDOW_SECONDS;
             jobCreation.create(com.mangashelf.ingestion.Job.KIND_EXTERNAL_RESOLVE, user.id(),
-                    null, null, null, null, episodeId,
+                    null, null, null, null, episodeId, null, null,
                     "ext.resolve:" + episodeId + ":" + window);
         }
         return statusOf(episode);

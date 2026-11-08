@@ -76,7 +76,7 @@ public class JobController {
         // 幂等键命中既有任务，追加新 dispatch_no 的派发记录（DESIGN 11.3）
         jobCreation.create(job.kind(), job.ownerId(), job.uploadSessionId(),
                 job.chapterRevisionId(), job.animationRevisionId(), job.indexGenerationId(),
-                job.externalEpisodeId(), job.dedupKey());
+                job.externalEpisodeId(), job.syncSourceId(), job.params(), job.dedupKey());
         return ResponseEntity.accepted().body(toSnapshot(jobs.findById(id).orElseThrow()));
     }
 
