@@ -21,7 +21,9 @@ const RESOLVE_MAX_MS = 90_000
 
 /** 作品外部集管理（M6 绑定 + M7 站内播放：解析 → hls.js 直连 → 过期重取）。 */
 export default function ExternalEpisodes() {
-  const { workId } = useParams()
+  // 两种挂载：独立路由 /works/:workId/external 用 workId；WorkDetail 内嵌路由是 :id
+  const params = useParams()
+  const workId = params.workId ?? params.id
   const [sources, setSources] = useState<SourceRow[]>([])
   const [selectedSource, setSelectedSource] = useState('')
   const [keyword, setKeyword] = useState('')
