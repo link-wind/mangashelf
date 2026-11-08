@@ -138,7 +138,7 @@ public class CatalogService {
         return catalog.findWork(workId).orElseThrow();
     }
 
-    private Work requireOwnedWork(CurrentUser user, UUID workId) {
+    public Work requireOwnedWork(CurrentUser user, UUID workId) {
         Work work = catalog.findWork(workId).orElseThrow(() ->
                 new ApiException(404, "WORK_NOT_FOUND", "作品不存在。"));
         if (!work.ownerId().equals(user.id()) && !user.isAdmin()) {

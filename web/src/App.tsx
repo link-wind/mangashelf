@@ -9,6 +9,7 @@ import MyUploads from './pages/MyUploads'
 import Shelf from './pages/Shelf'
 import Search from './pages/Search'
 import Settings from './pages/Settings'
+import ExternalEpisodes from './pages/ExternalEpisodes'
 
 function Nav() {
   const { me, logout } = useAuth()
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/uploads" element={me ? <MyUploads /> : <Navigate to="/login" />} />
         <Route path="/settings" element={me ? <Settings /> : <Navigate to="/login" />} />
         <Route path="/search" element={me ? <Search /> : <Navigate to="/login" />} />
+        <Route path="/works/:workId/external" element={me ? <ExternalEpisodes /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
     </>

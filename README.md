@@ -37,10 +37,11 @@
 | M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | ✅ 已完成（2026-11-08，见 docs/validation/m3.md；协议文档 docs/api/mangaweaver-integration.md） |
 | M4 智能检索 | OCR、字面检索、Embedding、混合召回、引用问答 | ✅ 已完成（2026-11-08，见 docs/validation/m4.md；问答待对话模型配置） |
 | M5 工程验收 | 中断恢复、权限、部署、备份、容量测量 | ✅ 已完成（2026-11-08，见 docs/validation/m5.md） |
+| M6 外部动画 | 声明式规则源（Kazumi 兼容子集）、外部集搜索绑定、链接跳转播放 | ✅ 已完成（2026-11-08，见 docs/validation/m6.md） |
 
 首个完整产品里程碑是 M3。每个里程碑开始时在 `openspec/changes/` 建立对应变更提案。
 
-**M0–M5 全部完成。** 验证记录见 docs/validation/（m0–m5），部署见下方本地开发。
+**M0–M6 全部完成。** 验证记录见 docs/validation/（m0–m6），部署见下方本地开发。
 
 ## 本地开发
 

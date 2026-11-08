@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import ExternalEpisodes from './ExternalEpisodes'
 import { api, ApiError } from '../api'
 
 interface Chapter {
@@ -92,6 +93,7 @@ export default function WorkDetail() {
         {chapters.length === 0 && <li className="muted">还没有已发布章节</li>}
       </ul>
       {owner && <button className="ghost" onClick={() => navigate('/uploads')}>管理素材 →</button>}
+      {owner && <ExternalEpisodes />}
     </main>
   )
 }
