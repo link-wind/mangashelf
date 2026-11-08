@@ -88,17 +88,30 @@ public class CatalogService {
         return new WorkView(work, chapters, owner);
     }
 
-    public record WorkListPage(List<Work> items, String nextCursor) {
+    public record WorkListPage(List<WorkCard> items, String nextCursor) {
+    }
+
+    /** 索引/首页卡片（M8）：作品基础字段 + 动画/外部集计数 + 海报签名 URL。 */
+    public record WorkCard(UUID id, String title, String description, String visibility, String status,
+                           java.time.Instant createdAt, java.time.Instant updatedAt,
+                           long animations, long episodes, String posterUrl) {
     }
 
     public WorkListPage listWorks(CurrentUser viewer, String cursor, int limit, String q) {
         Cursor c = decodeCursor(cursor);
         int effectiveLimit = Math.min(limit, MAX_PAGE_LIMIT);
         List<Work> items = catalog.listVisible(viewer.id(), q, c.createdAt(), c.id(), effectiveLimit);
+        var decor = catalog.decorations(items.stream().map(Work::id).toList());
+        List<WorkCard> cards = items.stream().map(w -> {
+            var d = decor.getOrDefault(w.id(), new CatalogRepository.Decor(0, 0, null));
+            String posterUrl = d.posterKey() == null ? null : presign.presignGet(d.posterKey()).url();
+            return new WorkCard(w.id(), w.title(), w.description(), w.visibility(), w.status(),
+                    w.createdAt(), w.updatedAt(), d.animations(), d.episodes(), posterUrl);
+        }).toList();
         String next = items.size() == effectiveLimit
                 ? encodeCursor(items.getLast().createdAt(), items.getLast().id())
                 : null;
-        return new WorkListPage(items, next);
+        return new WorkListPage(cards, next);
     }
 
     public record PatchWorkRequest(String title, String description, String visibility,

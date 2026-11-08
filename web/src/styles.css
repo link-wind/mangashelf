@@ -81,3 +81,72 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 .scope-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
 .token-reveal { margin-top: 12px; padding: 12px; background: var(--bg); border-radius: 8px; }
 .token-reveal code { display: block; word-break: break-all; margin: 6px 0; font-size: 13px; }
+
+/* ── 观看页（gugu 式双栏：左播放器 + 右选集/信息，M7/M8）── */
+.watch-page { max-width: 1200px; margin: 0 auto; padding: 20px 24px 40px; }
+.watch-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
+.watch-title h1 { margin: 0; font-size: 24px; }
+.watch-title .ep-name { font-size: 17px; color: var(--ink); }
+.watch-meta { display: flex; gap: 16px; align-items: center; color: var(--muted); font-size: 13px; margin: 6px 0 14px; flex-wrap: wrap; }
+.watch-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .watch-layout { grid-template-columns: 1fr; } }
+
+.player-shell {
+  position: relative; background: #000; border-radius: 12px; overflow: hidden;
+  aspect-ratio: 16 / 9; display: grid;
+}
+.player-shell video { width: 100%; height: 100%; background: #000; }
+.player-shell:has(video[controls]) video { width: 100%; height: 100%; }
+.player-overlay {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.55); color: #fff; z-index: 2; text-align: center;
+}
+.player-overlay .big { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+.player-overlay .sub { font-size: 13px; opacity: 0.8; }
+.player-spinner {
+  width: 34px; height: 34px; margin: 0 auto 10px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.25); border-top-color: #fff;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.watch-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+
+.episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+.episode-cell {
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  padding: 8px 6px; text-align: center; cursor: pointer; font-size: 13px; line-height: 1.3;
+}
+.episode-cell .no { font-weight: 700; font-size: 15px; }
+.episode-cell .name { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.episode-cell:hover { border-color: var(--accent); }
+.episode-cell.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.episode-cell.active .name { color: rgba(255,255,255,0.85); }
+
+.info-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.info-list li { display: flex; justify-content: space-between; gap: 10px; }
+.info-list .k { color: var(--muted); flex-shrink: 0; }
+.watch-side { display: flex; flex-direction: column; gap: 14px; }
+.watch-side .card h3 { margin: 0 0 10px; font-size: 15px; }
+
+/* ── 首页与索引（gugu 式封面卡片）── */
+.home-page { max-width: 1200px; margin: 0 auto; padding: 20px 24px 40px; }
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 28px 32px; flex-wrap: wrap; }
+.hero h1 { margin: 0 0 6px; font-size: 30px; color: var(--accent); }
+.hero p { margin: 0; }
+.hero-search { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.section-head h2 { margin: 0; font-size: 19px; }
+
+.hscroll { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.hscroll .work-card { min-width: 168px; max-width: 168px; }
+
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
+.work-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; text-decoration: none; color: inherit; transition: transform .12s, box-shadow .12s; display: block; }
+.work-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.work-card .cover { position: relative; aspect-ratio: 3 / 4; background: linear-gradient(135deg, #ded9ff, #f0ede6); display: grid; place-items: center; }
+.work-card .cover img { width: 100%; height: 100%; object-fit: cover; }
+.cover-initial { font-size: 44px; font-weight: 700; color: var(--accent); opacity: .75; }
+.badge-anim { position: absolute; top: 8px; left: 8px; background: var(--accent); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.work-card-body { padding: 10px 12px 12px; }
+.work-card-title { font-size: 14px; font-weight: 600; line-height: 1.35; min-height: 38px; }
+.work-card-meta { display: flex; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 4px; }

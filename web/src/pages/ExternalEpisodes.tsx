@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import Hls from 'hls.js'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 
 interface SourceRow { id: string; name: string; baseUrl: string; enabled: boolean }
@@ -10,20 +9,13 @@ interface BoundEpisode {
   id: string; sourceId: string; sourceName: string; title: string
   episodeUrl: string; ordinal: number
 }
-interface ResolveStatus {
-  jobId: string | null; jobState: string
-  playUrl: string | null; playKind: string | null
-  resolvedAt: string | null; errorCode: string | null; errorMessage: string | null
-}
 
-const RESOLVE_POLL_MS = 2000
-const RESOLVE_MAX_MS = 90_000
-
-/** 作品外部集管理（M6 绑定 + M7 站内播放：解析 → hls.js 直连 → 过期重取）。 */
+/** 作品外部集管理（M6）：搜索绑定入口；播放进入站内观看页（M7）。 */
 export default function ExternalEpisodes() {
   // 两种挂载：独立路由 /works/:workId/external 用 workId；WorkDetail 内嵌路由是 :id
   const params = useParams()
   const workId = params.workId ?? params.id
+  const navigate = useNavigate()
   const [sources, setSources] = useState<SourceRow[]>([])
   const [selectedSource, setSelectedSource] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -34,7 +26,6 @@ export default function ExternalEpisodes() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [player, setPlayer] = useState<{ episode: BoundEpisode; status: ResolveStatus | null } | null>(null)
 
   const loadBound = useCallback(async () => {
     if (!workId) return
@@ -98,42 +89,6 @@ export default function ExternalEpisodes() {
     catch (e) { setError(e instanceof ApiError ? e.message : '解绑失败') }
   }
 
-  function play(episode: BoundEpisode) {
-    setPlayer({ episode, status: null })
-    void startPlayback(episode)
-  }
-
-  async function startPlayback(episode: BoundEpisode) {
-    try {
-      const st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${episode.id}/resolve`)
-      let status = st
-      if (!st.playUrl) {
-        status = await resolveUntilDone(episode.id)
-      }
-      setPlayer({ episode, status })
-    } catch (e) {
-      setPlayer({ episode, status: {
-        jobId: null, jobState: 'FAILED', playUrl: null, playKind: null, resolvedAt: null,
-        errorCode: 'RESOLVE_ERROR',
-        errorMessage: e instanceof ApiError ? e.message : '解析请求失败',
-      } })
-    }
-  }
-
-  async function resolveUntilDone(id: string): Promise<ResolveStatus> {
-    await api.post<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`, {})
-    const startedAt = Date.now()
-    for (;;) {
-      if (Date.now() - startedAt > RESOLVE_MAX_MS) {
-        return { jobId: null, jobState: 'FAILED', playUrl: null, playKind: null, resolvedAt: null,
-                 errorCode: 'RESOLVE_TIMEOUT', errorMessage: '解析超时，请稍后重试或跳转原站' }
-      }
-      const st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`)
-      if (st.playUrl || st.jobState === 'FAILED' || st.errorCode) return st
-      await new Promise(r => setTimeout(r, RESOLVE_POLL_MS))
-    }
-  }
-
   return (
     <div className="indent" style={{ marginTop: 16 }}>
       <strong>外部动画源</strong>
@@ -189,122 +144,14 @@ export default function ExternalEpisodes() {
             <li key={e.id}>
               <span>{e.sourceName} · {e.title}</span>
               <span className="row-inline">
-                <button className="btn ghost" onClick={() => play(e)}>播放</button>
+                <button className="btn ghost"
+                        onClick={() => navigate(`/works/${workId}/external/${e.id}`)}>播放</button>
                 <a className="btn ghost" href={e.episodeUrl} target="_blank" rel="noopener noreferrer">跳转原站</a>
                 <button className="ghost" onClick={() => void unbind(e.id)}>解绑</button>
               </span>
             </li>
           ))}
         </ul>
-      )}
-
-      {player && (
-        <ExternalPlayer episode={player.episode} status={player.status}
-                        onRetry={() => void startPlayback(player.episode)}
-                        onClose={() => setPlayer(null)} />
-      )}
-    </div>
-  )
-}
-
-function loadSavedPosition(episodeId: string): number {
-  const v = Number(localStorage.getItem(`ms-ext-pos:${episodeId}`) ?? '0')
-  return Number.isFinite(v) && v > 0 ? v : 0
-}
-
-/** 站内 hls.js 播放器（M7 design.md D6）：直连源站 CDN，过期重取续播。 */
-function ExternalPlayer({ episode, status, onRetry, onClose }: {
-  episode: BoundEpisode
-  status: ResolveStatus | null
-  onRetry: () => void
-  onClose: () => void
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const hlsRef = useRef<Hls | null>(null)
-  const retriedRef = useRef(false)
-  const [fatal, setFatal] = useState<string | null>(null)
-  const saveRef = useRef<() => void>(() => {})
-
-  const save = useCallback(() => {
-    const v = videoRef.current
-    if (v && v.currentTime > 0) localStorage.setItem(`ms-ext-pos:${episode.id}`, String(v.currentTime))
-  }, [episode.id])
-  saveRef.current = save
-
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v || !status?.playUrl) return
-    const url = status.playUrl
-    setFatal(null)
-    let hls: Hls | null = null
-    if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true })
-      hlsRef.current = hls
-      hls.loadSource(url)
-      hls.attachMedia(v)
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (!data.fatal) return
-        // 源站签名 token 过期：重解析后 seek 回原位置（design.md D6）
-        if (!retriedRef.current && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          retriedRef.current = true
-          saveRef.current()
-          hls?.destroy()
-          onRetry()
-        } else {
-          setFatal('视频流中断且重试未恢复，请重新解析或跳转原站')
-        }
-      })
-    } else {
-      // Safari 原生 HLS
-      v.src = url
-    }
-    const onTime = () => {
-      if (Math.floor(v.currentTime) % 10 === 0) saveRef.current()
-    }
-    const onLoaded = () => {
-      const saved = loadSavedPosition(episode.id)
-      if (saved > 0 && saved < (v.duration || Infinity) - 5) v.currentTime = saved
-    }
-    v.addEventListener('timeupdate', onTime)
-    v.addEventListener('loadedmetadata', onLoaded)
-    v.play().catch(() => { /* 自动播放被拦截时等用户点播放键 */ })
-    return () => {
-      saveRef.current()
-      v.removeEventListener('timeupdate', onTime)
-      v.removeEventListener('loadedmetadata', onLoaded)
-      hls?.destroy()
-      hlsRef.current = null
-      v.removeAttribute('src')
-      v.load()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.playUrl])
-
-  const resolving = !status || (!status.playUrl && !status.errorCode
-    && (status.jobState === 'QUEUED' || status.jobState === 'RUNNING' || status.jobState === 'NONE'))
-  const failed = !!status?.errorCode
-
-  return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="row-inline" style={{ justifyContent: 'space-between' }}>
-        <strong>正在播放：{episode.sourceName} · {episode.title}</strong>
-        <button className="ghost" onClick={onClose}>关闭</button>
-      </div>
-      {resolving && <p className="muted">解析视频直链中…（通常需要 5～15 秒）</p>}
-      {(failed || fatal) && (
-        <div className="stack">
-          <p className="error">{failed ? `解析失败：${status?.errorMessage ?? '未知错误'}` : fatal}</p>
-          <div className="row-inline">
-            <button onClick={onRetry}>重试解析</button>
-            <a className="btn ghost" href={episode.episodeUrl} target="_blank" rel="noopener noreferrer">跳转原站</a>
-          </div>
-        </div>
-      )}
-      <video ref={videoRef} controls playsInline style={{ width: '100%', maxHeight: 420, marginTop: 8 }} />
-      {!failed && !fatal && (
-        <p className="muted" style={{ fontSize: 12 }}>
-          视频由浏览器直连来源播放；若中途断流将自动重新解析并续播。
-        </p>
       )}
     </div>
   )

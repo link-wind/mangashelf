@@ -64,6 +64,40 @@ public class CatalogRepository {
         return "%" + s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
+    /** 作品卡片装饰信息（索引/首页）：动画与外部集计数 + 最新已发布动画海报的对象 Key。 */
+    public record Decor(long animations, long episodes, String posterKey) {
+    }
+
+    public java.util.Map<UUID, Decor> decorations(java.util.Collection<UUID> workIds) {
+        if (workIds.isEmpty()) return java.util.Map.of();
+        String in = workIds.stream().map(x -> "?").reduce((a, b) -> a + "," + b).orElse("");
+        String sql = """
+                SELECT w.id,
+                       (SELECT count(DISTINCT a2.id) FROM animations a2
+                          JOIN animation_revisions ar ON ar.animation_id = a2.id AND ar.status = 'PUBLISHED'
+                          JOIN animation_sources src ON src.animation_revision_id = ar.id
+                          JOIN chapter_revisions cr ON cr.id = src.chapter_revision_id
+                          JOIN chapters c ON c.id = cr.chapter_id
+                         WHERE c.work_id = w.id) AS animations,
+                       (SELECT count(*) FROM external_episodes e WHERE e.work_id = w.id) AS episodes,
+                       (SELECT ast.object_key FROM animation_revisions ar
+                          JOIN animations a2 ON a2.id = ar.animation_id
+                          JOIN animation_sources src ON src.animation_revision_id = ar.id
+                          JOIN chapter_revisions cr ON cr.id = src.chapter_revision_id
+                          JOIN chapters c ON c.id = cr.chapter_id
+                          JOIN assets ast ON ast.id = ar.poster_asset_id
+                         WHERE c.work_id = w.id AND ar.status = 'PUBLISHED'
+                         ORDER BY ar.revision_no DESC LIMIT 1) AS poster_key
+                FROM works w WHERE w.id IN (%s)
+                """.formatted(in);
+        java.util.Map<UUID, Decor> out = new java.util.HashMap<>();
+        jdbc.query(sql, rs -> {
+            Decor d = new Decor(rs.getLong("animations"), rs.getLong("episodes"), rs.getString("poster_key"));
+            out.put(rs.getObject("id", UUID.class), d);
+        }, workIds.toArray());
+        return out;
+    }
+
     /** 标题召回（DESIGN 15.3 文本分支）：授权范围 + ILIKE/trgm，按相似度排序。 */
     public List<Work> searchWorksByTitle(UUID viewerId, String q, int limit) {
         return jdbc.query("""
