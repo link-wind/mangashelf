@@ -52,6 +52,12 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 "message": "Worker 缺少 playwright 依赖"}
 
     progress("sniff", "启动无头浏览器")
+
+    # 直链快路径：剧集地址本身即 m3u8/mp4（资源站 API 线路），免嗅探
+    if _is_video_url(episode_url):
+        kind = "hls" if ".m3u8" in episode_url.lower() else "mp4"
+        progress("sniff", f"剧集地址已是直链（{kind}），免嗅探")
+        return {"status": "SUCCEEDED", "play_url": episode_url, "play_kind": kind}
     found: list[str] = []
 
     def on_request(req: Any) -> None:
