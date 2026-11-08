@@ -202,7 +202,7 @@ public class CatalogService {
         return tx.execute(status -> {
             UUID revisionId = catalog.insertRevision(chapterId, revisionNo, session.assetId());
             UUID jobId = jobCreation.create(Job.KIND_CHAPTER_PARSE, user.id(), null,
-                    revisionId, null, null, "parse:" + revisionId);
+                    revisionId, null, null, null, "parse:" + revisionId);
             log.info("revision {} (#{}) created for chapter {} from upload {}",
                     revisionId, revisionNo, chapterId, uploadId);
             return new RevisionCreated(revisionId, jobId);

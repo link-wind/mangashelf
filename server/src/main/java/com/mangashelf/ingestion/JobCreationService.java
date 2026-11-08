@@ -26,10 +26,10 @@ public class JobCreationService {
     /** 幂等：同 (kind, dedup_key) 返回既有任务。目标按任务种类由数据库 CHECK 约束。 */
     public UUID create(String kind, UUID ownerId, UUID uploadSessionId,
                        UUID chapterRevisionId, UUID animationRevisionId,
-                       UUID indexGenerationId, String dedupKey) {
+                       UUID indexGenerationId, UUID externalEpisodeId, String dedupKey) {
         return tx.execute(status -> {
             UUID jobId = jobs.insertOrExisting(kind, ownerId, uploadSessionId, chapterRevisionId,
-                    animationRevisionId, indexGenerationId, dedupKey);
+                    animationRevisionId, indexGenerationId, externalEpisodeId, dedupKey);
             outbox.insert(jobId, jobs.nextDispatchNo(jobId), payloadOf(jobId));
             return jobId;
         });

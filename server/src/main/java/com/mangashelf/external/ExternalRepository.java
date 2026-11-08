@@ -33,6 +33,25 @@ public class ExternalRepository {
         return jdbc.query("SELECT * FROM external_sources WHERE id = ?", sourceMapper, id).stream().findFirst();
     }
 
+    public Optional<ExternalEpisode> findEpisode(UUID id) {
+        return jdbc.query("SELECT * FROM external_episodes WHERE id = ?", episodeMapper, id).stream().findFirst();
+    }
+
+    /** 解析结果落外部集（design.md D2：领域状态在集上行，不在任务表）。 */
+    public void markResolved(UUID episodeId, String playUrl, String playKind) {
+        jdbc.update("UPDATE external_episodes SET resolved_url = ?, resolved_kind = ?, resolved_at = now() WHERE id = ?",
+                playUrl, playKind, episodeId);
+    }
+
+    /** 最新一次解析任务（含终态），供 resolve 状态查询与 30 秒窗口幂等复用。 */
+    public Optional<com.mangashelf.ingestion.Job> findLatestResolveJob(UUID episodeId) {
+        return jdbc.query("""
+                SELECT * FROM jobs WHERE kind = ? AND external_episode_id = ?
+                ORDER BY created_at DESC LIMIT 1
+                """, new DataClassRowMapper<>(com.mangashelf.ingestion.Job.class),
+                com.mangashelf.ingestion.Job.KIND_EXTERNAL_RESOLVE, episodeId).stream().findFirst();
+    }
+
     public List<ExternalSource> listSources(boolean enabledOnly) {
         String sql = enabledOnly
                 ? "SELECT * FROM external_sources WHERE enabled = true ORDER BY name"

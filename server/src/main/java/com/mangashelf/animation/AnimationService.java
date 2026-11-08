@@ -211,7 +211,7 @@ public class AnimationService {
                     null, null, null, null, null, null, manifestSha);
             animations.markRevisionStatus(revisionId, AnimationRevision.STATUS_DRAFT, null, null);
             return jobCreation.create(Job.KIND_ANIMATION_VERIFY, user.id(), null, null, revisionId,
-                    null, "verify:" + revisionId);
+                    null, null, "verify:" + revisionId);
         });
         return new VerifyAccepted(revisionId, jobId);
     }

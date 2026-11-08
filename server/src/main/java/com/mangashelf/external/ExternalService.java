@@ -16,12 +16,15 @@ public class ExternalService {
     private final ExternalRepository externals;
     private final CatalogService catalog;
     private final RuleEngine ruleEngine;
+    private final com.mangashelf.ingestion.JobCreationService jobCreation;
 
     public ExternalService(ExternalRepository externals, CatalogService catalog,
-                           RuleEngine ruleEngine) {
+                           RuleEngine ruleEngine,
+                           com.mangashelf.ingestion.JobCreationService jobCreation) {
         this.externals = externals;
         this.catalog = catalog;
         this.ruleEngine = ruleEngine;
+        this.jobCreation = jobCreation;
     }
 
     // ── 规则源 ──
@@ -145,5 +148,58 @@ public class ExternalService {
 
     public boolean unbindEpisode(CurrentUser user, UUID episodeId) {
         return externals.deleteEpisode(episodeId, user.id());
+    }
+
+    // ── 播放解析（M7 design.md D1/D4）──
+
+    /** 解析结果新鲜窗口：源站 token 实测分钟级，4 分钟为保守值。 */
+    private static final java.time.Duration RESOLVE_FRESH = java.time.Duration.ofMinutes(4);
+    /** 幂等窗口（秒）：窗口内重复点击共享同一任务，过期允许重新解析。 */
+    private static final long RESOLVE_DEDUP_WINDOW_SECONDS = 30;
+
+    /** 解析状态（POST/GET 共用读取模型；playUrl 仅在新鲜窗口内返回）。 */
+    public record ResolveStatus(UUID jobId, String jobState, String playUrl, String playKind,
+                                java.time.Instant resolvedAt, String errorCode, String errorMessage) {
+    }
+
+    public ResolveStatus resolvePlayback(CurrentUser user, UUID episodeId) {
+        ExternalEpisode episode = requireVisibleEpisode(user, episodeId);
+        var latest = externals.findLatestResolveJob(episodeId);
+        boolean active = latest.isPresent()
+                && (com.mangashelf.ingestion.Job.STATUS_QUEUED.equals(latest.get().status())
+                    || com.mangashelf.ingestion.Job.STATUS_RUNNING.equals(latest.get().status()));
+        if (!active) {
+            long window = java.time.Instant.now().getEpochSecond() / RESOLVE_DEDUP_WINDOW_SECONDS;
+            jobCreation.create(com.mangashelf.ingestion.Job.KIND_EXTERNAL_RESOLVE, user.id(),
+                    null, null, null, null, episodeId,
+                    "ext.resolve:" + episodeId + ":" + window);
+        }
+        return statusOf(episode);
+    }
+
+    public ResolveStatus resolveStatus(CurrentUser user, UUID episodeId) {
+        ExternalEpisode episode = requireVisibleEpisode(user, episodeId);
+        return statusOf(episode);
+    }
+
+    private ExternalEpisode requireVisibleEpisode(CurrentUser user, UUID episodeId) {
+        ExternalEpisode episode = externals.findEpisode(episodeId).orElseThrow(
+                () -> new ApiException(404, "EPISODE_NOT_FOUND", "外部集不存在。"));
+        catalog.requireVisibleWork(user, episode.workId());
+        return episode;
+    }
+
+    private ResolveStatus statusOf(ExternalEpisode episode) {
+        var job = externals.findLatestResolveJob(episode.id()).orElse(null);
+        boolean fresh = episode.resolvedAt() != null
+                && episode.resolvedAt().isAfter(java.time.Instant.now().minus(RESOLVE_FRESH));
+        return new ResolveStatus(
+                job != null ? job.id() : null,
+                job != null ? job.status() : "NONE",
+                fresh ? episode.resolvedUrl() : null,
+                fresh ? episode.resolvedKind() : null,
+                episode.resolvedAt(),
+                job != null ? job.errorCode() : null,
+                job != null ? job.errorMessage() : null);
     }
 }

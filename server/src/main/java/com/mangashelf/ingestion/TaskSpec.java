@@ -17,9 +17,15 @@ public record TaskSpec(
         String task,
         List<TaskInput> inputs,
         @JsonProperty("output_dir") String outputDir,
-        Limits limits) {
+        Limits limits,
+        @JsonProperty("params") java.util.Map<String, Object> params) {
 
     public static final int SCHEMA_VERSION = 1;
+
+    public TaskSpec(int schemaVersion, UUID jobId, int attempt, String task,
+                    List<TaskInput> inputs, String outputDir, Limits limits) {
+        this(schemaVersion, jobId, attempt, task, inputs, outputDir, limits, null);
+    }
 
     public record TaskInput(String role, @JsonProperty("path") String path,
                             @JsonProperty("ordinal") Integer ordinal) {

@@ -1,25 +1,28 @@
 # Worker 镜像：Java 运行层 + Python OCR 环境（RapidOCR 模型缓存烘焙，运行期零联网）。
-# 阶段一：Python 3.14 构建 OCR venv 并触发模型下载（与开发 venv 同版本，DESIGN 12.2）。
+# 阶段一：Python 3.14 构建 OCR venv + Playwright Chromium（M7 嗅探）并触发模型下载。
 FROM python:3.14-slim AS ocr
 WORKDIR /w
 COPY processing/requirements.txt .
 RUN python -m venv /opt/ocr-venv \
- && /opt/ocr-venv/bin/pip install --no-cache-dir -r requirements.txt rapidocr onnxruntime
-# 触发 RapidOCR 模型下载（构建期联网；运行期完全离线）
-RUN /opt/ocr-venv/bin/python -c "from rapidocr import RapidOCR; RapidOCR()"
+ && /opt/ocr-venv/bin/pip install --no-cache-dir -r requirements.txt rapidocr onnxruntime playwright
+# 触发 RapidOCR 模型下载 + Chromium 系统依赖与浏览器烘焙（构建期联网；运行期零联网）
+RUN /opt/ocr-venv/bin/python -c "from rapidocr import RapidOCR; RapidOCR()" \
+ && /opt/ocr-venv/bin/python -m playwright install --with-deps chromium
 
-# 阶段二：Java 运行层 + ffmpeg + OCR venv（venv 自含 Python 3.14 解释器）
+# 阶段二：Java 运行层 + ffmpeg + OCR venv + Chromium（venv 自含 Python 3.14 解释器）
 FROM eclipse-temurin:25-jre-noble
 WORKDIR /opt/app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg \
  && rm -rf /var/lib/apt/lists/*
-# venv 自含 Python 解释器 + 全部依赖 + RapidOCR 模型缓存
+# venv 自含 Python 解释器 + 全部依赖 + RapidOCR 模型缓存 + Playwright 浏览器缓存
 COPY --from=ocr /opt/ocr-venv /opt/ocr-venv
+COPY --from=ocr --chown=1000:1000 /root/.cache/ms-playwright /opt/ms-playwright
 COPY processing /opt/processing
 COPY server/target/mangashelf-server-0.1.0-SNAPSHOT.jar app.jar
 ENV MANGASHELF_PYTHON=/opt/ocr-venv/bin/python \
     MANGASHELF_PROCESSING_ROOT=/opt/processing \
-    MANGASHELF_WORK_ROOT=/opt/data/jobs
+    MANGASHELF_WORK_ROOT=/opt/data/jobs \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 USER 1000
 ENTRYPOINT ["java", "-jar", "app.jar", "--mangashelf.role=worker"]

@@ -26,17 +26,17 @@ public class JobRepository {
      */
     public UUID insertOrExisting(String kind, UUID ownerId, UUID uploadSessionId,
                                  UUID chapterRevisionId, UUID animationRevisionId,
-                                 UUID indexGenerationId, String dedupKey) {
+                                 UUID indexGenerationId, UUID externalEpisodeId, String dedupKey) {
         UUID id = UUID.randomUUID();
         List<UUID> inserted = jdbc.query("""
                 INSERT INTO jobs (id, kind, owner_id, upload_session_id, chapter_revision_id,
-                                  animation_revision_id, index_generation_id, dedup_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                  animation_revision_id, index_generation_id, external_episode_id, dedup_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (kind, dedup_key) DO NOTHING
                 RETURNING id
                 """, (rs, i) -> rs.getObject("id", UUID.class),
                 id, kind, ownerId, uploadSessionId, chapterRevisionId, animationRevisionId,
-                indexGenerationId, dedupKey);
+                indexGenerationId, externalEpisodeId, dedupKey);
         if (!inserted.isEmpty()) {
             return inserted.getFirst();
         }

@@ -16,6 +16,7 @@ public record Job(
         UUID chapterRevisionId,
         UUID animationRevisionId,
         UUID indexGenerationId,
+        UUID externalEpisodeId,
         String dedupKey,
         String status,
         String stage,
@@ -36,6 +37,7 @@ public record Job(
     public static final String KIND_CHAPTER_PARSE = "chapter.parse";
     public static final String KIND_ANIMATION_VERIFY = "animation.verify";
     public static final String KIND_INDEX_BUILD = "index.build";
+    public static final String KIND_EXTERNAL_RESOLVE = "external.resolve";
 
     public static final String STATUS_QUEUED = "QUEUED";
     public static final String STATUS_RUNNING = "RUNNING";

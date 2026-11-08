@@ -112,4 +112,18 @@ public class ExternalController {
         boolean ok = externals.unbindEpisode(user, id);
         return Map.of("id", id, "removed", ok);
     }
+
+    // ── 播放解析（M7）──
+
+    @PostMapping("/external-episodes/{id}/resolve")
+    public ExternalService.ResolveStatus resolve(@AuthUser CurrentUser user,
+                                                 @PathVariable UUID id) {
+        return externals.resolvePlayback(user, id);
+    }
+
+    @GetMapping("/external-episodes/{id}/resolve")
+    public ExternalService.ResolveStatus resolveStatus(@AuthUser CurrentUser user,
+                                                       @PathVariable UUID id) {
+        return externals.resolveStatus(user, id);
+    }
 }

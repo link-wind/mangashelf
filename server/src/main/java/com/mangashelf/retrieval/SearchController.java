@@ -94,7 +94,7 @@ public class SearchController {
                 revision.manifestSha256());
         UUID jobId = jobCreation.create(
                 com.mangashelf.ingestion.Job.KIND_INDEX_BUILD, user.id(), null, null, null,
-                generationId, "index:" + id + ":" + revision.manifestSha256());
+                generationId, null, "index:" + id + ":" + revision.manifestSha256());
         return ResponseEntity.accepted().body(new IndexStarted(generationId, jobId));
     }
 
