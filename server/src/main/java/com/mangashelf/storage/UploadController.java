@@ -44,6 +44,8 @@ public class UploadController {
     @PostMapping("/uploads")
     public UploadService.CreatedUpload create(@AuthUser CurrentUser user,
                                               @Valid @RequestBody UploadService.CreateRequest request) {
+        // Bearer 客户端（MangaWeaver）上传走 animations:write（DESIGN 17.1）；浏览器用户不受影响
+        com.mangashelf.identity.TokenScopes.require(com.mangashelf.identity.Scopes.ANIMATIONS_WRITE);
         return uploads.create(user.id(), request);
     }
 

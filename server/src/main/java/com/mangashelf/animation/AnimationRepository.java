@@ -92,6 +92,21 @@ public class AnimationRepository {
         return (max == null ? 0 : max) + 1;
     }
 
+    public void setOrigin(UUID revisionId, String originClient, String originRunRef) {
+        jdbc.update("UPDATE animation_revisions SET origin_client = ?, origin_run_ref = ?, updated_at = now() WHERE id = ?",
+                originClient, originRunRef, revisionId);
+    }
+
+    /** 按接入来源键查草稿（限定 owner，DESIGN 17.3 幂等以用户+接入类型+键为界）。 */
+    public Optional<AnimationRevision> findRevisionByOrigin(UUID ownerId, String originClient,
+                                                            String originRunRef) {
+        return jdbc.query("""
+                SELECT ar.* FROM animation_revisions ar
+                JOIN animations a ON a.id = ar.animation_id
+                WHERE a.owner_id = ? AND ar.origin_client = ? AND ar.origin_run_ref = ?
+                """, revisionMapper, ownerId, originClient, originRunRef).stream().findFirst();
+    }
+
     public int markRevisionStatus(UUID id, String status, String errorCode, String errorMessage) {
         return jdbc.update("""
                 UPDATE animation_revisions SET status = ?, error_code = ?, error_message = ?, updated_at = now()

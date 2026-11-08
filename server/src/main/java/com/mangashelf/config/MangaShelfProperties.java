@@ -8,6 +8,7 @@ import java.util.UUID;
 @ConfigurationProperties(prefix = "mangashelf")
 public record MangaShelfProperties(
         UUID demoOwnerId,
+        String platformId,
         Storage storage,
         Jobs jobs,
         Processing processing) {

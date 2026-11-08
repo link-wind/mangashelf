@@ -7,6 +7,7 @@ import Reader from './pages/Reader'
 import Watch from './pages/Watch'
 import MyUploads from './pages/MyUploads'
 import Shelf from './pages/Shelf'
+import Settings from './pages/Settings'
 
 function Nav() {
   const { me, logout } = useAuth()
@@ -22,6 +23,7 @@ function Nav() {
       </nav>
       <span className="spacer" />
       <span className="who">{me.login}（{me.role === 'ADMIN' ? '管理员' : '用户'}）</span>
+      <NavLink to="/settings">设置</NavLink>
       <button onClick={async () => { await logout(); navigate('/login') }}>退出</button>
     </header>
   )
@@ -40,6 +42,7 @@ export default function App() {
         <Route path="/read/:revisionId" element={me ? <Reader /> : <Navigate to="/login" />} />
         <Route path="/watch/:animationId" element={me ? <Watch /> : <Navigate to="/login" />} />
         <Route path="/uploads" element={me ? <MyUploads /> : <Navigate to="/login" />} />
+        <Route path="/settings" element={me ? <Settings /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
     </>

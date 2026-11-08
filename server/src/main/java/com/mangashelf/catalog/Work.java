@@ -11,6 +11,7 @@ public record Work(
         String description,
         String visibility,
         String status,
+        String readingDirection,
         Instant createdAt,
         Instant updatedAt) {
 

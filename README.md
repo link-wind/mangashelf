@@ -34,7 +34,7 @@
 | M0 技术验证 | 固定版本、数据库扩展、对象签名、Python 协议 | ✅ 已完成（2026-11-07，见 docs/validation/m0.md） |
 | M1 漫画阅读 | 身份、作品／章节、图片／CBZ、版本发布、书架、进度 | ✅ 已完成（2026-11-08，见 docs/validation/m1.md） |
 | M2 动画观看 | 动画版本、来源范围、媒体校验、播放器、原作跳转 | ✅ 已完成（2026-11-08，见 docs/validation/m2.md） |
-| M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | 未开始 |
+| M3 项目闭环 | 受限 Token、导出、MangaWeaver 导入／主动发布 | ✅ 已完成（2026-11-08，见 docs/validation/m3.md；协议文档 docs/api/mangaweaver-integration.md） |
 | M4 智能检索 | OCR、字面检索、Embedding、混合召回、引用问答 | 未开始 |
 | M5 工程验收 | 中断恢复、权限、部署、备份、容量测量 | 未开始 |
 

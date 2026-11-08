@@ -64,11 +64,13 @@ public class CatalogRepository {
         return "%" + s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
-    public int updateWork(UUID id, String title, String description, String visibility) {
+    public int updateWork(UUID id, String title, String description, String visibility,
+                          String readingDirection) {
         return jdbc.update("""
-                UPDATE works SET title = ?, description = ?, visibility = ?, updated_at = now()
+                UPDATE works SET title = ?, description = ?, visibility = ?, reading_direction = ?,
+                       updated_at = now()
                 WHERE id = ?
-                """, title, description, visibility, id);
+                """, title, description, visibility, readingDirection, id);
     }
 
     public int updateWorkStatus(UUID id, String status) {

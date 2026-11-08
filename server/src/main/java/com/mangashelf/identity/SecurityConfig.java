@@ -39,13 +39,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, TokenService tokenService) throws Exception {
         http
                 .csrf(csrf -> csrf
                         // Cookie 仓库 + 纯 AttributeHandler：Cookie 存原始令牌，SPA 回传 X-XSRF-TOKEN 头。
                         // （XOR 委派模式面向令牌渲染进页面的场景，与 Cookie 仓库往返不一致，实测 403）
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        // Bearer 客户端不携带 Cookie，CSRF 威胁模型不适用（DESIGN 16/17）
+                        .ignoringRequestMatchers(BearerTokenFilter::isBearerRequest))
+                .addFilterBefore(new BearerTokenFilter(tokenService),
+                        org.springframework.security.web.csrf.CsrfFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), CsrfCookieFilter.afterWhichFilter())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/info",

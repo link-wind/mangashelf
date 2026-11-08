@@ -25,6 +25,8 @@ public record AnimationRevision(
         String sourceManifestSha256,
         String errorCode,
         String errorMessage,
+        String originClient,
+        String originRunRef,
         Instant createdAt,
         Instant updatedAt) {
 

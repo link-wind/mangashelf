@@ -48,6 +48,7 @@ public class CatalogController {
                                             @RequestParam(required = false) String cursor,
                                             @RequestParam(defaultValue = "20") int limit,
                                             @RequestParam(required = false) String q) {
+        com.mangashelf.identity.TokenScopes.require(com.mangashelf.identity.Scopes.CATALOG_READ);
         return catalog.listWorks(user, cursor, limit, q);
     }
 

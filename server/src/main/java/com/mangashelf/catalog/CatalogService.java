@@ -101,7 +101,8 @@ public class CatalogService {
         return new WorkListPage(items, next);
     }
 
-    public record PatchWorkRequest(String title, String description, String visibility) {
+    public record PatchWorkRequest(String title, String description, String visibility,
+                                   String readingDirection) {
     }
 
     public Work patchWork(CurrentUser user, UUID workId, PatchWorkRequest request) {
@@ -112,7 +113,12 @@ public class CatalogService {
         if (!Work.VISIBILITY_PRIVATE.equals(visibility) && !Work.VISIBILITY_PUBLIC.equals(visibility)) {
             throw new ApiException(400, "INVALID_VISIBILITY", "visibility 只能为 PRIVATE 或 PUBLIC。");
         }
-        catalog.updateWork(workId, title, description, visibility);
+        String direction = request.readingDirection() != null
+                ? request.readingDirection() : work.readingDirection();
+        if (!"rtl".equals(direction) && !"ltr".equals(direction)) {
+            throw new ApiException(400, "INVALID_READING_DIRECTION", "readingDirection 只能为 rtl 或 ltr。");
+        }
+        catalog.updateWork(workId, title, description, visibility, direction);
         return catalog.findWork(workId).orElseThrow();
     }
 

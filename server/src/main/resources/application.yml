@@ -39,6 +39,9 @@ mangashelf:
   # M0 固定演示 owner；M1 identity 落地后移除（validate-core-stack tasks.md 收尾项）
   demo-owner-id: ${MANGASHELF_DEMO_OWNER_ID:00000000-0000-0000-0000-000000000001}
 
+  # 平台来源标识（DESIGN 17.2）：稳定生成，不用可变域名充当来源
+  platform-id: ${MANGASHELF_PLATFORM_ID:mangashelf-instance-local}
+
   storage:
     endpoint: ${MANGASHELF_S3_ENDPOINT:http://localhost:9000}
     region: ${MANGASHELF_S3_REGION:us-east-1}

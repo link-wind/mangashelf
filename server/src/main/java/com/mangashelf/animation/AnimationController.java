@@ -70,11 +70,13 @@ public class AnimationController {
     @PostMapping("/animation-revisions/{id}/verify")
     public AnimationService.VerifyAccepted verify(@AuthUser CurrentUser user, @PathVariable UUID id,
                                                   @Valid @RequestBody AnimationService.VerifyRequest request) {
+        com.mangashelf.identity.TokenScopes.require(com.mangashelf.identity.Scopes.ANIMATIONS_WRITE);
         return animations.verify(user, id, request);
     }
 
     @PostMapping("/animation-revisions/{id}/publish")
     public AnimationRevision publishRevision(@AuthUser CurrentUser user, @PathVariable UUID id) {
+        com.mangashelf.identity.TokenScopes.require(com.mangashelf.identity.Scopes.ANIMATIONS_PUBLISH);
         return animations.publishRevision(user, id);
     }
 

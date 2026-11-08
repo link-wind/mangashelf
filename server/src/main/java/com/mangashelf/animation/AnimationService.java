@@ -65,7 +65,14 @@ public class AnimationService {
     // ── 动画容器 ──
 
     public Animation create(CurrentUser user, String title, String description) {
+        return create(user, title, description, Animation.VISIBILITY_PRIVATE);
+    }
+
+    public Animation create(CurrentUser user, String title, String description, String visibility) {
         UUID id = animations.insertAnimation(user.id(), title, description);
+        if (visibility != null && !Animation.VISIBILITY_PRIVATE.equals(visibility)) {
+            jdbc.update("UPDATE animations SET visibility = ? WHERE id = ?", visibility, id);
+        }
         log.info("animation {} created by {}", id, user.id());
         return animations.findAnimation(id).orElseThrow();
     }
@@ -157,11 +164,16 @@ public class AnimationService {
     public record SourceRequest(UUID chapterRevisionId, int pageStart, int pageEnd, int ordinal) {
     }
 
-    public record VerifyRequest(UUID videoAssetId, UUID posterAssetId, UUID subtitleAssetId,
-                                List<SourceRequest> sources) {
+    public record VerifyRequest(
+            @com.fasterxml.jackson.annotation.JsonProperty("video_asset_id") UUID videoAssetId,
+            @com.fasterxml.jackson.annotation.JsonProperty("poster_asset_id") UUID posterAssetId,
+            @com.fasterxml.jackson.annotation.JsonProperty("subtitle_asset_id") UUID subtitleAssetId,
+            List<SourceRequest> sources) {
     }
 
-    public record VerifyAccepted(UUID revisionId, UUID jobId) {
+    public record VerifyAccepted(
+            @com.fasterxml.jackson.annotation.JsonProperty("revision_id") UUID revisionId,
+            @com.fasterxml.jackson.annotation.JsonProperty("job_id") UUID jobId) {
     }
 
     public VerifyAccepted verify(CurrentUser user, UUID revisionId, VerifyRequest request) {
@@ -169,9 +181,6 @@ public class AnimationService {
         if (!AnimationRevision.STATUS_DRAFT.equals(revision.status())
                 && !AnimationRevision.STATUS_FAILED.equals(revision.status())) {
             throw new ApiException(409, "INVALID_STATE", "版本当前状态不允许提交验证。当前：" + revision.status());
-        }
-        if (request.sources() == null || request.sources().isEmpty()) {
-            throw new ApiException(400, "SOURCES_REQUIRED", "至少需要一条来源映射。");
         }
 
         // 资产绑定：VERIFIED + 归属同一用户 + kind 匹配（DESIGN 13.4-2）
@@ -181,10 +190,38 @@ public class AnimationService {
         UUID subtitleAssetId = request.subtitleAssetId() == null ? null
                 : requireAssetOfKind(user, request.subtitleAssetId(), Asset.KIND_SUBTITLE, "subtitleAssetId");
 
-        // 来源校验：固定章节版本存在、所有者可引用、页码范围 ≤ 页数、ordinal 唯一（DESIGN 13.2/8.3）
+        // 来源：请求可省略（协议侧 publications 已登记，DESIGN 17.3），沿用已登记清单
+        List<AnimationSource> sources;
+        boolean replaceSources = request.sources() != null && !request.sources().isEmpty();
+        if (replaceSources) {
+            sources = registerSources(user, revisionId, request.sources());
+        } else {
+            sources = animations.listSources(revisionId);
+            if (sources.isEmpty()) {
+                throw new ApiException(400, "SOURCES_REQUIRED", "至少需要一条来源映射。");
+            }
+        }
+        String manifestSha = sourceManifestSha(sources);
+
+        UUID jobId = tx.execute(status -> {
+            if (replaceSources) {
+                animations.replaceSources(revisionId, sources);
+            }
+            animations.bindAssetsAndMedia(revisionId, videoAssetId, posterAssetId, subtitleAssetId,
+                    null, null, null, null, null, null, manifestSha);
+            animations.markRevisionStatus(revisionId, AnimationRevision.STATUS_DRAFT, null, null);
+            return jobCreation.create(Job.KIND_ANIMATION_VERIFY, user.id(), null, null, revisionId,
+                    "verify:" + revisionId);
+        });
+        return new VerifyAccepted(revisionId, jobId);
+    }
+
+    /** 来源登记与校验（DESIGN 13.2/8.3）：固定章节版本可引用、页码范围 ≤ 页数、ordinal 唯一。 */
+    public List<AnimationSource> registerSources(CurrentUser user, UUID revisionId,
+                                                 List<AnimationService.SourceRequest> requests) {
         Set<Integer> ordinals = new HashSet<>();
         List<AnimationSource> sources = new ArrayList<>();
-        for (SourceRequest s : request.sources()) {
+        for (SourceRequest s : requests) {
             ChapterRevision chapterRev = catalogService.requireOwnedRevision(user, s.chapterRevisionId());
             if (!ChapterRevision.STATUS_PUBLISHED.equals(chapterRev.status())
                     && !ChapterRevision.STATUS_READY.equals(chapterRev.status())) {
@@ -206,17 +243,8 @@ public class AnimationService {
             sources.add(new AnimationSource(UUID.randomUUID(), revisionId, s.chapterRevisionId(),
                     s.pageStart(), s.pageEnd(), s.ordinal()));
         }
-        String manifestSha = sourceManifestSha(sources);
-
-        UUID jobId = tx.execute(status -> {
-            animations.replaceSources(revisionId, sources);
-            animations.bindAssetsAndMedia(revisionId, videoAssetId, posterAssetId, subtitleAssetId,
-                    null, null, null, null, null, null, manifestSha);
-            animations.markRevisionStatus(revisionId, AnimationRevision.STATUS_DRAFT, null, null);
-            return jobCreation.create(Job.KIND_ANIMATION_VERIFY, user.id(), null, null, revisionId,
-                    "verify:" + revisionId);
-        });
-        return new VerifyAccepted(revisionId, jobId);
+        tx.executeWithoutResult(status -> animations.replaceSources(revisionId, sources));
+        return sources;
     }
 
     private UUID requireAssetOfKind(CurrentUser user, UUID assetId, String kind, String field) {
