@@ -1,6 +1,9 @@
 spring:
   application:
     name: mangashelf
+  autoconfigure:
+    # 嵌入模型由 EmbeddingConfig 按需装配（模型文件缺失不阻塞启动）
+    exclude: org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration
 
   datasource:
     url: ${MANGASHELF_DB_URL:jdbc:postgresql://localhost:5432/mangashelf}
@@ -57,6 +60,12 @@ mangashelf:
     dispatch-interval-ms: 500
     recovery-interval-ms: 10000
     max-dispatch-attempts: 5
+
+  embedding:
+    # 本地 ONNX 嵌入（e5-small-v2，384 维）；模型文件不入库
+    enabled: ${MANGASHELF_EMBEDDING_ENABLED:true}
+    model-path: ${MANGASHELF_EMBEDDING_MODEL_PATH:./models/e5-small-v2.onnx}
+    tokenizer-path: ${MANGASHELF_EMBEDDING_TOKENIZER_PATH:./models/tokenizer.json}
 
   processing:
     python-binary: ${MANGASHELF_PYTHON:python3}

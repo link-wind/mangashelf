@@ -64,6 +64,17 @@ public class CatalogRepository {
         return "%" + s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
+    /** 标题召回（DESIGN 15.3 文本分支）：授权范围 + ILIKE/trgm，按相似度排序。 */
+    public List<Work> searchWorksByTitle(UUID viewerId, String q, int limit) {
+        return jdbc.query("""
+                SELECT * FROM works w
+                WHERE (w.owner_id = ? OR (w.visibility = 'PUBLIC' AND w.status = 'PUBLISHED'))
+                  AND (w.title ILIKE '%' || ? || '%' OR w.title % ?)
+                ORDER BY GREATEST(similarity(w.title, ?), CASE WHEN w.title ILIKE '%' || ? || '%' THEN 1 ELSE 0 END) DESC
+                LIMIT ?
+                """, workMapper, viewerId, q, q, q, q, limit);
+    }
+
     public int updateWork(UUID id, String title, String description, String visibility,
                           String readingDirection) {
         return jdbc.update("""

@@ -20,6 +20,7 @@
   <properties>
     <java.version>25</java.version>
     <aws-sdk.version>2.39.6</aws-sdk.version>
+    <spring-ai.version>2.0.2</spring-ai.version>
   </properties>
 
   <dependencyManagement>
@@ -28,6 +29,13 @@
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
         <version>${aws-sdk.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -88,6 +96,27 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
+    </dependency>
+
+    <!-- 智能检索：本地 ONNX Embedding（e5-small-v2，DESIGN 15 / implement-intelligent-retrieval D7） -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-model-transformers</artifactId>
+      <exclusions>
+        <!-- 仅用 ONNX Runtime 推理与 HF 分词器；排除 PyTorch 引擎避免 DJL 联网拉原生库 -->
+        <exclusion>
+          <groupId>ai.djl.pytorch</groupId>
+          <artifactId>pytorch-engine</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>ai.djl</groupId>
+          <artifactId>model-zoo</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-client-chat</artifactId>
     </dependency>
 
     <dependency>

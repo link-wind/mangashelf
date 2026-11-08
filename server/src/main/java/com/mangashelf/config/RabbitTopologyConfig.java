@@ -22,6 +22,7 @@ public class RabbitTopologyConfig {
 
     public static final String JOBS_EXCHANGE = "mangashelf.jobs";
     public static final String QUEUE_CONTENT_PROCESS = "content.process";
+    public static final String QUEUE_CONTENT_INDEX = "content.index";
 
     @Bean
     public DirectExchange jobsExchange() {
@@ -36,6 +37,16 @@ public class RabbitTopologyConfig {
     @Bean
     public Binding contentProcessBinding(DirectExchange jobsExchange, Queue contentProcessQueue) {
         return BindingBuilder.bind(contentProcessQueue).to(jobsExchange).with(QUEUE_CONTENT_PROCESS);
+    }
+
+    @Bean
+    public Queue contentIndexQueue() {
+        return QueueBuilder.durable(QUEUE_CONTENT_INDEX).build();
+    }
+
+    @Bean
+    public Binding contentIndexBinding(DirectExchange jobsExchange, Queue contentIndexQueue) {
+        return BindingBuilder.bind(contentIndexQueue).to(jobsExchange).with(QUEUE_CONTENT_INDEX);
     }
 
     @Bean

@@ -34,7 +34,16 @@ public class JobConsumer {
     }
 
     @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_PROCESS, ackMode = "MANUAL")
-    public void onMessage(Message message, Channel channel) throws IOException {
+    public void onContentProcessMessage(Message message, Channel channel) throws IOException {
+        consume(message, channel);
+    }
+
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_INDEX, ackMode = "MANUAL")
+    public void onContentIndexMessage(Message message, Channel channel) throws IOException {
+        consume(message, channel);
+    }
+
+    private void consume(Message message, Channel channel) throws IOException {
         long tag = message.getMessageProperties().getDeliveryTag();
         try {
             JobMessage msg = objectMapper.readValue(

@@ -7,6 +7,7 @@ import Reader from './pages/Reader'
 import Watch from './pages/Watch'
 import MyUploads from './pages/MyUploads'
 import Shelf from './pages/Shelf'
+import Search from './pages/Search'
 import Settings from './pages/Settings'
 
 function Nav() {
@@ -20,6 +21,7 @@ function Nav() {
         <NavLink to="/">书库</NavLink>
         <NavLink to="/shelf">我的书架</NavLink>
         <NavLink to="/uploads">我的素材</NavLink>
+        <NavLink to="/search">搜索</NavLink>
       </nav>
       <span className="spacer" />
       <span className="who">{me.login}（{me.role === 'ADMIN' ? '管理员' : '用户'}）</span>
@@ -43,6 +45,7 @@ export default function App() {
         <Route path="/watch/:animationId" element={me ? <Watch /> : <Navigate to="/login" />} />
         <Route path="/uploads" element={me ? <MyUploads /> : <Navigate to="/login" />} />
         <Route path="/settings" element={me ? <Settings /> : <Navigate to="/login" />} />
+        <Route path="/search" element={me ? <Search /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
     </>

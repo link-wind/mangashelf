@@ -11,7 +11,11 @@ public record MangaShelfProperties(
         String platformId,
         Storage storage,
         Jobs jobs,
-        Processing processing) {
+        Processing processing,
+        Embedding embedding) {
+
+    public record Embedding(boolean enabled, String modelPath, String tokenizerPath) {
+    }
 
     public record Storage(
             String endpoint,

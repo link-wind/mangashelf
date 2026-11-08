@@ -25,16 +25,18 @@ public class JobRepository {
      * 目标外键按任务种类由数据库 CHECK（jobs_target_by_kind）约束。
      */
     public UUID insertOrExisting(String kind, UUID ownerId, UUID uploadSessionId,
-                                 UUID chapterRevisionId, UUID animationRevisionId, String dedupKey) {
+                                 UUID chapterRevisionId, UUID animationRevisionId,
+                                 UUID indexGenerationId, String dedupKey) {
         UUID id = UUID.randomUUID();
         List<UUID> inserted = jdbc.query("""
                 INSERT INTO jobs (id, kind, owner_id, upload_session_id, chapter_revision_id,
-                                  animation_revision_id, dedup_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                  animation_revision_id, index_generation_id, dedup_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (kind, dedup_key) DO NOTHING
                 RETURNING id
                 """, (rs, i) -> rs.getObject("id", UUID.class),
-                id, kind, ownerId, uploadSessionId, chapterRevisionId, animationRevisionId, dedupKey);
+                id, kind, ownerId, uploadSessionId, chapterRevisionId, animationRevisionId,
+                indexGenerationId, dedupKey);
         if (!inserted.isEmpty()) {
             return inserted.getFirst();
         }

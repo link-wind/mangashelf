@@ -15,6 +15,7 @@ public record Job(
         UUID uploadSessionId,
         UUID chapterRevisionId,
         UUID animationRevisionId,
+        UUID indexGenerationId,
         String dedupKey,
         String status,
         String stage,
@@ -34,6 +35,7 @@ public record Job(
     public static final String KIND_PROCESS = "content.process";
     public static final String KIND_CHAPTER_PARSE = "chapter.parse";
     public static final String KIND_ANIMATION_VERIFY = "animation.verify";
+    public static final String KIND_INDEX_BUILD = "index.build";
 
     public static final String STATUS_QUEUED = "QUEUED";
     public static final String STATUS_RUNNING = "RUNNING";

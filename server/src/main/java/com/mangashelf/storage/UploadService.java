@@ -134,7 +134,7 @@ public class UploadService {
         }
 
         UUID jobId = jobCreation.create(Job.KIND_VERIFY, session.ownerId(), uploadId,
-                null, null, "verify:" + uploadId);
+                null, null, null, "verify:" + uploadId);
         return new CompleteResult(uploadId, session.status(), jobId);
     }
 

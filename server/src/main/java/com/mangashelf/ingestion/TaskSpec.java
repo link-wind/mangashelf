@@ -21,7 +21,12 @@ public record TaskSpec(
 
     public static final int SCHEMA_VERSION = 1;
 
-    public record TaskInput(String role, @JsonProperty("path") String path) {
+    public record TaskInput(String role, @JsonProperty("path") String path,
+                            @JsonProperty("ordinal") Integer ordinal) {
+
+        public TaskInput(String role, String path) {
+            this(role, path, null);
+        }
     }
 
     /** 解析防护上限（DESIGN 10.3），来源为服务端配置而非用户声明。 */

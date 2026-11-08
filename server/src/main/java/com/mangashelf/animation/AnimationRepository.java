@@ -201,6 +201,18 @@ public class AnimationRepository {
                                  UUID workId, String workTitle) {
     }
 
+    /** 作品级"有动画"判定（搜索过滤用）：PUBLISHED 动画的来源引用该作品的章节。 */
+    public int countPublishedForWork(UUID workId) {
+        Integer n = jdbc.queryForObject("""
+                SELECT count(DISTINCT a.id) FROM animation_sources s
+                JOIN animation_revisions ar ON ar.id = s.animation_revision_id
+                JOIN animations a ON a.id = ar.animation_id
+                JOIN chapters c ON c.id = s.chapter_revision_id
+                WHERE c.work_id = ? AND ar.status = 'PUBLISHED' AND a.status = 'PUBLISHED'
+                """, Integer.class, workId);
+        return n == null ? 0 : n;
+    }
+
     // ── watch progress（DESIGN 14.3）──
 
     /** 条件更新：版本匹配才覆盖并递增；返回新版本号，空即冲突。 */
