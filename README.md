@@ -27,6 +27,9 @@
 | 前端 | React + TypeScript + Vite |
 | 部署 | Docker Compose（PostgreSQL / RabbitMQ / MinIO / API / Worker） |
 
+> 界面风格参照 [gugu.fan](https://gugu.fan/)（B 站蓝系：底 `#f8f9fa`、主操作 `#00aeec`、
+> 链接 `#00658b`、白卡片 12px 圆角、胶囊搜索、半透明毛玻璃顶栏），无广告。
+
 ## 里程碑（设计第 22 节）
 
 | 阶段 | 范围 | 状态 |

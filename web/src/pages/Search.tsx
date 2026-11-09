@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 
@@ -21,7 +22,8 @@ interface Hit {
 
 /** 搜索页（DESIGN 15.3 + M10）：番剧目录 → 站内标题/对白/语义混合结果。 */
 export default function Search() {
-  const [q, setQ] = useState('')
+  const [params] = useSearchParams()
+  const [q, setQ] = useState(params.get('q') ?? '')
   const [hits, setHits] = useState<Hit[]>([])
   const [catalog, setCatalog] = useState<CatalogHit[]>([])
   const [semanticEnabled, setSemanticEnabled] = useState(true)

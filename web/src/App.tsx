@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import LoginPage from './pages/Login'
@@ -29,24 +29,35 @@ function toggleTheme() {
 function Nav() {
   const { me, logout } = useAuth()
   const navigate = useNavigate()
+  const [kw, setKw] = useState('')
   if (!me) return null
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const q = kw.trim()
+    navigate(q ? `/search?q=${encodeURIComponent(q)}` : '/search')
+  }
   return (
     <header className="nav">
-      <span className="brand">MangaShelf</span>
+      <NavLink to="/" className="brand">MangaShelf</NavLink>
       <nav>
-        <NavLink to="/">首页</NavLink>
+        <NavLink to="/" end>首页</NavLink>
         <NavLink to="/anime">番剧索引</NavLink>
         <NavLink to="/schedule">新番时刻表</NavLink>
         <NavLink to="/shelf">我的书架</NavLink>
         <NavLink to="/uploads">我的素材</NavLink>
-        <NavLink to="/search">搜索</NavLink>
         <NavLink to="/history">观看历史</NavLink>
       </nav>
+      <form className="nav-search" onSubmit={submit}>
+        <input value={kw} onChange={e => setKw(e.target.value)}
+               placeholder="搜索番剧、标题、别名…" aria-label="全站搜索" />
+        <button type="submit" className="pill">搜索</button>
+      </form>
       <span className="spacer" />
       <span className="who">{me.login}（{me.role === 'ADMIN' ? '管理员' : '用户'}）</span>
-      <button className="ghost" onClick={toggleTheme} title="切换明暗主题">◐</button>
-      <NavLink to="/settings">设置</NavLink>
-      <button onClick={async () => { await logout(); navigate('/login') }}>退出</button>
+      <button className="ghost pill mini" onClick={toggleTheme} title="切换明暗主题">◐</button>
+      <NavLink to="/settings" className="btn ghost pill mini" style={{ padding: '4px 12px' }}>设置</NavLink>
+      <button className="pill mini" style={{ padding: '5px 14px' }}
+              onClick={async () => { await logout(); navigate('/login') }}>退出</button>
     </header>
   )
 }
