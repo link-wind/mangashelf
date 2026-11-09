@@ -43,6 +43,7 @@ export default function MangaIndex() {
       <div className="watch-title"><h1>漫画</h1></div>
       <div className="watch-meta">
         <span>共 {items.length} 部可读作品 · 封面来自章节首页</span>
+        <Link to="/manga-ext">外部漫画（MangaDex）→</Link>
         <Link to="/uploads">上传漫画 →</Link>
       </div>
 

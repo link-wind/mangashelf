@@ -10,6 +10,9 @@ import CatalogDetail from './pages/CatalogDetail'
 import History from './pages/History'
 import MangaIndex from './pages/MangaIndex'
 import MangaDetailPage from './pages/MangaDetail'
+import ExternalManga from './pages/ExternalManga'
+import ExternalMangaDetail from './pages/ExternalMangaDetail'
+import ExternalMangaReader from './pages/ExternalMangaReader'
 import WorkDetail from './pages/WorkDetail'
 import Reader from './pages/Reader'
 import Watch from './pages/Watch'
@@ -80,6 +83,9 @@ export default function App() {
         <Route path="/anime" element={me ? <AnimeIndex /> : <Navigate to="/login" />} />
         <Route path="/manga" element={me ? <MangaIndex /> : <Navigate to="/login" />} />
         <Route path="/manga/:id" element={me ? <MangaDetailPage /> : <Navigate to="/login" />} />
+        <Route path="/manga-ext" element={me ? <ExternalManga /> : <Navigate to="/login" />} />
+        <Route path="/manga-ext/read/:chapterId" element={me ? <ExternalMangaReader /> : <Navigate to="/login" />} />
+        <Route path="/manga-ext/:mangaId" element={me ? <ExternalMangaDetail /> : <Navigate to="/login" />} />
         <Route path="/schedule" element={me ? <Schedule /> : <Navigate to="/login" />} />
         <Route path="/catalog/:id" element={me ? <CatalogDetail /> : <Navigate to="/login" />} />
         <Route path="/history" element={me ? <History /> : <Navigate to="/login" />} />

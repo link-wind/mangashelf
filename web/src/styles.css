@@ -529,3 +529,19 @@ button.mini.ghost { padding: 3px 9px; }
   background: var(--accent) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='white' d='M9 7.5v9l7-4.5z'/></svg>") center/14px no-repeat;
 }
 .footer-brand p { margin: 4px 0 0; }
+
+/* ── 外部漫画（M16）── */
+button.ext-card { text-align: left; padding: 0; background: var(--card); border: 1px solid var(--border); }
+button.ext-card:hover { background: var(--card); }
+.reader-toolbar {
+  display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.ext-reader-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  max-width: 860px; margin: 0 auto;
+}
+.ext-reader-stage img {
+  width: 100%; height: auto; display: block; background: #0d0f11;
+  min-height: 120px;
+}
