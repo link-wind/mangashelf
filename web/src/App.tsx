@@ -8,6 +8,8 @@ import AnimeIndex from './pages/AnimeIndex'
 import Schedule from './pages/Schedule'
 import CatalogDetail from './pages/CatalogDetail'
 import History from './pages/History'
+import MangaIndex from './pages/MangaIndex'
+import MangaDetailPage from './pages/MangaDetail'
 import WorkDetail from './pages/WorkDetail'
 import Reader from './pages/Reader'
 import Watch from './pages/Watch'
@@ -41,10 +43,10 @@ function Nav() {
       <NavLink to="/" className="brand">MangaShelf</NavLink>
       <nav>
         <NavLink to="/" end>首页</NavLink>
+        <NavLink to="/manga">漫画</NavLink>
         <NavLink to="/anime">番剧索引</NavLink>
         <NavLink to="/schedule">新番时刻表</NavLink>
         <NavLink to="/shelf">我的书架</NavLink>
-        <NavLink to="/uploads">我的素材</NavLink>
         <NavLink to="/history">观看历史</NavLink>
       </nav>
       <form className="nav-search" onSubmit={submit}>
@@ -76,6 +78,8 @@ export default function App() {
         <Route path="/login" element={me ? <Navigate to="/" /> : <LoginPage />} />
         <Route path="/" element={me ? <Home /> : <Navigate to="/login" />} />
         <Route path="/anime" element={me ? <AnimeIndex /> : <Navigate to="/login" />} />
+        <Route path="/manga" element={me ? <MangaIndex /> : <Navigate to="/login" />} />
+        <Route path="/manga/:id" element={me ? <MangaDetailPage /> : <Navigate to="/login" />} />
         <Route path="/schedule" element={me ? <Schedule /> : <Navigate to="/login" />} />
         <Route path="/catalog/:id" element={me ? <CatalogDetail /> : <Navigate to="/login" />} />
         <Route path="/history" element={me ? <History /> : <Navigate to="/login" />} />

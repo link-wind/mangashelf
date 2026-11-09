@@ -18,6 +18,13 @@ interface ProgressRow {
   episodeId: string | null; lineName: string | null; coverUrl: string | null
   positionMs: number; durationMs: number | null; updatedAt: string
 }
+interface MangaCard {
+  id: string; title: string; description: string; visibility: string
+  chapterCount: number; latestOrdinal: number | null; coverUrl: string | null; updatedAt: string
+}
+interface MangaContinue {
+  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; workTitle: string
+}
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
   animations: number; episodes: number; posterUrl: string | null
@@ -38,21 +45,27 @@ export default function Home() {
   const [updates, setUpdates] = useState<CatalogItem[]>([])
   const [continueList, setContinueList] = useState<ProgressRow[]>([])
   const [works, setWorks] = useState<WorkCard[]>([])
+  const [manga, setManga] = useState<MangaCard[]>([])
+  const [mangaContinue, setMangaContinue] = useState<MangaContinue[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
     void (async () => {
       try {
-        const [cal, cat, prog, page] = await Promise.all([
+        const [cal, cat, prog, page, mg, lib] = await Promise.all([
           api.get<CalendarEntry[]>('/api/v1/calendar'),
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
           api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=6'),
           api.get<{ items: WorkCard[] }>('/api/v1/works?limit=12'),
+          api.get<{ items: MangaCard[] }>('/api/v1/manga?limit=12'),
+          api.get<{ continueReading: MangaContinue[] }>('/api/v1/me/library'),
         ])
         setCalendar(cal)
         setUpdates(cat.items)
         setContinueList(prog)
         setWorks(page.items)
+        setManga(mg.items)
+        setMangaContinue(lib.continueReading.slice(0, 6))
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       }
@@ -95,6 +108,52 @@ export default function Home() {
                 <div className="work-card-body">
                   <div className="work-card-title clamp">{r.workTitle}</div>
                   <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(manga.length > 0 || mangaContinue.length > 0) && (
+        <section style={{ marginTop: 30 }}>
+          <div className="section-head">
+            <h2>漫画{mangaContinue.length > 0 ? ' · 继续阅读' : ''}</h2>
+            <Link to="/manga" className="muted">漫画专区 →</Link>
+          </div>
+          {mangaContinue.length > 0 && (
+            <div className="hscroll" style={{ marginBottom: 12 }}>
+              {mangaContinue.map(r => (
+                <Link key={`${r.workId}-${r.chapterId}`}
+                      to={`/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal}`}
+                      className="work-card">
+                  <div className="cover">
+                    <span className="cover-initial">{r.workTitle.slice(0, 1)}</span>
+                    <span className="badge-anim">读到 {r.pageOrdinal} 页</span>
+                  </div>
+                  <div className="work-card-body">
+                    <div className="work-card-title clamp">{r.workTitle}</div>
+                    <div className="work-card-meta"><span>继续阅读</span></div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+          <div className="card-grid">
+            {manga.map(m => (
+              <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
+                <div className="cover">
+                  {m.coverUrl
+                    ? <img src={m.coverUrl} alt={m.title} loading="lazy" decoding="async"
+                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    : <span className="cover-initial">{m.title.slice(0, 1)}</span>}
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{m.title}</div>
+                  <div className="work-card-meta">
+                    <span>{m.chapterCount} 话</span>
+                    {m.latestOrdinal != null && <span>更新至第 {m.latestOrdinal} 话</span>}
+                  </div>
                 </div>
               </Link>
             ))}
