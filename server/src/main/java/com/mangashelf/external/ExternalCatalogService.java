@@ -148,6 +148,54 @@ public class ExternalCatalogService {
                 b == null ? null : b.summary(), b == null ? null : b.weekday(), lines);
     }
 
+    // ── 浏览态播放（M20）：剧集挂目录条目，不建作品 ──
+
+    public record BrowseEpisode(UUID id, String title, int ordinal, String lineName,
+                                int lineRank, String episodeType) {}
+
+    public record BrowseLine(String name, int rank, List<BrowseEpisode> episodes) {}
+
+    public record BrowseEpisodes(ExternalCatalogItem item, List<BrowseLine> lines) {}
+
+    /** 返回目录条目的剧集（首次按线路懒生成，不创建作品）。 */
+    public BrowseEpisodes browseEpisodes(CurrentUser user, UUID itemId) {
+        ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
+                () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
+        ensureBrowseEpisodes(item);
+        var eps = externals.listEpisodesByCatalogItem(itemId);
+        var byLine = new java.util.LinkedHashMap<String, BrowseLine>();
+        for (var e : eps) {
+            byLine.computeIfAbsent(e.lineName(), k -> new BrowseLine(k, e.lineRank(), new ArrayList<>()))
+                    .episodes().add(new BrowseEpisode(e.id(), e.title(), e.ordinal(),
+                            e.lineName(), e.lineRank(), e.episodeType()));
+        }
+        var lines = byLine.values().stream()
+                .sorted(java.util.Comparator.comparingInt(BrowseLine::rank))
+                .toList();
+        return new BrowseEpisodes(item, lines);
+    }
+
+    /** 浏览态播放目标：首选线路的第一集（按 rank、ordinal）。 */
+    public UUID browsePlayTarget(CurrentUser user, UUID itemId) {
+        ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
+                () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
+        ensureBrowseEpisodes(item);
+        return externals.listEpisodesByCatalogItem(itemId).stream()
+                .min(java.util.Comparator.comparingInt(ExternalEpisode::lineRank)
+                        .thenComparingInt(ExternalEpisode::ordinal))
+                .map(ExternalEpisode::id).orElse(null);
+    }
+
+    /** 懒生成：目录条目尚无剧集时，按 play_groups 写入浏览态剧集。 */
+    private void ensureBrowseEpisodes(ExternalCatalogItem item) {
+        if (!externals.listEpisodesByCatalogItem(item.id()).isEmpty()) return;
+        for (var ep : parseEpisodes(item)) {
+            externals.insertCatalogEpisode(UUID.randomUUID(), item.id(), item.sourceId(),
+                    ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
+                    ep.episodeType());
+        }
+    }
+
     // ── 物化 ──
 
     public record Materialized(UUID workId, boolean created) {}
@@ -163,10 +211,13 @@ public class ExternalCatalogService {
             var fresh = catalogItems.findItem(itemId).orElseThrow();
             if (fresh.workId() != null) return fresh.workId();
             UUID wid = catalog.insertWork(user.id(), fresh.name(), fresh.remarks());
-            for (var ep : parseEpisodes(fresh)) {
-                externals.insertEpisode(UUID.randomUUID(), wid, fresh.sourceId(),
-                        ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
-                        ep.episodeType());
+            // 已有浏览态剧集则直接收编，避免重复解析
+            if (externals.adoptEpisodes(itemId, wid) == 0) {
+                for (var ep : parseEpisodes(fresh)) {
+                    externals.insertEpisode(UUID.randomUUID(), wid, fresh.sourceId(),
+                            ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
+                            ep.episodeType());
+                }
             }
             catalogItems.markMaterialized(itemId, wid);
             return wid;

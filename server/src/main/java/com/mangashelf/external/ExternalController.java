@@ -254,6 +254,18 @@ public class ExternalController {
         return bangumi.calendar();
     }
 
+    @GetMapping("/catalog-items/{id}/episodes")
+    public ExternalCatalogService.BrowseEpisodes browseEpisodes(@AuthUser CurrentUser user,
+                                                                @PathVariable UUID id) {
+        return catalog.browseEpisodes(user, id);
+    }
+
+    @GetMapping("/catalog-items/{id}/play-target")
+    public Map<String, Object> browsePlayTarget(@AuthUser CurrentUser user, @PathVariable UUID id) {
+        UUID episodeId = catalog.browsePlayTarget(user, id);
+        return episodeId == null ? Map.of() : Map.of("episodeId", episodeId);
+    }
+
     @GetMapping("/catalog-items/{id}")
     public ExternalCatalogService.CatalogDetail catalogItemDetail(@AuthUser CurrentUser user,
                                                                   @PathVariable UUID id) {

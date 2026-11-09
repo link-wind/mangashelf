@@ -22,6 +22,7 @@ import Search from './pages/Search'
 import Settings from './pages/Settings'
 import ExternalEpisodes from './pages/ExternalEpisodes'
 import ExternalWatch from './pages/ExternalWatch'
+import BrowseWatch from './pages/BrowseWatch'
 
 /** 明暗主题切换（M12）：存 localStorage，根节点 data-theme 驱动 CSS 变量。 */
 function toggleTheme() {
@@ -98,6 +99,8 @@ export default function App() {
         <Route path="/search" element={me ? <Search /> : <Navigate to="/login" />} />
         <Route path="/works/:workId/external" element={me ? <ExternalEpisodes /> : <Navigate to="/login" />} />
         <Route path="/works/:workId/external/:episodeId" element={me ? <ExternalWatch /> : <Navigate to="/login" />} />
+        <Route path="/browse/:itemId" element={me ? <BrowseWatch /> : <Navigate to="/login" />} />
+        <Route path="/browse/:itemId/:episodeId" element={me ? <BrowseWatch /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
       {me && <Footer />}

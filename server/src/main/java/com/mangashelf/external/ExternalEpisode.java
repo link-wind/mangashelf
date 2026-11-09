@@ -11,6 +11,7 @@ import java.util.UUID;
 public record ExternalEpisode(
         UUID id,
         UUID workId,
+        UUID catalogItemId,
         UUID sourceId,
         String title,
         String episodeUrl,

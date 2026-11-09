@@ -375,7 +375,7 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
       <div className="hscroll">
         {list.map(it => (
           <Link key={it.subjectId}
-                to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime')}
+                to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime')}
                 className="work-card">
             <div className="cover">
               <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
@@ -397,22 +397,12 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   )
 }
 
-/** 点卡片直接进播放页（M20）：已入库跳作品（作品页直达播放），未入库先物化。 */
+/** 点卡片直接进播放页（M20 浏览态）：不创建作品；已入库则走作品播放页。 */
 function CatalogCard({ it }: { it: CatalogItem }) {
   const navigate = useNavigate()
-  const [busy, setBusy] = useState(false)
-
-  async function open() {
-    if (it.workId) { navigate(`/works/${it.workId}`); return }
-    setBusy(true)
-    try {
-      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.id}/materialize`, {})
-      navigate(`/works/${res.workId}`)
-    } catch { /* 失败停留 */ } finally { setBusy(false) }
-  }
-
   return (
-    <button className="work-card ext-card" onClick={() => void open()} disabled={busy}>
+    <button className="work-card ext-card"
+            onClick={() => navigate(it.workId ? `/works/${it.workId}` : `/browse/${it.id}`)}>
       <div className="cover">
         {it.bangumiSubjectId
           ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=medium`} alt={it.name} loading="lazy" decoding="async"
@@ -421,7 +411,9 @@ function CatalogCard({ it }: { it: CatalogItem }) {
             ? <img src={it.coverUrl} alt={it.name} loading="lazy" decoding="async"
                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
             : <span className="cover-initial">{it.name.slice(0, 1)}</span>}
-        {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+        {it.workId
+          ? <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>
+          : <span className="badge-anim">可播</span>}
       </div>
       <div className="work-card-body">
         <div className="work-card-title clamp">{it.name}</div>

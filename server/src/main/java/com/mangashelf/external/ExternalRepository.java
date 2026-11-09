@@ -89,10 +89,42 @@ public class ExternalRepository {
                 INSERT INTO external_episodes
                     (id, work_id, source_id, title, episode_url, ordinal, line_name, line_rank, episode_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (work_id, source_id, line_name, ordinal) DO UPDATE
+                ON CONFLICT (work_id, source_id, line_name, ordinal)
+                    WHERE work_id IS NOT NULL DO UPDATE
                 SET title = EXCLUDED.title, episode_url = EXCLUDED.episode_url,
                     line_rank = EXCLUDED.line_rank, episode_type = EXCLUDED.episode_type
                 """, id, workId, sourceId, title, episodeUrl, ordinal, lineName, lineRank, episodeType);
+    }
+
+    /** 浏览态：把剧集挂到目录条目上（不建作品）。 */
+    public void insertCatalogEpisode(UUID id, UUID catalogItemId, UUID sourceId, String title,
+                                     String episodeUrl, int ordinal, String lineName, int lineRank,
+                                     String episodeType) {
+        jdbc.update("""
+                INSERT INTO external_episodes
+                    (id, catalog_item_id, source_id, title, episode_url, ordinal,
+                     line_name, line_rank, episode_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (catalog_item_id, source_id, line_name, ordinal)
+                    WHERE catalog_item_id IS NOT NULL DO UPDATE
+                SET title = EXCLUDED.title, episode_url = EXCLUDED.episode_url,
+                    line_rank = EXCLUDED.line_rank, episode_type = EXCLUDED.episode_type
+                """, id, catalogItemId, sourceId, title, episodeUrl, ordinal,
+                lineName, lineRank, episodeType);
+    }
+
+    public List<ExternalEpisode> listEpisodesByCatalogItem(UUID catalogItemId) {
+        return jdbc.query(
+                "SELECT * FROM external_episodes WHERE catalog_item_id = ? ORDER BY line_rank, ordinal, line_name",
+                episodeMapper, catalogItemId);
+    }
+
+    /** 入书库：把该目录条目的浏览态剧集收编到作品下。 */
+    public int adoptEpisodes(UUID catalogItemId, UUID workId) {
+        return jdbc.update("""
+                UPDATE external_episodes SET work_id = ?, catalog_item_id = NULL
+                WHERE catalog_item_id = ?
+                """, workId, catalogItemId);
     }
 
     public List<ExternalEpisode> listEpisodes(UUID workId) {

@@ -75,9 +75,12 @@ export default function CatalogDetail() {
           <div className="row-inline" style={{ marginTop: 14 }}>
             {item.workId
               ? <Link className="btn" to={`/works/${item.workId}`}>打开作品</Link>
-              : <button disabled={busy} onClick={() => void materialize()}>
-                  {busy ? '处理中…' : '加入书库并播放'}
-                </button>}
+              : <>
+                  <Link className="btn" to={`/browse/${item.id}`}>立即播放</Link>
+                  <button className="ghost" disabled={busy} onClick={() => void materialize()}>
+                    {busy ? '处理中…' : '加入书库'}
+                  </button>
+                </>}
             <Link className="btn ghost" to="/anime">返回索引</Link>
           </div>
         </div>

@@ -274,7 +274,12 @@ public class ExternalService {
     private ExternalEpisode requireVisibleEpisode(CurrentUser user, UUID episodeId) {
         ExternalEpisode episode = externals.findEpisode(episodeId).orElseThrow(
                 () -> new ApiException(404, "EPISODE_NOT_FOUND", "外部集不存在。"));
-        catalog.requireVisibleWork(user, episode.workId());
+        // M20：浏览态剧集挂目录条目，登录用户均可解析；入库剧集仍按作品可见性校验
+        if (episode.workId() != null) {
+            catalog.requireVisibleWork(user, episode.workId());
+        } else if (episode.catalogItemId() == null) {
+            throw new ApiException(404, "EPISODE_OWNER_MISSING", "剧集缺少归属。");
+        }
         return episode;
     }
 

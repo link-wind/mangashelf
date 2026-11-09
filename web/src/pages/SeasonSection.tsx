@@ -64,8 +64,9 @@ export default function SeasonSection({ layout = 'grid', limit }: {
       <div className={layout === 'scroll' ? 'hscroll' : 'card-grid'}>
         {shown.map(it => (
           <div key={it.subjectId} className="work-card"
-               onClick={() => { if (it.workId) navigate(`/works/${it.workId}`) }}
-               style={{ cursor: it.workId ? 'pointer' : 'default' }}>
+               onClick={() => navigate(it.workId ? `/works/${it.workId}`
+                 : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime'))}
+               style={{ cursor: 'pointer' }}>
             <div className="cover">
               <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
