@@ -43,6 +43,7 @@ export default function Reader() {
   const [version, setVersion] = useState(0)
   const [chapterId, setChapterId] = useState<string | null>(null)
   const [adaptations, setAdaptations] = useState<Adaptation[]>([])
+  const [titles, setTitles] = useState<{ work: string; chapter: string }>({ work: '本地漫画', chapter: '' })
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const cursorRef = useRef<string | null>(null)
@@ -99,6 +100,18 @@ export default function Reader() {
     }
   }, [revisionId])
 
+  // 作品名与章节名（阅读器顶栏）
+  useEffect(() => {
+    if (!chapterId) return
+    void api.get<{ work: { title: string }; chapter: { ordinal: number; title: string } }>(
+      `/api/v1/chapters/${chapterId}`)
+      .then(v => setTitles({
+        work: v.work.title,
+        chapter: `第 ${v.chapter.ordinal} 话 ${v.chapter.title || ''}`.trim(),
+      }))
+      .catch(() => { /* 标题失败不影响阅读 */ })
+  }, [chapterId])
+
   // 页级关联动画（DESIGN 4.1：存在已发布动画时显示入口，不自动播放）
   useEffect(() => {
     if (!current || !revisionId) return
@@ -142,31 +155,54 @@ export default function Reader() {
   const currentUrl = windowPages.find(p => p.ordinal === current)?.imageUrl
     ?? windowPages[0]?.imageUrl
 
+  // 阅读时隐藏站点导航（与外部漫画阅读器一致）
+  useEffect(() => {
+    document.body.classList.add('reader-open')
+    return () => document.body.classList.remove('reader-open')
+  }, [])
+
   return (
-    <main className="reader">
-      <div className="row-between">
-        <Link to="/" className="ghost btn">← 返回书库</Link>
-        <span>第 {current} / {pageCount} 页</span>
-        {notice && <span className="muted">{notice}</span>}
-      </div>
-      {error && <p className="error">{error}</p>}
-      <div className="reader-stage">
-        <button className="page-nav" onClick={() => void go(-1)} disabled={current <= 1}>‹</button>
+    <div className="reader-full local-reader show-ui">
+      <header className="rf-top">
+        <Link to="/manga" className="rf-icon" aria-label="返回">←</Link>
+        <div className="rf-title">
+          <span className="rf-comic">{titles.work}</span>
+          <span className="rf-chapter">{titles.chapter} · 第 {current} / {pageCount} 页</span>
+        </div>
+        {notice && <span className="rf-chapter">{notice}</span>}
+      </header>
+
+      {error && <p className="error" style={{ padding: '80px 24px 0' }}>{error}</p>}
+
+      <div className="local-stage" onClick={() => void go(1)}>
+        <button className="rf-hit rf-hit-left" onClick={e => { e.stopPropagation(); void go(-1) }}
+                disabled={current <= 1} aria-label="上一页">‹</button>
         {currentUrl
-          ? <img className="page-img" src={mediaUrl(currentUrl)} alt={`第 ${current} 页`} />
+          ? <img className="local-page" src={mediaUrl(currentUrl)} alt={`第 ${current} 页`} />
           : <p className="muted">加载中…</p>}
-        <button className="page-nav" onClick={() => void go(1)} disabled={current >= pageCount}>›</button>
+        <button className="rf-hit rf-hit-right" onClick={e => { e.stopPropagation(); void go(1) }}
+                disabled={current >= pageCount} aria-label="下一页">›</button>
       </div>
+
+      <footer className="rf-bottom">
+        <button className="rf-text-btn" onClick={() => void go(-1)} disabled={current <= 1}>上一页</button>
+        <div className="rf-progress">
+          <span className="rf-page">{current} / {pageCount}</span>
+          <input type="range" min={1} max={Math.max(pageCount, 1)} value={current}
+                 onChange={e => { setCurrent(Number(e.target.value)) }} />
+        </div>
+        <button className="rf-text-btn" onClick={() => void go(1)} disabled={current >= pageCount}>下一页</button>
+      </footer>
+
       {adaptations.length > 0 && (
-        <div className="adaptations">
-          <span className="muted">本页有改编动画：</span>
+        <div className="local-adaptations">
           {adaptations.map(a => (
-            <Link key={a.animationId} className="btn" to={`/watch/${a.animationId}`}>
-              观看这段动画（第 {a.pageStart}–{a.pageEnd} 页）
+            <Link key={a.animationId} className="btn pill" to={`/watch/${a.animationId}`}>
+              本页有改编动画：观看（{a.pageStart}–{a.pageEnd} 页）
             </Link>
           ))}
         </div>
       )}
-    </main>
+    </div>
   )
 }

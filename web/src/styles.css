@@ -666,3 +666,19 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .hot-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .hot-title { font-size: 13px; color: var(--ink); line-height: 1.3; }
 .hot-meta { font-size: 11px; color: var(--muted); }
+
+/* 本地漫画阅读器（M21）：与外部阅读器共用浮层，图片居中 */
+.local-stage {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 64px 0 92px; cursor: pointer;
+}
+.local-page { max-width: min(900px, calc(100vw - 140px)); max-height: calc(100vh - 160px); object-fit: contain; background: #0d0f11; }
+.rf-hit {
+  width: 44px; height: 100%; min-height: 60px; background: transparent; border: 0;
+  color: rgba(255, 255, 255, .55); font-size: 34px; cursor: pointer;
+}
+.rf-hit:disabled { opacity: .18; }
+.local-adaptations {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; z-index: 120;
+  display: flex; gap: 8px;
+}
