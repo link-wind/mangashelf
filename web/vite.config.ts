@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: true,
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
       '/media': { target: 'http://localhost:9000', changeOrigin: true, rewrite: p => p.replace(/^\/media/, '') },

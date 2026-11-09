@@ -32,6 +32,7 @@ export default function ExternalWatch() {
   const [lineName, setLineName] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [loadError, setLoadError] = useState('')
+  const [workTitle, setWorkTitle] = useState('')
   const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
   const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(
     () => localStorage.getItem('ms-danmaku') !== 'off')
@@ -44,6 +45,9 @@ export default function ExternalWatch() {
       try {
         const list = await api.get<BoundEpisode[]>(`/api/v1/works/${workId}/external-episodes`)
         setEpisodes(list)
+        void api.get<{ work: { title: string } }>(`/api/v1/works/${workId}`)
+          .then(v => setWorkTitle(v.work.title))
+          .catch(() => { /* 标题失败不影响播放 */ })
         const rows = await api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=100')
         setSavedProgress(rows.find(r => r.workId === workId) ?? null)
       } catch (e) {
@@ -148,7 +152,7 @@ export default function ExternalWatch() {
   return (
     <main className="watch-page">
       <div className="watch-title">
-        <h1>{current.sourceName}</h1>
+        <h1>{workTitle || current.sourceName}</h1>
         <span className="ep-name">第 {current.ordinal} 话 {current.title}</span>
       </div>
       <div className="watch-meta">
