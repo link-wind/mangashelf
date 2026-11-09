@@ -50,10 +50,16 @@ public class ExternalResolveHandler implements JobHandler {
             return JobResult.failure("EPISODE_NOT_FOUND", "外部集不存在");
         }
 
+        String cookie = externals.findSource(episode.sourceId())
+                .map(ExternalSource::cookie).orElse("");
+        var params = new java.util.HashMap<String, Object>();
+        params.put("episode_url", episode.episodeUrl());
+        params.put("timeout_seconds", SNIFF_TIMEOUT_SECONDS);
+        if (cookie != null && !cookie.isBlank()) {
+            params.put("cookie", cookie);
+        }
         TaskSpec spec = new TaskSpec(TaskSpec.SCHEMA_VERSION, job.id(), ctx.attempt(),
-                "external.resolve", List.of(), "output", null,
-                Map.of("episode_url", episode.episodeUrl(),
-                       "timeout_seconds", SNIFF_TIMEOUT_SECONDS));
+                "external.resolve", List.of(), "output", null, params);
         Files.createDirectories(ctx.workDir());
         python.run(ctx.workDir(), spec, line -> ctx.progress().emit(line.stage(), line.message()));
 

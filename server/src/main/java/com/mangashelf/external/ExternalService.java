@@ -30,11 +30,12 @@ public class ExternalService {
     // ── 规则源 ──
 
     public ExternalSource createSource(CurrentUser user, String name, String baseUrl,
-                                       JsonNode rules, boolean enabled) {
+                                       JsonNode rules, boolean enabled, String cookie) {
         if (!user.isAdmin()) {
             throw new ApiException(403, "FORBIDDEN", "只有管理员可以管理规则源。");
         }
-        UUID id = externals.insertSource(name, baseUrl, rules.toString(), enabled);
+        UUID id = externals.insertSource(name, baseUrl, rules.toString(), enabled,
+                cookie == null ? "" : cookie.trim());
         return externals.findSource(id).orElseThrow();
     }
 
@@ -114,7 +115,8 @@ public class ExternalService {
     }
 
     public record BoundEpisode(UUID id, UUID sourceId, String sourceName, String title,
-                               String episodeUrl, int ordinal) {
+                               String episodeUrl, int ordinal, String lineName, int lineRank,
+                               String episodeType) {
     }
 
     public List<BoundEpisode> bindEpisodes(CurrentUser user, UUID workId, UUID sourceId,
@@ -141,13 +143,36 @@ public class ExternalService {
                     String sourceName = externals.findSource(e.sourceId())
                             .map(ExternalSource::name).orElse("未知来源");
                     return new BoundEpisode(e.id(), e.sourceId(), sourceName,
-                            e.title(), e.episodeUrl(), e.ordinal());
+                            e.title(), e.episodeUrl(), e.ordinal(),
+                            e.lineName(), e.lineRank(), e.episodeType());
                 })
                 .toList();
     }
 
     public boolean unbindEpisode(CurrentUser user, UUID episodeId) {
         return externals.deleteEpisode(episodeId, user.id());
+    }
+
+    /** 作品的外部元数据（M11 详情页）：封面、Bangumi 简介/评分、线路名。 */
+    public record WorkExternalMeta(String coverUrl, String catalogTitle, Double rating,
+                                   String summary, Integer airWeekday, List<String> lines) {}
+
+    public WorkExternalMeta workExternalMeta(CurrentUser user, UUID workId) {
+        catalog.requireVisibleWork(user, workId);
+        return externals.workExternalMeta(workId);
+    }
+
+    // ── 观看进度（M10）──
+
+    public void saveProgress(CurrentUser user, UUID workId, int ordinal, UUID episodeId,
+                             long positionMs, Long durationMs) {
+        catalog.requireVisibleWork(user, workId);
+        externals.upsertProgress(user.id(), workId, ordinal, episodeId,
+                Math.max(0, positionMs), durationMs);
+    }
+
+    public List<ExternalRepository.ProgressRow> recentProgress(CurrentUser user, int limit) {
+        return externals.recentProgress(user.id(), Math.min(Math.max(limit, 1), 100));
     }
 
     // ── 播放解析（M7 design.md D1/D4）──
@@ -162,7 +187,25 @@ public class ExternalService {
                                 java.time.Instant resolvedAt, String errorCode, String errorMessage) {
     }
 
+    private static final int RESOLVE_LIMIT_PER_MINUTE = 20;
+    private final java.util.Map<UUID, java.util.ArrayDeque<Long>> resolveWindows = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 解析限流：防止公开部署时被当作免费解析接口（每用户 20 次/分钟）。 */
+    private void checkResolveRate(CurrentUser user) {
+        long now = System.currentTimeMillis();
+        var window = resolveWindows.computeIfAbsent(user.id(), k -> new java.util.ArrayDeque<>());
+        synchronized (window) {
+            long cutoff = now - 60_000;
+            while (!window.isEmpty() && window.peekFirst() < cutoff) window.pollFirst();
+            if (window.size() >= RESOLVE_LIMIT_PER_MINUTE) {
+                throw new ApiException(429, "RESOLVE_RATE_LIMITED", "解析过于频繁，请稍后再试。");
+            }
+            window.addLast(now);
+        }
+    }
+
     public ResolveStatus resolvePlayback(CurrentUser user, UUID episodeId) {
+        checkResolveRate(user);
         ExternalEpisode episode = requireVisibleEpisode(user, episodeId);
         var latest = externals.findLatestResolveJob(episodeId);
         boolean active = latest.isPresent()

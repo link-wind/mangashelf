@@ -43,6 +43,7 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
     if not episode_url:
         return {"status": "FAILED", "error_code": "NO_EPISODE_URL", "message": "params 缺少 episode_url"}
     referer = str(params.get("referer") or "").strip() or None
+    cookie = str(params.get("cookie") or "").strip() or None
     timeout_seconds = float(params.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
 
     try:
@@ -72,8 +73,14 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
         ])
         try:
             context_kwargs: dict[str, Any] = {}
+            headers: dict[str, str] = {}
             if referer:
-                context_kwargs["extra_http_headers"] = {"Referer": referer}
+                headers["Referer"] = referer
+            # 登录墙源：仅为服务端持有的 Cookie（用户不直接提交 URL/Cookie）
+            if cookie:
+                headers["Cookie"] = cookie
+            if headers:
+                context_kwargs["extra_http_headers"] = headers
             page = browser.new_context(**context_kwargs).new_page()
             page.on("request", on_request)
 

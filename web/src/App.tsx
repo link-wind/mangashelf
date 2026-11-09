@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import LoginPage from './pages/Login'
@@ -5,6 +6,8 @@ import Home from './pages/Home'
 import Library from './pages/Library'
 import AnimeIndex from './pages/AnimeIndex'
 import Schedule from './pages/Schedule'
+import CatalogDetail from './pages/CatalogDetail'
+import History from './pages/History'
 import WorkDetail from './pages/WorkDetail'
 import Reader from './pages/Reader'
 import Watch from './pages/Watch'
@@ -14,6 +17,14 @@ import Search from './pages/Search'
 import Settings from './pages/Settings'
 import ExternalEpisodes from './pages/ExternalEpisodes'
 import ExternalWatch from './pages/ExternalWatch'
+
+/** 明暗主题切换（M12）：存 localStorage，根节点 data-theme 驱动 CSS 变量。 */
+function toggleTheme() {
+  const root = document.documentElement
+  const next = root.dataset.theme === 'dark' ? 'light' : 'dark'
+  root.dataset.theme = next
+  localStorage.setItem('ms-theme', next)
+}
 
 function Nav() {
   const { me, logout } = useAuth()
@@ -29,9 +40,11 @@ function Nav() {
         <NavLink to="/shelf">我的书架</NavLink>
         <NavLink to="/uploads">我的素材</NavLink>
         <NavLink to="/search">搜索</NavLink>
+        <NavLink to="/history">观看历史</NavLink>
       </nav>
       <span className="spacer" />
       <span className="who">{me.login}（{me.role === 'ADMIN' ? '管理员' : '用户'}）</span>
+      <button className="ghost" onClick={toggleTheme} title="切换明暗主题">◐</button>
       <NavLink to="/settings">设置</NavLink>
       <button onClick={async () => { await logout(); navigate('/login') }}>退出</button>
     </header>
@@ -40,6 +53,10 @@ function Nav() {
 
 export default function App() {
   const { me, loading } = useAuth()
+  useEffect(() => {
+    const saved = localStorage.getItem('ms-theme')
+    if (saved) document.documentElement.dataset.theme = saved
+  }, [])
   if (loading) return <div className="page-center">加载中…</div>
   return (
     <>
@@ -49,6 +66,8 @@ export default function App() {
         <Route path="/" element={me ? <Home /> : <Navigate to="/login" />} />
         <Route path="/anime" element={me ? <AnimeIndex /> : <Navigate to="/login" />} />
         <Route path="/schedule" element={me ? <Schedule /> : <Navigate to="/login" />} />
+        <Route path="/catalog/:id" element={me ? <CatalogDetail /> : <Navigate to="/login" />} />
+        <Route path="/history" element={me ? <History /> : <Navigate to="/login" />} />
         <Route path="/library" element={me ? <Library /> : <Navigate to="/login" />} />
         <Route path="/works/:id" element={me ? <WorkDetail /> : <Navigate to="/login" />} />
         <Route path="/read/:revisionId" element={me ? <Reader /> : <Navigate to="/login" />} />

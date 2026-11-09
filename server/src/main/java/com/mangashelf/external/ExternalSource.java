@@ -10,6 +10,7 @@ public record ExternalSource(
         String baseUrl,
         String rules,
         boolean enabled,
+        String cookie,
         Instant createdAt,
         Instant updatedAt) {
 }

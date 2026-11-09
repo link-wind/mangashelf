@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,14 +47,15 @@ public class ExternalController {
             @NotBlank String name,
             @NotBlank String baseUrl,
             @NotNull JsonNode rules,
-            boolean enabled) {
+            boolean enabled,
+            String cookie) {
     }
 
     @PostMapping("/admin/external-sources")
     public ExternalSource createSource(@AuthUser CurrentUser user,
                                        @Valid @RequestBody CreateSourceRequest request) {
         return externals.createSource(user, request.name(), request.baseUrl(),
-                request.rules(), request.enabled());
+                request.rules(), request.enabled(), request.cookie());
     }
 
     @GetMapping("/external-sources")
@@ -108,6 +110,12 @@ public class ExternalController {
         return externals.bindEpisodes(user, workId, request.sourceId(), request.episodes());
     }
 
+    @GetMapping("/works/{workId}/external-meta")
+    public ExternalService.WorkExternalMeta externalMeta(@AuthUser CurrentUser user,
+                                                         @PathVariable UUID workId) {
+        return externals.workExternalMeta(user, workId);
+    }
+
     @GetMapping("/works/{workId}/external-episodes")
     public List<ExternalService.BoundEpisode> list(@AuthUser CurrentUser user,
                                                     @PathVariable UUID workId) {
@@ -160,6 +168,31 @@ public class ExternalController {
         return catalog.listItems(cursor, limit, q, sourceId, categoryId);
     }
 
+    // ── 观看进度与历史（M10）──
+
+    public record ProgressRequest(@NotNull UUID workId, int ordinal, UUID episodeId,
+                                  long positionMs, Long durationMs) {}
+
+    @PutMapping("/external-progress")
+    public Map<String, Object> saveProgress(@AuthUser CurrentUser user,
+                                            @Valid @RequestBody ProgressRequest request) {
+        externals.saveProgress(user, request.workId(), request.ordinal(), request.episodeId(),
+                request.positionMs(), request.durationMs());
+        return Map.of("saved", true);
+    }
+
+    @GetMapping("/me/continue-watching")
+    public List<ExternalRepository.ProgressRow> continueWatching(@AuthUser CurrentUser user,
+                                                                 @RequestParam(defaultValue = "6") int limit) {
+        return externals.recentProgress(user, limit);
+    }
+
+    @GetMapping("/me/watch-history")
+    public List<ExternalRepository.ProgressRow> watchHistory(@AuthUser CurrentUser user,
+                                                             @RequestParam(defaultValue = "50") int limit) {
+        return externals.recentProgress(user, limit);
+    }
+
     // ── Bangumi 元数据（M9）──
 
     @PostMapping("/admin/bangumi-sync")
@@ -190,6 +223,12 @@ public class ExternalController {
     @GetMapping("/calendar")
     public List<BangumiService.CalendarEntry> calendar(@AuthUser CurrentUser user) {
         return bangumi.calendar();
+    }
+
+    @GetMapping("/catalog-items/{id}")
+    public ExternalCatalogService.CatalogDetail catalogItemDetail(@AuthUser CurrentUser user,
+                                                                  @PathVariable UUID id) {
+        return catalog.itemDetail(user, id);
     }
 
     @PostMapping("/catalog-items/{id}/materialize")

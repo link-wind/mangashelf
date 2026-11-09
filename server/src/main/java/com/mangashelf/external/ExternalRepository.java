@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,9 +24,15 @@ public class ExternalRepository {
     // ── 规则源 ──
 
     public UUID insertSource(String name, String baseUrl, String rules, boolean enabled) {
+        return insertSource(name, baseUrl, rules, enabled, "");
+    }
+
+    public UUID insertSource(String name, String baseUrl, String rules, boolean enabled, String cookie) {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO external_sources (id, name, base_url, rules, enabled) VALUES (?, ?, ?, ?::jsonb, ?)",
-                id, name, baseUrl, rules, enabled);
+        jdbc.update("""
+                INSERT INTO external_sources (id, name, base_url, rules, enabled, cookie)
+                VALUES (?, ?, ?, ?::jsonb, ?, ?)
+                """, id, name, baseUrl, rules, enabled, cookie);
         return id;
     }
 
@@ -72,18 +79,96 @@ public class ExternalRepository {
 
     public void insertEpisode(UUID id, UUID workId, UUID sourceId, String title,
                               String episodeUrl, int ordinal) {
+        insertEpisode(id, workId, sourceId, title, episodeUrl, ordinal, "", 0, "MAIN");
+    }
+
+    public void insertEpisode(UUID id, UUID workId, UUID sourceId, String title,
+                              String episodeUrl, int ordinal, String lineName, int lineRank,
+                              String episodeType) {
         jdbc.update("""
-                INSERT INTO external_episodes (id, work_id, source_id, title, episode_url, ordinal)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (work_id, source_id, ordinal) DO UPDATE
-                SET title = EXCLUDED.title, episode_url = EXCLUDED.episode_url
-                """, id, workId, sourceId, title, episodeUrl, ordinal);
+                INSERT INTO external_episodes
+                    (id, work_id, source_id, title, episode_url, ordinal, line_name, line_rank, episode_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (work_id, source_id, line_name, ordinal) DO UPDATE
+                SET title = EXCLUDED.title, episode_url = EXCLUDED.episode_url,
+                    line_rank = EXCLUDED.line_rank, episode_type = EXCLUDED.episode_type
+                """, id, workId, sourceId, title, episodeUrl, ordinal, lineName, lineRank, episodeType);
     }
 
     public List<ExternalEpisode> listEpisodes(UUID workId) {
         return jdbc.query(
-                "SELECT * FROM external_episodes WHERE work_id = ? ORDER BY source_id, ordinal",
+                "SELECT * FROM external_episodes WHERE work_id = ? ORDER BY line_rank, ordinal, line_name",
                 episodeMapper, workId);
+    }
+
+    public ExternalService.WorkExternalMeta workExternalMeta(UUID workId) {
+        List<ExternalService.WorkExternalMeta> rows = jdbc.query("""
+                SELECT c.cover_url, c.name AS catalog_title, b.rating, b.summary, b.air_weekday,
+                       c.play_groups
+                FROM external_catalog_items c
+                LEFT JOIN bangumi_subjects b ON b.subject_id = c.bangumi_subject_id
+                WHERE c.work_id = ?
+                LIMIT 1
+                """, (rs, i) -> {
+            var rating = rs.getBigDecimal("rating");
+            List<String> lines = new java.util.ArrayList<>();
+            try {
+                for (var g : new tools.jackson.databind.ObjectMapper()
+                        .readTree(rs.getString("play_groups"))) {
+                    lines.add(g.path("from").asText("线路"));
+                }
+            } catch (Exception ignored) {
+                // 线路解析失败只影响展示
+            }
+            return new ExternalService.WorkExternalMeta(
+                    rs.getString("cover_url"), rs.getString("catalog_title"),
+                    rating == null ? null : rating.doubleValue(),
+                    rs.getString("summary"), (Integer) rs.getObject("air_weekday"), lines);
+        }, workId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    // ── 外部集观看进度（M10）──
+
+    public void upsertProgress(UUID userId, UUID workId, int ordinal, UUID episodeId,
+                               long positionMs, Long durationMs) {
+        jdbc.update("""
+                INSERT INTO external_watch_progress
+                    (user_id, work_id, ordinal, episode_id, position_ms, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (user_id, work_id, ordinal) DO UPDATE SET
+                    episode_id = EXCLUDED.episode_id,
+                    position_ms = EXCLUDED.position_ms,
+                    duration_ms = EXCLUDED.duration_ms,
+                    updated_at = now()
+                """, userId, workId, ordinal, episodeId, positionMs, durationMs);
+    }
+
+    public record ProgressRow(UUID workId, String workTitle, int ordinal, String episodeTitle,
+                              UUID episodeId, String lineName, String coverUrl,
+                              long positionMs, Long durationMs, Instant updatedAt) {}
+
+    public List<ProgressRow> recentProgress(UUID userId, int limit) {
+        return jdbc.query("""
+                SELECT p.work_id, w.title AS work_title, p.ordinal, e.title AS episode_title,
+                       p.episode_id, e.line_name,
+                       (SELECT c.cover_url FROM external_catalog_items c
+                         WHERE c.work_id = p.work_id AND c.cover_url <> '' LIMIT 1) AS cover_url,
+                       p.position_ms, p.duration_ms, p.updated_at
+                FROM external_watch_progress p
+                JOIN works w ON w.id = p.work_id
+                LEFT JOIN external_episodes e ON e.id = p.episode_id
+                WHERE p.user_id = ?
+                ORDER BY p.updated_at DESC
+                LIMIT ?
+                """, (rs, i) -> new ProgressRow(
+                        rs.getObject("work_id", UUID.class), rs.getString("work_title"),
+                        rs.getInt("ordinal"), rs.getString("episode_title"),
+                        rs.getObject("episode_id", UUID.class), rs.getString("line_name"),
+                        rs.getString("cover_url"), rs.getLong("position_ms"),
+                        rs.getObject("duration_ms", Long.class),
+                        rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
+                userId, limit);
     }
 
     public boolean deleteEpisode(UUID id, UUID userId) {

@@ -3,6 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import SeasonSection from './SeasonSection'
 
+interface ProgressRow {
+  workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
+  episodeId: string | null; lineName: string | null; coverUrl: string | null
+  positionMs: number; durationMs: number | null; updatedAt: string
+}
+
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
   animations: number; episodes: number; posterUrl: string | null
@@ -12,6 +18,7 @@ interface WorkCard {
 export default function Home() {
   const navigate = useNavigate()
   const [items, setItems] = useState<WorkCard[]>([])
+  const [continueList, setContinueList] = useState<ProgressRow[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -19,6 +26,7 @@ export default function Home() {
       try {
         const page = await api.get<{ items: WorkCard[] }>('/api/v1/works?limit=48')
         setItems(page.items)
+        setContinueList(await api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=6'))
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       }
@@ -48,6 +56,36 @@ export default function Home() {
       </section>
 
       {error && <p className="error">{error}</p>}
+
+      {continueList.length > 0 && (
+        <section style={{ marginTop: 28 }}>
+          <div className="section-head">
+            <h2>继续观看</h2>
+            <Link to="/history" className="muted">观看历史 →</Link>
+          </div>
+          <div className="hscroll">
+            {continueList.map(r => (
+              <Link key={`${r.workId}-${r.ordinal}`}
+                    to={r.episodeId ? `/works/${r.workId}/external/${r.episodeId}` : `/works/${r.workId}`}
+                    className="work-card">
+                <div className="cover">
+                  {r.coverUrl
+                    ? <img src={r.coverUrl} alt={r.workTitle} loading="lazy"
+                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    : <span className="cover-initial">{r.workTitle.slice(0, 1)}</span>}
+                  <span className="badge-anim">{r.durationMs
+                    ? Math.min(99, Math.round(r.positionMs / r.durationMs * 100)) + '%'
+                    : '继续'}</span>
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{r.workTitle}</div>
+                  <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section style={{ marginTop: 28 }}>
         <SeasonSection layout="scroll" limit={8} />

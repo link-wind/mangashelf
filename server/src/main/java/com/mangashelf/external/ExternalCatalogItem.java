@@ -17,6 +17,7 @@ public record ExternalCatalogItem(
         String playGroups,
         int episodeCount,
         UUID workId,
+        Long bangumiSubjectId,
         Instant resourceUpdatedAt,
         Instant syncedAt) {
 }

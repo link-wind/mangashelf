@@ -106,16 +106,16 @@ export default function AnimeIndex() {
       <div className="card-grid">
         {items.map(it => (
           <div key={it.id} className="work-card">
-            <div className="cover">
+            <Link to={`/catalog/${it.id}`} className="cover">
               {it.coverUrl
                 ? <img src={it.coverUrl} alt={it.name} loading="lazy"
                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 : null}
               <span className="cover-initial" style={it.coverUrl ? { display: 'none' } : {}}>{it.name.slice(0, 1)}</span>
               {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
-            </div>
+            </Link>
             <div className="work-card-body">
-              <div className="work-card-title clamp">{it.name}</div>
+              <Link to={`/catalog/${it.id}`} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
               <div className="work-card-meta">
                 <span>{it.remarks || `${it.episodeCount} 集`}</span>
               </div>

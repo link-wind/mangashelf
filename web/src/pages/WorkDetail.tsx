@@ -10,6 +10,15 @@ interface Chapter {
   currentRevisionId: string | null
 }
 
+interface WorkExternalMeta {
+  coverUrl: string | null
+  catalogTitle: string | null
+  rating: number | null
+  summary: string | null
+  airWeekday: number | null
+  lines: string[]
+}
+
 interface WorkView {
   work: { id: string; title: string; description: string; status: string; visibility: string; ownerId: string }
   chapters: Chapter[]
@@ -18,6 +27,7 @@ interface WorkView {
 
 export default function WorkDetail() {
   const { id } = useParams()
+  const [meta, setMeta] = useState<WorkExternalMeta | null>(null)
   const [data, setData] = useState<WorkView | null>(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -32,6 +42,13 @@ export default function WorkDetail() {
   }, [id])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!id) return
+    void api.get<WorkExternalMeta | null>(`/api/v1/works/${id}/external-meta`)
+      .then(m => setMeta(m))
+      .catch(() => setMeta(null))
+  }, [id])
 
   async function addToShelf() {
     try {
@@ -67,9 +84,28 @@ export default function WorkDetail() {
   const { work, chapters, owner } = data
   return (
     <main className="page">
+      {meta && (
+        <div className="detail-hero" style={{ marginBottom: 18 }}>
+          <div className="detail-cover">
+            {meta.coverUrl
+              ? <img src={meta.coverUrl} alt={work.title}
+                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              : <span className="cover-initial">{work.title.slice(0, 1)}</span>}
+          </div>
+          <div className="detail-info">
+            <h1>{work.title}</h1>
+            <div className="watch-meta" style={{ margin: '4px 0 8px' }}>
+              {typeof meta.rating === 'number' && meta.rating > 0 && <span className="star">★ {meta.rating.toFixed(1)}</span>}
+              {meta.airWeekday && <span>{['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][meta.airWeekday]}放送</span>}
+              {meta.lines.length > 0 && <span>线路：{meta.lines.join(' / ')}</span>}
+            </div>
+            {meta.summary && <p className="detail-summary">{meta.summary}</p>}
+          </div>
+        </div>
+      )}
       <div className="row-between">
         <div>
-          <h1>{work.title}</h1>
+          <h1 style={meta ? { display: 'none' } : undefined}>{work.title}</h1>
           <p className="muted">{work.description}</p>
           <span className={`tag ${work.visibility === 'PUBLIC' ? 'pub' : 'priv'}`}>
             {work.visibility === 'PUBLIC' ? '公开' : '私人'} · {work.status === 'PUBLISHED' ? '已发布' : work.status === 'WITHDRAWN' ? '已下架' : '草稿'}

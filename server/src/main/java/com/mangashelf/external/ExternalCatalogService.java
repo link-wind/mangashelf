@@ -27,16 +27,19 @@ public class ExternalCatalogService {
     private final JobCreationService jobCreation;
     private final TransactionTemplate tx;
     private final ObjectMapper objectMapper;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
                                   CatalogRepository catalog, JobCreationService jobCreation,
-                                  TransactionTemplate tx, ObjectMapper objectMapper) {
+                                  TransactionTemplate tx, ObjectMapper objectMapper,
+                                  org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.catalogItems = catalogItems;
         this.externals = externals;
         this.catalog = catalog;
         this.jobCreation = jobCreation;
         this.tx = tx;
         this.objectMapper = objectMapper;
+        this.jdbc = jdbc;
     }
 
     // ── 同步 ──
@@ -109,6 +112,42 @@ public class ExternalCatalogService {
         return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId));
     }
 
+    // ── 目录条目详情（M11）──
+
+    public record LineInfo(String name, int episodeCount) {}
+
+    public record CatalogDetail(ExternalCatalogItem item, String bangumiNameCn, Double rating,
+                                String summary, Integer airWeekday, List<LineInfo> lines) {}
+
+    public CatalogDetail itemDetail(CurrentUser user, UUID itemId) {
+        ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
+                () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
+        // Bangumi 元数据（若已桥接）
+        record B(String cn, Double rating, String summary, Integer weekday) {}
+        List<B> rows = jdbc.query(
+                "SELECT name_cn, rating, summary, air_weekday FROM bangumi_subjects WHERE subject_id = ?",
+                (rs, i) -> {
+                    var r = rs.getBigDecimal("rating");
+                    return new B(rs.getString("name_cn"), r == null ? null : r.doubleValue(),
+                            rs.getString("summary"), (Integer) rs.getObject("air_weekday"));
+                }, item.bangumiSubjectId() == null ? -1L : item.bangumiSubjectId());
+        B b = rows.isEmpty() ? null : rows.get(0);
+        List<LineInfo> lines = new ArrayList<>();
+        try {
+            for (var g : objectMapper.readTree(item.playGroups())) {
+                int count = 0;
+                for (String seg : g.path("raw").asText().split("#")) {
+                    if (seg.contains("$")) count++;
+                }
+                if (count > 0) lines.add(new LineInfo(g.path("from").asText("线路"), count));
+            }
+        } catch (Exception ignored) {
+            // 线路解析失败只影响详情展示
+        }
+        return new CatalogDetail(item, b == null ? null : b.cn(), b == null ? null : b.rating(),
+                b == null ? null : b.summary(), b == null ? null : b.weekday(), lines);
+    }
+
     // ── 物化 ──
 
     public record Materialized(UUID workId, boolean created) {}
@@ -126,7 +165,8 @@ public class ExternalCatalogService {
             UUID wid = catalog.insertWork(user.id(), fresh.name(), fresh.remarks());
             for (var ep : parseEpisodes(fresh)) {
                 externals.insertEpisode(UUID.randomUUID(), wid, fresh.sourceId(),
-                        ep.title(), ep.url(), ep.ordinal());
+                        ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
+                        ep.episodeType());
             }
             catalogItems.markMaterialized(itemId, wid);
             return wid;
@@ -134,24 +174,40 @@ public class ExternalCatalogService {
         return new Materialized(workId, true);
     }
 
-    /** 选线路：优先名称含 m3u8 的组；解析 名称$url#名称$url。 */
-    private record Episode(String title, String url, int ordinal) {}
+    /**
+     * 解析全部线路（M11）：每组按名称排序（含 m3u8 的排前），组内 名称$url#… 逐条。
+     * 同一集号在各线路各存一行；EXTRA 识别 PV/预告/特典/OP/ED 等非正片。
+     */
+    private record Episode(String title, String url, int ordinal, String lineName,
+                           int lineRank, String episodeType) {}
+
+    private static final java.util.regex.Pattern EXTRA_PATTERN = java.util.regex.Pattern.compile(
+            "PV|预告|特典|花絮|OP|ED|片头|片尾|番外|彩蛋|CM|MENU|映像",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private List<Episode> parseEpisodes(ExternalCatalogItem item) {
         List<Episode> out = new ArrayList<>();
         try {
             var groups = objectMapper.readTree(item.playGroups());
-            JsonNode picked = null;
+            var ordered = new ArrayList<JsonNode>();
             for (JsonNode g : groups) {
-                if (g.path("from").asText().contains("m3u8")) { picked = g; break; }
-                if (picked == null) picked = g;
+                if (g.path("from").asText().toLowerCase().contains("m3u8")) ordered.add(g);
             }
-            if (picked == null) return out;
-            for (String seg : picked.path("raw").asText().split("#")) {
-                String[] kv = seg.split("\\$", 2);
-                if (kv.length == 2 && !kv[0].isBlank() && !kv[1].isBlank()) {
-                    out.add(new Episode(kv[0], kv[1], out.size() + 1));
+            for (JsonNode g : groups) {
+                if (!ordered.contains(g)) ordered.add(g);
+            }
+            int rank = 0;
+            for (JsonNode g : ordered) {
+                String lineName = g.path("from").asText("line" + rank);
+                int ordinal = 0;
+                for (String seg : g.path("raw").asText().split("#")) {
+                    String[] kv = seg.split("\\$", 2);
+                    if (kv.length != 2 || kv[0].isBlank() || kv[1].isBlank()) continue;
+                    ordinal++;
+                    String type = EXTRA_PATTERN.matcher(kv[0]).find() ? "EXTRA" : "MAIN";
+                    out.add(new Episode(kv[0], kv[1], ordinal, lineName, rank, type));
                 }
+                rank++;
             }
         } catch (Exception e) {
             throw new ApiException(422, "PLAY_GROUPS_INVALID", "线路数据无法解析：" + e.getMessage());

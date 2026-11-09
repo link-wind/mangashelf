@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 
+interface CatalogHit {
+  id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
+  workId: string | null; bangumiSubjectId: number | null
+}
+
 interface Hit {
   kind: 'work' | 'page'
   workId: string
@@ -14,10 +19,11 @@ interface Hit {
   hasAnimation: boolean
 }
 
-/** 搜索页（DESIGN 15.3）：标题/对白/语义混合结果 + 页级定位 + "有动画"过滤。 */
+/** 搜索页（DESIGN 15.3 + M10）：番剧目录 → 站内标题/对白/语义混合结果。 */
 export default function Search() {
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<Hit[]>([])
+  const [catalog, setCatalog] = useState<CatalogHit[]>([])
   const [semanticEnabled, setSemanticEnabled] = useState(true)
   const [hasAnimation, setHasAnimation] = useState(false)
   const [searched, setSearched] = useState(false)
@@ -39,7 +45,17 @@ export default function Search() {
   }, [hasAnimation])
 
   useEffect(() => {
-    const t = setTimeout(() => void run(q), 350)
+    const t = setTimeout(() => {
+      void run(q)
+      // 番剧目录（7500+ 部）与站内内容并行检索
+      if (q.trim()) {
+        void api.get<{ items: CatalogHit[] }>(`/api/v1/catalog-items?limit=12&q=${encodeURIComponent(q.trim())}`)
+          .then(r => setCatalog(r.items))
+          .catch(() => setCatalog([]))
+      } else {
+        setCatalog([])
+      }
+    }, 350)
     return () => clearTimeout(t)
   }, [q, hasAnimation, run])
 
@@ -56,6 +72,32 @@ export default function Search() {
       </div>
       {!semanticEnabled && <p className="muted">语义检索未启用（本地嵌入模型缺失），字面检索可用。</p>}
       {error && <p className="error">{error}</p>}
+
+      {catalog.length > 0 && (
+        <section style={{ marginBottom: 22 }}>
+          <h2 style={{ fontSize: 17 }}>番剧目录（{catalog.length}）</h2>
+          <div className="card-grid">
+            {catalog.map(c => (
+              <Link key={c.id} to={`/catalog/${c.id}`} className="work-card">
+                <div className="cover">
+                  {c.bangumiSubjectId
+                    ? <img src={`/api/v1/bangumi-covers/${c.bangumiSubjectId}`} alt={c.name} loading="lazy"
+                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    : c.coverUrl
+                      ? <img src={c.coverUrl} alt={c.name} loading="lazy"
+                             onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      : <span className="cover-initial">{c.name.slice(0, 1)}</span>}
+                  {c.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{c.name}</div>
+                  <div className="work-card-meta"><span>{c.remarks || `${c.episodeCount} 集`}</span></div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {searched && hits.length === 0 && <p className="muted">没有找到相关内容。</p>}
       <div className="stack">
