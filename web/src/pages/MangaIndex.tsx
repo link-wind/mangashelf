@@ -163,7 +163,8 @@ function HotManga() {
 
   function open(it: RankItem) {
     if (it.readId) {
-      navigate(`/manga-ext/${it.readId}?lang=all&title=${encodeURIComponent(it.title)}`)
+      navigate(`/manga-ext/${it.readId}?lang=all&source=${it.readSource ?? 'mangadex'}` +
+               `&title=${encodeURIComponent(it.title)}`)
     } else if (it.externalUrl) {
       window.open(it.externalUrl, '_blank', 'noopener,noreferrer')
     }

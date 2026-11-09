@@ -4,9 +4,9 @@ import { api, ApiError } from '../api'
 import { proxyImage } from '../externalManga'
 
 interface Pages {
-  chapterId: string
-  baseUrl: string
-  hash: string
+  chapterId?: string
+  baseUrl?: string
+  hash?: string
   pages: string[]
   dataSaver: string[]
   external: boolean
@@ -96,6 +96,7 @@ export default function ExternalMangaReader() {
   const mangaId = params.get('mangaId') ?? ''
   const lang = params.get('lang') ?? 'zh'
   const title = params.get('title') ?? '外部漫画'
+  const source = params.get('source') ?? 'mangadex'
 
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings)
   const [data, setData] = useState<Pages | null>(null)
@@ -135,23 +136,43 @@ export default function ExternalMangaReader() {
     void (async () => {
       if (!chapterId) return
       try {
-        setData(await api.get<Pages>(`/api/v1/external-manga/chapter/${chapterId}/pages`))
+        if (source === 'mangadex') {
+          setData(await api.get<Pages>(`/api/v1/external-manga/chapter/${chapterId}/pages`))
+        } else {
+          setData(await api.get<Pages>(`/api/v1/manga-sources/${source}/chapter/${chapterId}/pages`))
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : '章节加载失败')
       }
     })()
-  }, [chapterId])
+  }, [chapterId, source])
 
   useEffect(() => {
     if (!mangaId) return
-    void api.get<{ manga: { title: string }; chapters: Chapter[] }>(
-      `/api/v1/external-manga/${mangaId}?lang=${lang}`)
-      .then(setDetail)
-      .catch(() => { /* 章节导航不可用不影响阅读 */ })
-  }, [mangaId, lang])
+    void (async () => {
+      try {
+        if (source === 'mangadex') {
+          setDetail(await api.get<{ manga: { title: string }; chapters: Chapter[] }>(
+            `/api/v1/external-manga/${mangaId}?lang=${lang}`))
+        } else {
+          const raw = await api.get<{ item: { title: string };
+            chapters: { id: string; label: string; title: string; lang: string;
+                        pages: number; external: boolean }[] }>(
+            `/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${lang}`)
+          setDetail({
+            manga: { title: raw.item.title },
+            chapters: (raw.chapters ?? []).map(c => ({
+              id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
+              pages: c.pages, external: c.external,
+            })),
+          })
+        }
+      } catch { /* 章节导航不可用不影响阅读 */ }
+    })()
+  }, [mangaId, lang, source])
 
   const chapter = detail?.chapters.find(c => c.id === chapterId) ?? null
-  const readable = (detail?.chapters ?? []).filter(c => !c.external && c.pages > 0)
+  const readable = (detail?.chapters ?? []).filter(c => !c.external && c.pages !== 0)
   const chapterIdx = readable.findIndex(c => c.id === chapterId)
   const prevCh = chapterIdx > 0 ? readable[chapterIdx - 1] : null
   const nextCh = chapterIdx >= 0 && chapterIdx < readable.length - 1 ? readable[chapterIdx + 1] : null
@@ -160,9 +181,9 @@ export default function ExternalMangaReader() {
   const saveProgress = useCallback((p: number, total: number) => {
     if (!mangaId) return
     void api.put('/api/v1/me/manga-progress', {
-      source: 'mangadex', mangaId, chapterId, page: p, totalPages: total, title: comicTitle,
+      source, mangaId, chapterId, page: p, totalPages: total, title: comicTitle,
     }).catch(() => { /* 上报失败不打断 */ })
-  }, [mangaId, chapterId, comicTitle])
+  }, [mangaId, chapterId, comicTitle, source])
 
   const resolve = useCallback(async (id: string) => {
     setResolving(true)
@@ -224,7 +245,7 @@ export default function ExternalMangaReader() {
     if (!mangaId || !chapterId || !data) return
     void api.get<ProgressRow[]>('/api/v1/me/manga-progress?limit=50')
       .then(rows => {
-        const row = rows.find(r => r.source === 'mangadex' && r.mangaId === mangaId)
+        const row = rows.find(r => r.source === source && r.mangaId === mangaId)
         let p = 1
         if (row && row.chapterId === chapterId && row.page > 1) {
           p = row.page
@@ -248,7 +269,7 @@ export default function ExternalMangaReader() {
       if (e.key === 'Escape') {
         if (settingsOpen) { setSettingsOpen(false); setUiVisible(true) }
         else if (!uiVisible) setUiVisible(true)
-        else navigate(`/manga-ext/${mangaId}?lang=${lang}`)
+        else navigate(`/manga-ext/${mangaId}?lang=${lang}&source=${source}`)
       }
       if (e.key === 'f' || e.key === 'F') {
         const el = document.querySelector('.reader-full')
@@ -269,6 +290,19 @@ export default function ExternalMangaReader() {
   const spreadPages = spreads[effSpread] ?? []
   // RTL 时组内页序反转（右页在前）
   const displayPages = settings.dir === 'rtl' ? [...spreadPages].reverse() : spreadPages
+
+  // 双页模式进度上报：spread 变化换算页码（单页模式由滚动处理器负责）
+  const pagedMountedRef = useRef(false)
+  useEffect(() => {
+    if (!data || settings.pageMode === 'single' || !chapterId) return
+    if (!pagedMountedRef.current) { pagedMountedRef.current = true; return }
+    const first = (spreads[effSpread] ?? [0])[0] + 1
+    if (Date.now() - lastSaveRef.current >= 3000) {
+      lastSaveRef.current = Date.now()
+      saveProgress(first, total)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effSpread, data, settings.pageMode, chapterId, saveProgress])
 
   function flip(delta: number) {
     if (settings.pageMode === 'single') {
@@ -313,9 +347,10 @@ export default function ExternalMangaReader() {
   const animKey = `${effSpread}-${page}-${settings.anim}`
 
   const jumpChapter = (id: string) =>
-    navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&title=${encodeURIComponent(comicTitle)}`)
+    navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&source=${source}` +
+             `&title=${encodeURIComponent(comicTitle)}`)
 
-  const backTo = `/manga-ext/${mangaId}?lang=${lang}`
+  const backTo = `/manga-ext/${mangaId}?lang=${lang}&source=${source}`
 
   if (error) {
     return (
@@ -363,7 +398,7 @@ export default function ExternalMangaReader() {
       {singleMode ? (
         <div ref={stageRef} className="rf-stage">
           {list.map((src, i) => (
-            <img key={i} src={proxyImage(src)} alt={`第 ${i + 1} 页`}
+            <img key={i} src={src} data-original={src} alt={`第 ${i + 1} 页`}
                  loading={i < 3 ? 'eager' : 'lazy'} decoding="async"
                  onError={onImgError} />
           ))}
@@ -373,7 +408,7 @@ export default function ExternalMangaReader() {
              key={animKey}
              onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
           {displayPages.map(pageNo => (
-            <img key={pageNo} src={proxyImage(list[pageNo])} alt={`第 ${pageNo + 1} 页`}
+            <img key={pageNo} src={list[pageNo]} data-original={list[pageNo]} alt={`第 ${pageNo + 1} 页`}
                  onError={onImgError} />
           ))}
         </div>
@@ -468,10 +503,10 @@ function pokeUi() {
 
 function onImgError(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget
+  // 直连失败 → 代理回退一次（原始地址记在 data-original，避免对代理地址再代理）
   const original = img.dataset.original || img.getAttribute('src') || ''
   if (!original) return
-  if (!img.dataset.proxied) {
-    img.dataset.original = original
+  if (!img.dataset.proxied && !original.startsWith('/api/')) {
     img.dataset.proxied = '1'
     img.src = proxyImage(original)
     return

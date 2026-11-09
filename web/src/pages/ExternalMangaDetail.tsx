@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { proxyImage } from '../externalManga'
 
@@ -20,10 +20,46 @@ const LANGS = [
   { key: 'all', label: '全部' },
 ]
 
-/** 外部漫画详情（M21，参照哔哩哔哩漫画）：大封面 + 信息 + 章节格。 */
+/** MangaDex 旧端点响应形状 → 统一 Detail。 */
+function normalizeMangadex(raw: {
+  manga: { id: string; title: string; altTitle: string; description: string
+           coverUrl: string | null; status: string; year: string; tags: string[]; langs: string[] }
+  chapters: ExtChapter[]
+}): Detail {
+  return raw
+}
+
+/** 规则源（/manga-sources/{s}/manga/{id}）响应形状 → 统一 Detail。 */
+function normalizeRuleSource(raw: {
+  item: { source: string; id: string; title: string; altTitle: string
+          coverUrl: string | null; year: string | null }
+  description: string; status: string; year: string | null
+  tags: string[]; chapters: { id: string; label: string; title: string; lang: string
+                              pages: number; external: boolean }[]
+}): Detail {
+  return {
+    manga: {
+      id: raw.item.id, title: raw.item.title, altTitle: raw.item.altTitle ?? '',
+      description: raw.description ?? '', coverUrl: raw.item.coverUrl,
+      status: raw.status ?? '', year: raw.year ?? raw.item.year ?? '',
+      tags: raw.tags ?? [], langs: ['中文'],
+    },
+    chapters: (raw.chapters ?? []).map(c => ({
+      id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
+      pages: c.pages, publishAt: '', external: c.external,
+    })),
+  }
+}
+
+/**
+ * 外部漫画详情（M21/M23）：大封面 + 信息 + 章节格。
+ * 按源分发端点：MangaDex 走既有聚合端点，规则源走 /manga-sources/{source}。
+ */
 export default function ExternalMangaDetail() {
   const { mangaId } = useParams()
+  const [params] = useSearchParams()
   const navigate = useNavigate()
+  const source = params.get('source') ?? 'mangadex'
   const [detail, setDetail] = useState<Detail | null>(null)
   const [lang, setLang] = useState('zh')
   const [asc, setAsc] = useState(true)
@@ -36,11 +72,17 @@ export default function ExternalMangaDetail() {
     if (!mangaId) return
     setLoading(true); setError('')
     try {
-      setDetail(await api.get<Detail>(`/api/v1/external-manga/${mangaId}?lang=${language}`))
+      if (source === 'mangadex') {
+        setDetail(normalizeMangadex(
+          await api.get<Detail>(`/api/v1/external-manga/${mangaId}?lang=${language}`)))
+      } else {
+        setDetail(normalizeRuleSource(
+          await api.get(`/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${language}`)))
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'MangaDex 请求失败')
+      setError(e instanceof Error ? e.message : '详情请求失败')
     } finally { setLoading(false) }
-  }, [mangaId])
+  }, [mangaId, source])
 
   useEffect(() => { void load(lang) }, [lang, load])
 
@@ -48,23 +90,24 @@ export default function ExternalMangaDetail() {
     if (!mangaId) return
     void api.get<ProgressRow[]>('/api/v1/me/manga-progress?limit=50')
       .then(rows => {
-        const row = rows.find(r => r.source === 'mangadex' && r.mangaId === mangaId)
+        const row = rows.find(r => r.source === source && r.mangaId === mangaId)
         if (row?.chapterId) setResume({ chapterId: row.chapterId, page: row.page })
       })
       .catch(() => { /* 无进度 */ })
-  }, [mangaId])
+  }, [mangaId, source])
 
   if (error) return <main className="watch-page"><p className="error">{error}</p></main>
   if (!detail) return <main className="watch-page page-center">加载中…</main>
 
   const { manga, chapters } = detail
-  const readable = chapters.filter(c => !c.external && c.pages > 0)
+  const readable = chapters.filter(c => !c.external && c.pages !== 0)
   const ordered = asc ? readable : [...readable].reverse()
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
 
   const open = (c: ExtChapter) =>
-    navigate(`/manga-ext/read/${c.id}?mangaId=${manga.id}&lang=${lang}&title=${encodeURIComponent(manga.title)}`)
+    navigate(`/manga-ext/read/${c.id}?mangaId=${manga.id}&lang=${lang}&source=${source}` +
+             `&title=${encodeURIComponent(manga.title)}`)
 
   return (
     <main className="watch-page">
@@ -81,7 +124,7 @@ export default function ExternalMangaDetail() {
             {manga.year && <span className="chip">{manga.year}</span>}
             {manga.status && <span className="chip">{manga.status}</span>}
             {(manga.tags ?? []).slice(0, 4).map(t => <span key={t} className="chip ghost">{t}</span>)}
-            <span className="chip ghost">MangaDex</span>
+            <span className="chip ghost">{source === 'mangadex' ? 'MangaDex' : '腾讯动漫'}</span>
           </div>
           <p className={'manga-desc' + (expanded ? ' expanded' : '')}>{manga.description || '（暂无简介）'}</p>
           {manga.description && manga.description.length > 120 && (
@@ -96,7 +139,7 @@ export default function ExternalMangaDetail() {
                     ? `继续阅读（第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}）`
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
-              : <span className="muted">该语言下暂无可读章节</span>}
+              : <span className="muted">暂无可读章节</span>}
             <Link className="btn ghost pill" to="/manga-ext">返回搜索</Link>
           </div>
         </div>
@@ -108,7 +151,7 @@ export default function ExternalMangaDetail() {
             章节 <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>{readable.length} 话</span>
           </h2>
           <div className="row-inline">
-            {LANGS.map(l => (
+            {source === 'mangadex' && LANGS.map(l => (
               <button key={l.key} className={lang === l.key ? 'mini' : 'mini ghost'}
                       onClick={() => setLang(l.key)}>{l.label}</button>
             ))}
@@ -123,13 +166,15 @@ export default function ExternalMangaDetail() {
               <button key={c.id} className="chapter-cell" onClick={() => open(c)}
                       title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>
-                <span className="cc-sub">{c.pages} 页</span>
+                <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : c.pages < 0 ? '可读' : ''}</span>
               </button>
             ))}
           </div>
         ) : !loading && (
           <p className="muted">
-            该语言下没有 MangaDex 托管章节（部分章节为外链，需在原站阅读）。可切换 English 或「全部」。
+            {source === 'mangadex'
+              ? '该语言下没有 MangaDex 托管章节（部分章节为外链，需在原站阅读）。可切换 English 或「全部」。'
+              : '没有可读章节。'}
           </p>
         )}
       </section>

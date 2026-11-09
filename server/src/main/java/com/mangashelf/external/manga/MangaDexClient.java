@@ -136,7 +136,7 @@ public class MangaDexClient {
 
     // ── 图片代理（白名单）──
 
-    /** 仅允许已知漫画源图片域名（MangaDex / 哔哩漫画 CDN），避免任意 URL 代理。 */
+    /** 仅允许已知漫画源图片域名（MangaDex / 哔哩漫画 / 腾讯动漫 CDN），避免任意 URL 代理。 */
     public static boolean isAllowedImageHost(String url) {
         try {
             String host = URI.create(url).getHost();
@@ -144,7 +144,8 @@ public class MangaDexClient {
             return host.equals("uploads.mangadex.org")
                     || host.endsWith(".mangadex.network")
                     || host.equals("mangadex.network")
-                    || host.endsWith(".hdslb.com");
+                    || host.endsWith(".hdslb.com")
+                    || host.equals("manhua.acimg.cn");
         } catch (Exception e) {
             return false;
         }

@@ -94,7 +94,7 @@ public class ExternalMangaController {
             return ResponseEntity.badRequest().build();
         }
         Path cacheDir = Path.of(System.getenv().getOrDefault("MANGASHELF_WORK_ROOT",
-                "/tmp").toString()).getParent().resolve("manga-cache");
+                "/tmp/mangashelf-work").toString()).getParent().resolve("manga-cache");
         String key = sha256(url) + ".bin";
         Path cached = cacheDir.resolve(key);
         if (Files.isRegularFile(cached)) {
