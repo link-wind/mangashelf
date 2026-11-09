@@ -34,6 +34,12 @@ public class MangaDexClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
+    /** 上游对 Java 客户端偶发握手阻断：TTL 缓存 + 失败时回退陈旧值，保证界面稳定。 */
+    private record Cached(JsonNode value, long expiresAt) {}
+
+    private final java.util.concurrent.ConcurrentHashMap<String, Cached> cache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     public MangaDexClient(MangaShelfProperties props, ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         var builder = HttpClient.newBuilder().connectTimeout(TIMEOUT)
@@ -79,6 +85,16 @@ public class MangaDexClient {
         return out;
     }
 
+    /** 热门榜：按关注数降序。 */
+    public List<Manga> popular(int limit) throws Exception {
+        JsonNode root = getJson(API + "/manga?limit=" + Math.min(Math.max(limit, 1), 30)
+                + "&includes[]=cover_art&order[followedCount]=desc"
+                + "&contentRating[]=safe&contentRating[]=suggestive");
+        List<Manga> out = new ArrayList<>();
+        for (JsonNode m : root.path("data")) out.add(toManga(m));
+        return out;
+    }
+
     public Manga manga(String mangaId) throws Exception {
         JsonNode root = getJson(API + "/manga/" + mangaId + "?includes[]=cover_art");
         return toManga(root.path("data"));
@@ -120,14 +136,15 @@ public class MangaDexClient {
 
     // ── 图片代理（白名单）──
 
-    /** 仅允许 MangaDex 官方图片域名，避免任意 URL 代理。 */
+    /** 仅允许已知漫画源图片域名（MangaDex / 哔哩漫画 CDN），避免任意 URL 代理。 */
     public static boolean isAllowedImageHost(String url) {
         try {
             String host = URI.create(url).getHost();
             if (host == null) return false;
             return host.equals("uploads.mangadex.org")
                     || host.endsWith(".mangadex.network")
-                    || host.equals("mangadex.network");
+                    || host.equals("mangadex.network")
+                    || host.endsWith(".hdslb.com");
         } catch (Exception e) {
             return false;
         }
@@ -198,13 +215,39 @@ public class MangaDexClient {
     }
 
     private JsonNode getJson(String url) throws Exception {
+        return getJson(url, java.time.Duration.ofMinutes(10));
+    }
+
+    /** GET + 重试 + TTL 缓存；上游失败时若有陈旧缓存则回退（并记录）。 */
+    private JsonNode getJson(String url, java.time.Duration ttl) throws Exception {
+        Cached hit = cache.get(url);
+        long now = System.currentTimeMillis();
+        if (hit != null && hit.expiresAt() > now) {
+            return hit.value();
+        }
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(TIMEOUT).header("User-Agent", UA).header("Accept", "application/json")
                 .GET().build();
-        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("MangaDex HTTP " + resp.statusCode());
+        Exception last = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    throw new IllegalStateException("MangaDex HTTP " + resp.statusCode());
+                }
+                JsonNode value = objectMapper.readTree(resp.body());
+                cache.put(url, new Cached(value, now + ttl.toMillis()));
+                return value;
+            } catch (java.io.IOException e) {
+                last = e;
+                log.warn("MangaDex attempt {} failed: {}", attempt, e.getMessage());
+                Thread.sleep(600);
+            }
         }
-        return objectMapper.readTree(resp.body());
+        if (hit != null) {
+            log.warn("MangaDex upstream unavailable, serving stale cache for {}", url);
+            return hit.value();
+        }
+        throw last != null ? last : new IllegalStateException("MangaDex request failed");
     }
 }

@@ -545,3 +545,11 @@ button.ext-card:hover { background: var(--card); }
   width: 100%; height: auto; display: block; background: #0d0f11;
   min-height: 120px;
 }
+
+/* 热门榜角标（M17） */
+.rank-corner {
+  position: absolute; top: 0; left: 0; z-index: 2;
+  min-width: 22px; padding: 1px 7px; border-bottom-right-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+  text-align: center;
+}
