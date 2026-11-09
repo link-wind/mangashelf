@@ -27,3 +27,22 @@ TBD - created by archiving change implement-external-manga. Update Purpose after
 
 - **WHEN** 请求 `u` 参数指向非 MangaDex 域名
 - **THEN** 返回 400，不发起上游请求
+
+### Requirement: 阅读方向与页模式
+
+阅读器 MUST 支持左到右/右到左（日漫）阅读方向，以及单页/双页/首页单排页模式，
+设置持久化并影响点击分区、滑动方向与键盘翻页。
+
+#### Scenario: 日漫方向翻页反转
+
+- **WHEN** 阅读方向为 RTL 且用户点击右 30% 区域
+- **THEN** 翻到上一组（与 LTR 相反）
+
+### Requirement: 点击分区与滑动手势
+
+翻页模式 MUST 支持点击左右 30% 区域翻页、中央 40% 切换浮层，以及横向滑动翻页。
+
+#### Scenario: 滑动翻页
+
+- **WHEN** 用户在翻页模式横向快速滑动超过阈值
+- **THEN** 触发翻页；RTL 时方向反转
