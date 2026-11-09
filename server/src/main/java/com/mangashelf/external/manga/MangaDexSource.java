@@ -44,7 +44,8 @@ public class MangaDexSource implements MangaSource {
         for (MangaDexClient.Manga m : client.popular(limit)) {
             i++;
             out.add(new RankItem("mangadex", m.id(), m.title(), List.of(),
-                    m.coverUrl(), "completed".equals(m.status()), "", true, null));
+                    m.coverUrl(), "completed".equals(m.status()), "", true, null,
+                    "mangadex", m.id()));
         }
         return out;
     }

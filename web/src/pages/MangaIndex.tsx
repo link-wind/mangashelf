@@ -112,6 +112,7 @@ interface SourceInfo { id: string; name: string; capabilities: string[]; note: s
 interface RankItem {
   source: string; id: string; title: string; authors: string[]; coverUrl: string
   finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
+  readSource: string | null; readId: string | null
 }
 
 /** 热门漫画（M17）：按数据源切换；元数据源（不可站内读）跳原站。 */
@@ -173,6 +174,9 @@ function HotManga() {
                   ? <img src={proxyImage(it.coverUrl)} alt={it.title} loading="lazy" decoding="async" />
                   : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
                 {!it.readable && <span className="badge-anim" style={{ background: 'var(--priv)' }}>站外</span>}
+                {it.readable && it.readSource !== 'mangadex' && (
+                  <span className="badge-anim" style={{ background: 'var(--pub)' }}>站内</span>
+                )}
               </div>
               <div className="work-card-body">
                 <div className="work-card-title clamp">{it.title}</div>
@@ -182,8 +186,10 @@ function HotManga() {
               </div>
             </>
           )
-          return it.readable
-            ? <Link key={it.source + it.id} to={`/manga-ext/${it.id}?lang=all`} className="work-card">{inner}</Link>
+          const readId = it.readId
+          return readId
+            ? <Link key={it.source + it.id} to={`/manga-ext/${readId}?lang=all&title=${encodeURIComponent(it.title)}`}
+                    className="work-card">{inner}</Link>
             : <a key={it.source + it.id} href={it.externalUrl ?? '#'} target="_blank"
                  rel="noopener noreferrer" className="work-card">{inner}</a>
         })}

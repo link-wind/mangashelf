@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { onImgError } from '../externalManga'
@@ -11,18 +11,31 @@ interface Pages {
   dataSaver: string[]
   external: boolean
 }
+interface ProgressRow {
+  source: string; mangaId: string; chapterId: string | null; page: number
+}
 
-/** 外部漫画阅读器（M16）：竖向滚动 + 懒加载；默认用 dataSaver 图（更省流量更快）。 */
+/**
+ * 外部漫画阅读器（M16/M18）：竖向滚动 + 懒加载；服务端进度续读与上报。
+ * 默认 dataSaver 图（省流量），可切高清。
+ */
 export default function ExternalMangaReader() {
   const { chapterId } = useParams()
   const [params] = useSearchParams()
   const mangaId = params.get('mangaId') ?? ''
   const lang = params.get('lang') ?? 'zh'
+  const title = params.get('title') ?? '外部漫画'
+
   const [data, setData] = useState<Pages | null>(null)
   const [error, setError] = useState('')
   const [hd, setHd] = useState(false)
   const [progress, setProgress] = useState(1)
+  const [resumePage, setResumePage] = useState<number | null>(null)
+
   const stageRef = useRef<HTMLDivElement>(null)
+  const lastSaveRef = useRef(0)
+  const progressRef = useRef(1)
+  progressRef.current = progress
 
   useEffect(() => {
     void (async () => {
@@ -35,15 +48,33 @@ export default function ExternalMangaReader() {
     })()
   }, [chapterId])
 
-  // 阅读进度（页序号）存本地
+  // 续读位置：服务端优先，本地兜底
   useEffect(() => {
-    if (!chapterId) return
-    const saved = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '0')
-    if (saved > 0) setProgress(saved)
-  }, [chapterId])
+    if (!mangaId || !chapterId) return
+    void api.get<ProgressRow[]>('/api/v1/me/manga-progress?limit=50')
+      .then(rows => {
+        const row = rows.find(r => r.source === 'mangadex' && r.mangaId === mangaId)
+        if (row && row.chapterId === chapterId && row.page > 1) {
+          setResumePage(row.page)
+          setProgress(row.page)
+        } else {
+          const local = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '0')
+          if (local > 0) setProgress(local)
+        }
+      })
+      .catch(() => { /* 无进度不影响阅读 */ })
+  }, [mangaId, chapterId])
 
+  const saveProgress = useCallback((page: number, total: number) => {
+    if (!mangaId) return
+    void api.put('/api/v1/me/manga-progress', {
+      source: 'mangadex', mangaId, chapterId, page, totalPages: total, title,
+    }).catch(() => { /* 上报失败不打断阅读 */ })
+  }, [mangaId, chapterId, title])
+
+  // 滚动：换算当前页；节流上报
   useEffect(() => {
-    if (!chapterId) return
+    if (!chapterId || !data) return
     const onScroll = () => {
       const stage = stageRef.current
       if (!stage) return
@@ -51,26 +82,44 @@ export default function ExternalMangaReader() {
       const mid = window.innerHeight / 2
       let idx = 0
       imgs.forEach((img, i) => {
-        const r = img.getBoundingClientRect()
-        if (r.top < mid) idx = i
+        if (img.getBoundingClientRect().top < mid) idx = i
       })
-      if (idx + 1 !== progress) {
-        setProgress(idx + 1)
-        localStorage.setItem(`ms-ext-manga:${chapterId}`, String(idx + 1))
+      const page = idx + 1
+      if (page !== progressRef.current) {
+        setProgress(page)
+        localStorage.setItem(`ms-ext-manga:${chapterId}`, String(page))
+        if (Date.now() - lastSaveRef.current >= 3000) {
+          lastSaveRef.current = Date.now()
+          saveProgress(page, imgs.length)
+        }
       }
     }
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [chapterId, progress, data])
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      saveProgress(progressRef.current, stageRef.current?.querySelectorAll('img').length ?? 0)
+    }
+  }, [chapterId, data, saveProgress])
+
+  // 续读时滚到目标页
+  useEffect(() => {
+    if (!resumePage || !data) return
+    const stage = stageRef.current
+    if (!stage) return
+    const img = stage.querySelectorAll('img')[resumePage - 1]
+    if (img) window.scrollTo({ top: (img as HTMLElement).offsetTop - 60 })
+    setResumePage(null)
+  }, [resumePage, data])
 
   if (error) return <main className="reader"><p className="error">{error}</p></main>
   if (!data) return <main className="reader page-center">加载中…</main>
 
+  const backTo = `/manga-ext/${mangaId}?lang=${lang}`
   if (data.external || data.pages.length === 0) {
     return (
       <main className="reader">
         <p className="muted">该章节由 MangaDex 外链到原站，无法在此阅读。</p>
-        <Link className="btn ghost" to={`/manga-ext/${mangaId}?lang=${lang}`}>返回章节列表</Link>
+        <Link className="btn ghost" to={backTo}>返回章节列表</Link>
       </main>
     )
   }
@@ -80,7 +129,7 @@ export default function ExternalMangaReader() {
   return (
     <main className="reader">
       <div className="reader-toolbar">
-        <Link to={`/manga-ext/${mangaId}?lang=${lang}`} className="btn ghost pill">← 章节列表</Link>
+        <Link to={backTo} className="btn ghost pill">← 章节列表</Link>
         <span className="muted">{progress} / {list.length} 页</span>
         <button className="ghost pill" onClick={() => setHd(v => !v)}>
           {hd ? '省流模式' : '高清模式'}
@@ -94,7 +143,7 @@ export default function ExternalMangaReader() {
         ))}
       </div>
       <div style={{ textAlign: 'center', margin: '18px 0 40px' }}>
-        <Link className="btn ghost pill" to={`/manga-ext/${mangaId}?lang=${lang}`}>本章读完，返回章节列表</Link>
+        <Link className="btn ghost pill" to={backTo}>本章读完，返回章节列表</Link>
       </div>
     </main>
   )

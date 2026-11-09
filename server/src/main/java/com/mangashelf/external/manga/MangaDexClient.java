@@ -56,7 +56,7 @@ public class MangaDexClient {
 
     public record Manga(String id, String title, String altTitle, String description,
                         String coverUrl, String status, String year, List<String> tags,
-                        List<String> langs) {}
+                        List<String> langs, List<String> allTitles) {}
 
     public record Chapter(String id, String chapter, String title, String lang,
                           int pages, String publishAt, boolean external) {}
@@ -207,11 +207,20 @@ public class MangaDexClient {
         }
         String year = a.path("year").isNumber()
                 ? String.valueOf(a.path("year").asInt()) : a.path("year").asText();
+        List<String> allTitles = new ArrayList<>();
+        for (var it = a.path("title").properties().iterator(); it.hasNext(); ) {
+            allTitles.add(it.next().getValue().asText(""));
+        }
+        for (JsonNode altNode : a.path("altTitles")) {
+            for (var it = altNode.properties().iterator(); it.hasNext(); ) {
+                allTitles.add(it.next().getValue().asText(""));
+            }
+        }
         String descZh = a.path("description").path("zh").asText();
         String descEn = a.path("description").path("en").asText();
         String desc = descZh.isBlank() ? descEn : descZh;
         return new Manga(m.path("id").asText(), title, alt, desc,
-                coverUrl, a.path("status").asText(), year, tags, langs);
+                coverUrl, a.path("status").asText(), year, tags, langs, allTitles);
     }
 
     private JsonNode getJson(String url) throws Exception {

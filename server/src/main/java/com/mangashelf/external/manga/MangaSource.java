@@ -25,7 +25,8 @@ public interface MangaSource {
 
     record RankItem(String source, String id, String title, List<String> authors,
                     String coverUrl, boolean finished, String latestLabel,
-                    boolean readable, String externalUrl) {}
+                    boolean readable, String externalUrl,
+                    String readSource, String readId) {}
 
     record SearchItem(String source, String id, String title, String altTitle,
                       String coverUrl, String year) {}

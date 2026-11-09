@@ -31,11 +31,13 @@ public class BilibiliMangaSource implements MangaSource {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
     private final ObjectMapper objectMapper;
+    private final MangaMatcher matcher;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(12)).build();
 
-    public BilibiliMangaSource(ObjectMapper objectMapper) {
+    public BilibiliMangaSource(ObjectMapper objectMapper, MangaMatcher matcher) {
         this.objectMapper = objectMapper;
+        this.matcher = matcher;
     }
 
     @Override
@@ -86,11 +88,15 @@ public class BilibiliMangaSource implements MangaSource {
             if (cover.contains("hdslb.com") && !cover.contains("@")) {
                 cover = cover + "@480w.jpg";
             }
-            out.add(new RankItem("bilibili", comicId, c.path("title").asText(), authors,
-                    cover,
+            String title = c.path("title").asText();
+            // 跨源桥接：仅对前 12 条做匹配（首次约 10s，之后走缓存），避免榜单接口过慢
+            String readId = (out.size() < 12 ? matcher.findReadable(title) : java.util.Optional.<String>empty())
+                    .orElse(null);
+            out.add(new RankItem("bilibili", comicId, title, authors, cover,
                     c.path("is_finish").asInt(0) == 1,
                     latest.isBlank() ? "" : "更新至 " + latest,
-                    false, DETAIL_URL + comicId));
+                    readId != null, DETAIL_URL + comicId,
+                    readId == null ? null : "mangadex", readId));
         }
         log.debug("bilibili hot list size={}", out.size());
         return out;

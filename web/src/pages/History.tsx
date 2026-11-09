@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 
+interface MangaProgress {
+  source: string; mangaId: string; chapterId: string | null; chapterLabel: string | null
+  page: number; totalPages: number | null; title: string; coverUrl: string | null
+  updatedAt: string
+}
+
 interface ProgressRow {
   workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
   episodeId: string | null; lineName: string | null; coverUrl: string | null
@@ -27,12 +33,14 @@ function percent(row: ProgressRow): number {
 /** 观看历史（M10）：外部集服务端进度，点击直接续播。 */
 export default function History() {
   const [rows, setRows] = useState<ProgressRow[]>([])
+  const [mangaRows, setMangaRows] = useState<MangaProgress[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
     void (async () => {
       try {
         setRows(await api.get<ProgressRow[]>('/api/v1/me/watch-history?limit=100'))
+        setMangaRows(await api.get<MangaProgress[]>('/api/v1/me/manga-progress?limit=50'))
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       }
@@ -46,6 +54,35 @@ export default function History() {
       {error && <p className="error">{error}</p>}
       {rows.length === 0 && !error && <p className="muted">还没有观看记录。</p>}
 
+      {mangaRows.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <div className="section-head"><h2>漫画阅读</h2></div>
+          <ul className="chapters">
+            {mangaRows.map(m => (
+              <li key={`${m.source}-${m.mangaId}`}>
+                <span>
+                  <strong>{m.title}</strong>
+                  <br />
+                  <span className="muted">
+                    {m.chapterLabel ? `第 ${m.chapterLabel} 话 · ` : ''}
+                    读到第 {m.page} 页{m.totalPages ? ` / ${m.totalPages}` : ''} · {m.source}
+                  </span>
+                </span>
+                {m.chapterId ? (
+                  <Link className="btn ghost"
+                        to={`/manga-ext/read/${m.chapterId}?mangaId=${m.mangaId}&lang=all&title=${encodeURIComponent(m.title)}`}>
+                    继续阅读
+                  </Link>
+                ) : (
+                  <Link className="btn ghost" to={`/manga-ext/${m.mangaId}?lang=all`}>打开</Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="section-head"><h2>动画观看</h2></div>
       <ul className="chapters">
         {rows.map(r => (
           <li key={`${r.workId}-${r.ordinal}`}>
