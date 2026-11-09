@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import SeasonSection from './SeasonSection'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
@@ -72,8 +73,17 @@ export default function AnimeIndex() {
     <main className="watch-page">
       <div className="watch-title"><h1>番剧索引</h1></div>
       <div className="watch-meta">
-        <span>资源目录共 {total} 部 · 加入书库后可在线播放</span>
+        <span>本季新番来自 Bangumi 日历 · 资源目录共 {total} 部</span>
         <Link to="/library">我的书库 →</Link>
+      </div>
+
+      <div style={{ marginBottom: 30 }}>
+        <SeasonSection />
+      </div>
+
+      <div className="section-head">
+        <h2>资源目录</h2>
+        <span className="muted">加入书库后可在线播放</span>
       </div>
 
       <div className="row-inline" style={{ marginBottom: 14 }}>

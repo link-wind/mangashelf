@@ -12,7 +12,12 @@ public record MangaShelfProperties(
         Storage storage,
         Jobs jobs,
         Processing processing,
-        Embedding embedding) {
+        Embedding embedding,
+        Bangumi bangumi) {
+
+    /** Bangumi 元数据源（M9）：api.bgm.tv 官方接口；proxy 供网络受限环境选配。 */
+    public record Bangumi(boolean enabled, String proxy) {
+    }
 
     public record Embedding(boolean enabled, String modelPath, String tokenizerPath) {
     }

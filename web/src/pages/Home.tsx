@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import SeasonSection from './SeasonSection'
 
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
@@ -47,6 +48,10 @@ export default function Home() {
       </section>
 
       {error && <p className="error">{error}</p>}
+
+      <section style={{ marginTop: 28 }}>
+        <SeasonSection layout="scroll" limit={8} />
+      </section>
 
       {withAnimation.length > 0 && (
         <section style={{ marginTop: 28 }}>

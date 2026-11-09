@@ -31,10 +31,13 @@ public class ExternalController {
 
     private final ExternalService externals;
     private final ExternalCatalogService catalog;
+    private final BangumiService bangumi;
 
-    public ExternalController(ExternalService externals, ExternalCatalogService catalog) {
+    public ExternalController(ExternalService externals, ExternalCatalogService catalog,
+                              BangumiService bangumi) {
         this.externals = externals;
         this.catalog = catalog;
+        this.bangumi = bangumi;
     }
 
     // ── 规则源管理（管理员）──
@@ -155,6 +158,38 @@ public class ExternalController {
             @RequestParam(required = false) UUID sourceId,
             @RequestParam(required = false) Integer categoryId) {
         return catalog.listItems(cursor, limit, q, sourceId, categoryId);
+    }
+
+    // ── Bangumi 元数据（M9）──
+
+    @PostMapping("/admin/bangumi-sync")
+    public Job triggerBangumiSync(@AuthUser CurrentUser user) {
+        return catalog.triggerBangumiSync(user);
+    }
+
+    @GetMapping("/admin/bangumi-sync")
+    public Job bangumiSyncStatus(@AuthUser CurrentUser user) {
+        return catalog.bangumiSyncStatus(user);
+    }
+
+    /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）。 */
+    @GetMapping("/bangumi-covers/{subjectId}")
+    public ResponseEntity<byte[]> bangumiCover(@AuthUser CurrentUser user,
+                                               @PathVariable long subjectId) throws Exception {
+        BangumiService.Cover cover = bangumi.fetchCover(subjectId);
+        if (cover == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header("Content-Type", cover.contentType())
+                .header("Cache-Control", "public, max-age=86400")
+                .body(cover.bytes());
+    }
+
+    /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），登录可见。 */
+    @GetMapping("/calendar")
+    public List<BangumiService.CalendarEntry> calendar(@AuthUser CurrentUser user) {
+        return bangumi.calendar();
     }
 
     @PostMapping("/catalog-items/{id}/materialize")

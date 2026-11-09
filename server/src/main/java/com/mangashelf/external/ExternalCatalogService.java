@@ -73,6 +73,26 @@ public class ExternalCatalogService {
         return catalogItems.findLatestSyncJob(sourceId).orElse(null);
     }
 
+    // ── Bangumi 元数据同步（M9）──
+
+    public Job triggerBangumiSync(CurrentUser user) {
+        requireAdmin(user);
+        var latest = catalogItems.findLatestBangumiSyncJob();
+        boolean active = latest.isPresent()
+                && (Job.STATUS_QUEUED.equals(latest.get().status()) || Job.STATUS_RUNNING.equals(latest.get().status()));
+        if (!active) {
+            long window = Instant.now().getEpochSecond() / SYNC_DEDUP_WINDOW_SECONDS;
+            jobCreation.create(Job.KIND_BANGUMI_SYNC, user.id(), null, null, null, null, null,
+                    null, null, "bangumi.sync:" + window);
+        }
+        return catalogItems.findLatestBangumiSyncJob().orElse(null);
+    }
+
+    public Job bangumiSyncStatus(CurrentUser user) {
+        requireAdmin(user);
+        return catalogItems.findLatestBangumiSyncJob().orElse(null);
+    }
+
     // ── 目录浏览 ──
 
     public record CatalogItemPage(List<ExternalCatalogItem> items, String nextCursor, long total) {}

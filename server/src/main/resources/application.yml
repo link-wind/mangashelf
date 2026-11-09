@@ -70,6 +70,9 @@ mangashelf:
     recovery-interval-ms: 10000
     max-dispatch-attempts: 5
 
+  bangumi:
+    enabled: ${MANGASHELF_BANGUMI_ENABLED:true}
+    proxy: ${MANGASHELF_BANGUMI_PROXY:}
   embedding:
     # 本地 ONNX 嵌入（e5-small-v2，384 维）；模型文件不入库
     enabled: ${MANGASHELF_EMBEDDING_ENABLED:true}

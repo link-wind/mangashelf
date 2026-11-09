@@ -13,6 +13,13 @@ if pgrep -f mangashelf-server > /dev/null; then echo "旧进程未能退出" >&2
 export MANGASHELF_PYTHON="$ROOT/processing/.venv/bin/python"
 export MANGASHELF_PROCESSING_ROOT="$ROOT"
 export MANGASHELF_WORK_ROOT="$ROOT/data/jobs"
+# Bangumi 元数据源（M9）：网络受限环境从 .env 读代理（如 http://127.0.0.1:7892）
+if [ -f "$ROOT/.env" ]; then
+  BANGUMI_PROXY_LINE=$(grep -E '^MANGASHELF_BANGUMI_PROXY=' "$ROOT/.env" | tail -1 || true)
+  if [ -n "$BANGUMI_PROXY_LINE" ]; then
+    export MANGASHELF_BANGUMI_PROXY="${BANGUMI_PROXY_LINE#*=}"
+  fi
+fi
 if [ "${1:-}" != "--no-embedding" ]; then
   export MANGASHELF_EMBEDDING_MODEL_PATH="$ROOT/server/models/e5-small-v2.onnx"
   export MANGASHELF_EMBEDDING_TOKENIZER_PATH="$ROOT/server/models/tokenizer.json"

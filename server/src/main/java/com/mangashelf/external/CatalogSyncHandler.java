@@ -64,7 +64,7 @@ public class CatalogSyncHandler implements JobHandler {
 
         long total = 0;
         if (incremental) {
-            total = syncIncremental(ctx, source, hours);
+            total = syncIncremental(ctx, source, params, hours);
         } else {
             JsonNode cats = params.path("categories");
             if (!cats.isArray() || cats.isEmpty()) {
@@ -80,13 +80,27 @@ public class CatalogSyncHandler implements JobHandler {
         return JobResult.success("synced:" + total);
     }
 
-    private long syncIncremental(JobContext ctx, ExternalSource source, int hours) throws Exception {
+    private long syncIncremental(JobContext ctx, ExternalSource source, JsonNode params, int hours) throws Exception {
+        JsonNode cats = params.path("categories");
+        var allow = new java.util.HashSet<Integer>();
+        for (JsonNode c : cats) allow.add(c.asInt());
         int pg = 1;
         long total = 0;
         for (;;) {
             JsonNode d = fetch(ctx, source, "/api.php/provide/vod/?ac=videolist&h=" + hours + "&pg=" + pg);
             if (d == null) break;
-            total += upsertPage(ctx, source, d);
+            // 增量窗口跨分类返回，仅保留目录关注分类（M9：只收动漫）
+            if (allow.isEmpty()) {
+                total += upsertPage(ctx, source, d);
+            } else {
+                var arr = objectMapper.createArrayNode();
+                for (JsonNode v : d.path("list")) {
+                    if (allow.contains(v.path("type_id").asInt())) arr.add(v);
+                }
+                var filtered = objectMapper.createObjectNode();
+                filtered.set("list", arr);
+                total += upsertPage(ctx, source, filtered);
+            }
             int pagecount = d.path("pagecount").asInt(1);
             ctx.progress().emit("sync", "增量页 " + pg + "/" + pagecount);
             if (pg >= pagecount) break;

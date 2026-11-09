@@ -94,6 +94,13 @@ public class ExternalCatalogRepository {
         jdbc.update("UPDATE external_catalog_items SET work_id = ? WHERE id = ?", workId, itemId);
     }
 
+    public Optional<com.mangashelf.ingestion.Job> findLatestBangumiSyncJob() {
+        return jdbc.query(
+                "SELECT * FROM jobs WHERE kind = ? ORDER BY created_at DESC LIMIT 1",
+                new DataClassRowMapper<>(com.mangashelf.ingestion.Job.class),
+                com.mangashelf.ingestion.Job.KIND_BANGUMI_SYNC).stream().findFirst();
+    }
+
     public Optional<com.mangashelf.ingestion.Job> findLatestSyncJob(UUID sourceId) {
         return jdbc.query("""
                 SELECT * FROM jobs WHERE kind = ? AND sync_source_id = ?

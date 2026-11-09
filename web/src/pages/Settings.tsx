@@ -192,6 +192,7 @@ function ExternalSourceAdmin() {
       <p className="muted">导入声明式规则（Kazumi 兼容 CSS 选择器子集 / JSONPath），作品详情页即可搜索绑定外部集。</p>
       {error && <p className="error">{error}</p>}
       {notice && <p className="muted">{notice}</p>}
+      <BangumiSyncCard />
 
       <div className="card">
         <div className="stack">
@@ -223,6 +224,39 @@ function ExternalSourceAdmin() {
         ))}
         {sources.length === 0 && <li className="muted">还没有规则源。</li>}
       </ul>
+    </div>
+  )
+}
+
+
+/** Bangumi 元数据同步（M9）：拉取本季新番日历并桥接资源目录。 */
+function BangumiSyncCard() {
+  const [job, setJob] = useState<{ status: string; stage: string | null; errorMessage: string | null } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    try { setJob(await api.get('/api/v1/admin/bangumi-sync')) } catch { /* 无任务记录 */ }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  async function trigger() {
+    setBusy(true)
+    try {
+      await api.post('/api/v1/admin/bangumi-sync')
+      await load()
+    } catch { /* 卡片展示状态 */ } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <strong>Bangumi 本季新番</strong>
+      <p className="muted" style={{ margin: '6px 0' }}>
+        从 api.bgm.tv 拉取本季日历（封面/评分/放送星期），并自动匹配资源目录；
+        最近一次：{job ? `${job.status}${job.errorMessage ? ' — ' + job.errorMessage : ''}` : '未同步'}
+      </p>
+      <button onClick={() => void trigger()} disabled={busy}>
+        {busy ? '同步中…' : '同步本季新番'}
+      </button>
     </div>
   )
 }
