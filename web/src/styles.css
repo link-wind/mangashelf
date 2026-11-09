@@ -682,3 +682,16 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
   position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; z-index: 120;
   display: flex; gap: 8px;
 }
+
+/* ── 阅读器双页/翻页动画（M22）── */
+.rf-paged {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  gap: 2px; background: #0d0f11; cursor: pointer; overflow: hidden;
+}
+.rf-paged img {
+  height: 100%; width: auto; max-width: 50%; object-fit: contain; background: #0d0f11;
+}
+.rf-paged.rf-fade { animation: rf-fade-in .28s ease; }
+@keyframes rf-fade-in { from { opacity: 0 } to { opacity: 1 } }
+.reader-full { cursor: pointer; }
+.reader-full .rf-stage img { cursor: pointer; }
