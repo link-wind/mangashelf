@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import SeasonSection from './SeasonSection'
 
@@ -25,7 +25,10 @@ export default function AnimeIndex() {
   const [total, setTotal] = useState(0)
   const [q, setQ] = useState('')
   const [activeQuery, setActiveQuery] = useState('')
-  const [categoryId, setCategoryId] = useState<number | undefined>(undefined)
+  const [params] = useSearchParams()
+  const initialCat = params.get('category')
+  const [categoryId, setCategoryId] = useState<number | undefined>(
+    initialCat ? Number(initialCat) : undefined)
   const [loading, setLoading] = useState(false)
   const [busyItem, setBusyItem] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -46,7 +49,9 @@ export default function AnimeIndex() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { void load(null, '', undefined, true) }, [load])
+  useEffect(() => { void load(null, '', initialCat ? Number(initialCat) : undefined, true) },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [load, initialCat])
 
   function search() {
     setActiveQuery(q.trim())

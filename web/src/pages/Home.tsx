@@ -7,49 +7,73 @@ interface CalendarEntry {
   subjectId: number; name: string; nameCn: string; coverUrl: string
   rating: number | null; airWeekday: number | null; covered: boolean
   catalogItemId: string | null; workId: string | null; summary: string | null
+  remarks: string | null; episodeCount: number | null; categoryName: string | null
 }
-
+interface CatalogItem {
+  id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
+  workId: string | null; bangumiSubjectId: number | null
+}
 interface ProgressRow {
   workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
   episodeId: string | null; lineName: string | null; coverUrl: string | null
   positionMs: number; durationMs: number | null; updatedAt: string
 }
-
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
   animations: number; episodes: number; posterUrl: string | null
 }
 
-/** 首页（gugu 式分区）：欢迎区 + 有动画的作品（横滚）+ 最新作品。 */
+const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const CATEGORIES = [
+  { id: 29, label: '国产动漫' },
+  { id: 30, label: '日韩动漫' },
+  { id: 31, label: '欧美动漫' },
+  { id: 32, label: '港台动漫' },
+  { id: 33, label: '海外动漫' },
+]
+
+/** 首页（M14）：Banner 轮播 → 新番时刻表 → 继续观看 → 最近更新 → 高分榜 → 分类。 */
 export default function Home() {
-  const navigate = useNavigate()
-  const [items, setItems] = useState<WorkCard[]>([])
+  const [calendar, setCalendar] = useState<CalendarEntry[]>([])
+  const [updates, setUpdates] = useState<CatalogItem[]>([])
   const [continueList, setContinueList] = useState<ProgressRow[]>([])
+  const [works, setWorks] = useState<WorkCard[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
     void (async () => {
       try {
-        const page = await api.get<{ items: WorkCard[] }>('/api/v1/works?limit=48')
-        setItems(page.items)
-        setContinueList(await api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=6'))
+        const [cal, cat, prog, page] = await Promise.all([
+          api.get<CalendarEntry[]>('/api/v1/calendar'),
+          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
+          api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=6'),
+          api.get<{ items: WorkCard[] }>('/api/v1/works?limit=12'),
+        ])
+        setCalendar(cal)
+        setUpdates(cat.items)
+        setContinueList(prog)
+        setWorks(page.items)
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       }
     })()
   }, [])
 
-  const withAnimation = items.filter(w => w.animations > 0)
-  const latest = items.slice(0, 12)
+  const topRated = [...calendar]
+    .filter(i => (i.rating ?? 0) > 0)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+    .slice(0, 10)
 
   return (
     <main className="home-page">
-      <Banner />
+      <HeroBanner items={topRated.slice(0, 4)} />
 
       {error && <p className="error">{error}</p>}
 
+      <WeeklyPreview items={calendar} />
+
       {continueList.length > 0 && (
-        <section style={{ marginTop: 28 }}>
+        <section style={{ marginTop: 30 }}>
           <div className="section-head">
             <h2>继续观看</h2>
             <Link to="/history" className="muted">观看历史 →</Link>
@@ -78,91 +102,124 @@ export default function Home() {
         </section>
       )}
 
-      <section style={{ marginTop: 28 }}>
-        <SeasonSection layout="scroll" limit={8} />
+      <section style={{ marginTop: 30 }}>
+        <div className="section-head">
+          <h2>最近更新</h2>
+          <Link to="/anime" className="muted">查看全部 →</Link>
+        </div>
+        {updates.length === 0
+          ? <p className="muted">目录为空——在设置页触发一次目录同步。</p>
+          : <div className="card-grid">
+              {updates.map(it => <CatalogCard key={it.id} it={it} />)}
+            </div>}
       </section>
 
-      {withAnimation.length > 0 && (
-        <section style={{ marginTop: 28 }}>
+      {topRated.length > 0 && (
+        <section style={{ marginTop: 30 }}>
           <div className="section-head">
-            <h2>有动画的作品</h2>
-            <Link to="/anime" className="muted">查看全部 →</Link>
+            <h2>本季高分榜</h2>
+            <Link to="/schedule" className="muted">查看时刻表 →</Link>
           </div>
-          <div className="hscroll">
-            {withAnimation.map(w => <WorkCardView key={w.id} w={w} />)}
+          <ol className="rank-list">
+            {topRated.map((it, i) => (
+              <li key={it.subjectId} className="rank-item">
+                <span className={'rank-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
+                <img src={`/api/v1/bangumi-covers/${it.subjectId}`} alt=""
+                     loading="lazy"
+                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <Link className="rank-name clamp"
+                      to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}>
+                  {it.nameCn || it.name}
+                </Link>
+                <span className="star">★ {(it.rating ?? 0).toFixed(1)}</span>
+                {it.airWeekday ? <span className="muted">{WEEKDAYS[it.airWeekday]}</span> : null}
+                {it.covered
+                  ? <span className="tag pub">可看</span>
+                  : <span className="tag priv">未收录</span>}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      <section style={{ marginTop: 30 }}>
+        <SeasonSection layout="scroll" limit={12} />
+      </section>
+
+      {works.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div className="section-head">
+            <h2>我的作品</h2>
+            <Link to="/shelf" className="muted">我的书架 →</Link>
+          </div>
+          <div className="card-grid">
+            {works.map(w => (
+              <Link key={w.id} to={`/works/${w.id}`} className="work-card">
+                <div className="cover">
+                  {w.posterUrl
+                    ? <img src={w.posterUrl} alt={w.title} loading="lazy"
+                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    : <span className="cover-initial">{w.title.slice(0, 1)}</span>}
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{w.title}</div>
+                  <div className="work-card-meta">
+                    {w.animations > 0 && <span>动画 {w.animations}</span>}
+                    {w.episodes > 0 && <span>外部 {w.episodes} 集</span>}
+                  </div>
+                </div>
+              </Link>
+            ))}
           </div>
         </section>
       )}
 
-      <section style={{ marginTop: 28 }}>
-        <div className="section-head">
-          <h2>最新作品</h2>
-          <Link to="/anime" className="muted">番剧索引 →</Link>
+      <section style={{ marginTop: 30 }}>
+        <div className="section-head"><h2>按分类浏览</h2></div>
+        <div className="row-inline">
+          {CATEGORIES.map(c => (
+            <Link key={c.id} to={`/anime?category=${c.id}`} className="btn ghost pill">{c.label}</Link>
+          ))}
         </div>
-        {latest.length === 0
-          ? <p className="muted">还没有可见作品——去「我的素材」上传第一部吧。</p>
-          : <div className="card-grid">{latest.map(w => <WorkCardView key={w.id} w={w} />)}</div>}
       </section>
     </main>
   )
 }
 
-export function WorkCardView({ w }: { w: WorkCard }) {
-  return (
-    <Link to={`/works/${w.id}`} className="work-card">
-      <div className="cover">
-        {w.posterUrl
-          ? <img src={w.posterUrl} alt={w.title} loading="lazy" />
-          : <span className="cover-initial">{w.title.slice(0, 1)}</span>}
-        {w.animations > 0 && <span className="badge-anim">动画</span>}
-      </div>
-      <div className="work-card-body">
-        <div className="work-card-title clamp">{w.title}</div>
-        <div className="work-card-meta">
-          {w.animations > 0 && <span>动画 {w.animations}</span>}
-          {w.episodes > 0 && <span>外部 {w.episodes} 集</span>}
-          {w.animations === 0 && w.episodes === 0 && <span>漫画</span>}
-        </div>
-      </div>
-    </Link>
-  )
-}
-
-const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
-
-/** 首页 Banner（M13，gugu 式）：本季高评分番剧轮播，模糊封面做背景。 */
-function Banner() {
+/** 首屏 Banner：4 张轮播，右下缩略图切换（gugu 式）。 */
+function HeroBanner({ items }: { items: CalendarEntry[] }) {
   const navigate = useNavigate()
-  const [items, setItems] = useState<CalendarEntry[]>([])
   const [idx, setIdx] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
-    void api.get<CalendarEntry[]>('/api/v1/calendar')
-      .then(list => {
-        const top = list
-          .filter(i => (i.rating ?? 0) > 0)
-          .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-          .slice(0, 5)
-        setItems(top)
-      })
-      .catch(() => setItems([]))
-  }, [])
-
-  useEffect(() => {
     if (items.length < 2) return
-    const t = setInterval(() => setIdx(i => (i + 1) % items.length), 6500)
+    const t = setInterval(() => setIdx(i => (i + 1) % items.length), 7000)
     return () => clearInterval(t)
   }, [items.length])
 
   async function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
-    if (!it.catalogItemId) return
+    if (!it.catalogItemId) { navigate('/anime'); return }
     setBusy(it.catalogItemId)
     try {
       const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
       navigate(`/works/${res.workId}`)
-    } catch { /* 失败保留在当前页 */ } finally { setBusy(null) }
+    } catch { /* 保留在当前页 */ } finally { setBusy(null) }
+  }
+
+  async function subscribe(it: CalendarEntry) {
+    if (!it.catalogItemId) return
+    setBusy(it.catalogItemId)
+    try {
+      let workId = it.workId
+      if (!workId) {
+        const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
+        workId = res.workId
+      }
+      await api.put(`/api/v1/me/library/${workId}`)
+      navigate(`/works/${workId}`)
+    } catch { /* 保留在当前页 */ } finally { setBusy(null) }
   }
 
   if (items.length === 0) {
@@ -181,41 +238,123 @@ function Banner() {
 
   const it = items[idx]
   return (
-    <section className="banner">
-      <div className="banner-bg" style={{ backgroundImage: `url(/api/v1/bangumi-covers/${it.subjectId})` }} />
-      <div className="banner-mask" />
-      <div className="banner-inner">
-        <div className="banner-cover">
-          <img src={`/api/v1/bangumi-covers/${it.subjectId}`} alt={it.nameCn || it.name}
-               onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+    <section className="hero-slide">
+      <div className="hero-bg" style={{ backgroundImage: `url(/api/v1/bangumi-covers/${it.subjectId})` }} />
+      <div className="hero-shade" />
+
+      <div className="hero-content">
+        <div className="hero-badges">
+          <span className="hb hb-tv">TV</span>
+          <span className="hb hb-on">连载中</span>
+          {it.airWeekday ? <span className="hb hb-time">每周{WEEKDAYS[it.airWeekday].slice(1)}放送</span> : null}
         </div>
-        <div className="banner-info">
-          <h1>{it.nameCn || it.name}</h1>
-          <div className="banner-tags">
-            {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
-            {it.airWeekday && <span>{WEEKDAYS[it.airWeekday]}放送</span>}
-            {it.covered
-              ? <span className="tag pub">资源已收录</span>
-              : <span className="tag priv">资源未收录</span>}
-          </div>
-          {it.summary && <p className="banner-summary">{it.summary}</p>}
-          <div className="banner-actions">
-            {it.covered && (
-              <button className="pill" disabled={busy === it.catalogItemId}
-                      onClick={() => void play(it)}>
-                {busy === it.catalogItemId ? '处理中…' : (it.workId ? '立即观看' : '播放')}
-              </button>
-            )}
-            <Link to={`/anime`} className="btn ghost pill">查看本季全部</Link>
-          </div>
+        <h1>{it.nameCn || it.name}</h1>
+        {it.nameCn && it.name !== it.nameCn && <p className="hero-sub">{it.name}</p>}
+        <div className="hero-meta">
+          {typeof it.rating === 'number' && <span className="star">★ Bangumi {it.rating.toFixed(1)}</span>}
+          {it.categoryName && <span>{it.categoryName}</span>}
+          {it.episodeCount ? <span>全 {it.episodeCount} 集</span> : null}
+          {it.remarks && <span>{it.remarks}</span>}
+        </div>
+        {it.summary && <p className="hero-desc">{it.summary}</p>}
+        <div className="hero-actions">
+          <button className="pill hero-play" disabled={busy === it.catalogItemId}
+                  onClick={() => void play(it)}>
+            ▶ {busy === it.catalogItemId ? '处理中…' : (it.workId ? '立即播放' : '播放')}
+          </button>
+          <button className="pill hero-sub-btn" disabled={busy === it.catalogItemId}
+                  onClick={() => void subscribe(it)}>
+            ♡ 追番
+          </button>
+          {it.catalogItemId && (
+            <Link to={`/catalog/${it.catalogItemId}`} className="hero-info" title="详情">i</Link>
+          )}
         </div>
       </div>
-      <div className="banner-dots">
+
+      <div className="hero-thumbs">
         {items.map((x, i) => (
-          <button key={x.subjectId} className={'banner-dot' + (i === idx ? ' on' : '')}
-                  onClick={() => setIdx(i)} aria-label={`第 ${i + 1} 张`} />
+          <button key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
+                  onClick={() => setIdx(i)} title={x.nameCn || x.name}>
+            <img src={`/api/v1/bangumi-covers/${x.subjectId}`} alt=""
+                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <span className="hero-thumb-title">{x.nameCn || x.name}</span>
+          </button>
         ))}
       </div>
     </section>
+  )
+}
+
+/** 新番时刻表预览：星期切换 + 当日列表。 */
+function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
+  const today = new Date().getDay() || 7
+  const [day, setDay] = useState(today)
+  if (items.length === 0) return null
+  const list = items
+    .filter(i => (i.airWeekday ?? 0) === day)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+  return (
+    <section style={{ marginTop: 28 }}>
+      <div className="section-head">
+        <h2>
+          新番时刻表{' '}
+          <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
+            {WEEKDAYS[day]}放送 {list.length} 部
+          </span>
+        </h2>
+        <Link to="/schedule" className="muted">完整时刻表 →</Link>
+      </div>
+      <div className="row-inline" style={{ marginBottom: 12 }}>
+        {[1, 2, 3, 4, 5, 6, 7].map(d => (
+          <button key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
+            {WEEKDAYS[d]}
+          </button>
+        ))}
+      </div>
+      <div className="hscroll">
+        {list.map(it => (
+          <Link key={it.subjectId} to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                className="work-card">
+            <div className="cover">
+              <img src={`/api/v1/bangumi-covers/${it.subjectId}`} alt={it.nameCn || it.name} loading="lazy"
+                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              {it.covered && <span className="badge-anim">可看</span>}
+            </div>
+            <div className="work-card-body">
+              <div className="work-card-title clamp">{it.nameCn || it.name}</div>
+              <div className="work-card-meta">
+                {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
+                {it.remarks && <span>{it.remarks}</span>}
+              </div>
+            </div>
+          </Link>
+        ))}
+        {list.length === 0 && <p className="muted">这一天暂无放送条目。</p>}
+      </div>
+    </section>
+  )
+}
+
+function CatalogCard({ it }: { it: CatalogItem }) {
+  return (
+    <Link to={`/catalog/${it.id}`} className="work-card">
+      <div className="cover">
+        {it.bangumiSubjectId
+          ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}`} alt={it.name} loading="lazy"
+                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          : it.coverUrl
+            ? <img src={it.coverUrl} alt={it.name} loading="lazy"
+                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            : <span className="cover-initial">{it.name.slice(0, 1)}</span>}
+        {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+      </div>
+      <div className="work-card-body">
+        <div className="work-card-title clamp">{it.name}</div>
+        <div className="work-card-meta">
+          <span>{it.remarks || `${it.episodeCount} 集`}</span>
+        </div>
+      </div>
+    </Link>
   )
 }

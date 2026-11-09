@@ -90,6 +90,38 @@ export default function App() {
         <Route path="/works/:workId/external/:episodeId" element={me ? <ExternalWatch /> : <Navigate to="/login" />} />
         <Route path="/shelf" element={me ? <Shelf /> : <Navigate to="/login" />} />
       </Routes>
+      {me && <Footer />}
     </>
+  )
+}
+
+/** 页脚（M14，gugu 式分组链接；无广告 / 无第三方统计）。 */
+function Footer() {
+  return (
+    <footer className="site-footer">
+      <div className="footer-inner">
+        <div className="footer-col footer-brand">
+          <span className="brand">MangaShelf</span>
+          <p className="muted">个人自托管 · 无广告 · 视频由浏览器直连来源</p>
+        </div>
+        <div className="footer-col">
+          <h3>发现番剧</h3>
+          <NavLink to="/anime">番剧索引</NavLink>
+          <NavLink to="/schedule">新番时刻表</NavLink>
+          <NavLink to="/search">站内搜索</NavLink>
+        </div>
+        <div className="footer-col">
+          <h3>我的追番</h3>
+          <NavLink to="/shelf">我的书架</NavLink>
+          <NavLink to="/history">观看历史</NavLink>
+          <NavLink to="/uploads">我的素材</NavLink>
+        </div>
+        <div className="footer-col">
+          <h3>账号服务</h3>
+          <NavLink to="/settings">设置与令牌</NavLink>
+          <NavLink to="/library">旧版书库</NavLink>
+        </div>
+      </div>
+    </footer>
   )
 }
