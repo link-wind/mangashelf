@@ -374,7 +374,8 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
       </div>
       <div className="hscroll">
         {list.map(it => (
-          <Link key={it.subjectId} to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+          <Link key={it.subjectId}
+                to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime')}
                 className="work-card">
             <div className="cover">
               <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
@@ -396,9 +397,22 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   )
 }
 
+/** 点卡片直接进播放页（M20）：已入库跳作品（作品页直达播放），未入库先物化。 */
 function CatalogCard({ it }: { it: CatalogItem }) {
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+
+  async function open() {
+    if (it.workId) { navigate(`/works/${it.workId}`); return }
+    setBusy(true)
+    try {
+      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.id}/materialize`, {})
+      navigate(`/works/${res.workId}`)
+    } catch { /* 失败停留 */ } finally { setBusy(false) }
+  }
+
   return (
-    <Link to={`/catalog/${it.id}`} className="work-card">
+    <button className="work-card ext-card" onClick={() => void open()} disabled={busy}>
       <div className="cover">
         {it.bangumiSubjectId
           ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=medium`} alt={it.name} loading="lazy" decoding="async"
@@ -415,6 +429,6 @@ function CatalogCard({ it }: { it: CatalogItem }) {
           <span>{it.remarks || `${it.episodeCount} 集`}</span>
         </div>
       </div>
-    </Link>
+    </button>
   )
 }
