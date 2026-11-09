@@ -1,28 +1,28 @@
-# Worker 镜像：Java 运行层 + Python OCR 环境（RapidOCR 模型缓存烘焙，运行期零联网）。
-# 阶段一：Python 3.14 构建 OCR venv + Playwright Chromium（M7 嗅探）并触发模型下载。
-FROM python:3.14-slim AS ocr
-WORKDIR /w
-COPY processing/requirements.txt .
-RUN python -m venv /opt/ocr-venv \
- && /opt/ocr-venv/bin/pip install --no-cache-dir -r requirements.txt rapidocr onnxruntime playwright
-# 触发 RapidOCR 模型下载 + Chromium 系统依赖与浏览器烘焙（构建期联网；运行期零联网）
-RUN /opt/ocr-venv/bin/python -c "from rapidocr import RapidOCR; RapidOCR()" \
- && /opt/ocr-venv/bin/python -m playwright install --with-deps chromium
-
-# 阶段二：Java 运行层 + ffmpeg + OCR venv + Chromium（venv 自含 Python 3.14 解释器）
+# Worker 镜像：Java 运行层 + Python OCR/嗅探环境（同一 Ubuntu 基底，构建期联网、运行期零联网）。
+# 注意：venv 不得跨基底复制（symlink 悬空 + glibc 差异），Python 环境直接装在与
+# Java 相同的 ubuntu noble 层；requirements 不变时依赖层走构建缓存。
 FROM eclipse-temurin:25-jre-noble
 WORKDIR /opt/app
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg \
+ && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv python3-pip \
  && rm -rf /var/lib/apt/lists/*
-# venv 自含 Python 解释器 + 全部依赖 + RapidOCR 模型缓存 + Playwright 浏览器缓存
-COPY --from=ocr /opt/ocr-venv /opt/ocr-venv
-COPY --from=ocr --chown=1000:1000 /root/.cache/ms-playwright /opt/ms-playwright
+# 依赖层：OCR venv + RapidOCR 模型 + Playwright Chromium。模型/浏览器缓存放
+# /opt 固定路径（HOME 指向 /opt/ocr-home），运行用户 1000 可读，不依赖 root HOME。
+COPY processing/requirements.txt /tmp/requirements.txt
+RUN mkdir -p /opt/ocr-home /opt/ms-playwright /opt/data/jobs \
+ && HOME=/opt/ocr-home python3 -m venv /opt/ocr-venv \
+ && HOME=/opt/ocr-home /opt/ocr-venv/bin/pip install --no-cache-dir \
+      -r /tmp/requirements.txt rapidocr onnxruntime playwright \
+ && HOME=/opt/ocr-home /opt/ocr-venv/bin/python -c "from rapidocr import RapidOCR; RapidOCR()" \
+ && HOME=/opt/ocr-home PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+      /opt/ocr-venv/bin/python -m playwright install --with-deps chromium \
+ && chown -R 1000:1000 /opt/ocr-home /opt/ms-playwright /opt/data/jobs
 COPY processing /opt/processing
 COPY server/target/mangashelf-server-0.1.0-SNAPSHOT.jar app.jar
 ENV MANGASHELF_PYTHON=/opt/ocr-venv/bin/python \
     MANGASHELF_PROCESSING_ROOT=/opt/processing \
     MANGASHELF_WORK_ROOT=/opt/data/jobs \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    HOME=/opt/ocr-home
 USER 1000
 ENTRYPOINT ["java", "-jar", "app.jar", "--mangashelf.role=worker"]

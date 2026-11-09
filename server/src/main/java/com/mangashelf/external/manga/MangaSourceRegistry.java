@@ -2,6 +2,8 @@ package com.mangashelf.external.manga;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -12,25 +14,47 @@ import java.util.Optional;
 /**
  * 漫画数据源注册表（M17/M23）：代码源为 Spring Bean，规则源来自
  * manga_source_rules 表（MangaRuleSourceLoader）；按 id 查找。
+ * 规则源在 ApplicationReadyEvent 时加载——worker 与 api 并发启动时迁移可能
+ * 尚未完成（实测 V15 竞态），失败后延迟重试一次。
  */
 @Component
-public class MangaSourceRegistry {
+public class MangaSourceRegistry implements ApplicationListener<ApplicationReadyEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(MangaSourceRegistry.class);
 
     private final Map<String, MangaSource> sources = new LinkedHashMap<>();
+    private final MangaRuleSourceLoader loader;
 
     public MangaSourceRegistry(List<MangaSource> beans, MangaRuleSourceLoader loader) {
         for (MangaSource s : beans) {
             sources.put(s.id(), s);
         }
+        this.loader = loader;
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
         try {
             for (RuleMangaSource s : loader.load()) {
                 sources.put(s.id(), s);
             }
-        } catch (Exception e) {
-            // 规则源不可用不阻断启动；代码源仍可用，错误显式记录
-            log.error("规则漫画源加载失败：{}", e.getMessage());
+        } catch (Exception first) {
+            // 典型场景：与 api 并发启动，规则表所属迁移尚未完成；延迟后重试一次
+            log.warn("规则漫画源首次加载失败（{}），10s 后重试", first.getMessage());
+            Thread retry = new Thread(() -> {
+                try {
+                    Thread.sleep(10_000);
+                    for (RuleMangaSource s : loader.load()) {
+                        sources.put(s.id(), s);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("规则漫画源重试仍失败（不影响代码源）：{}", e.getMessage());
+                }
+            }, "manga-rule-source-retry");
+            retry.setDaemon(true);
+            retry.start();
         }
     }
 

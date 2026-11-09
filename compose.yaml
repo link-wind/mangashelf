@@ -70,6 +70,7 @@ services:
 
   # ── 全栈部署（M5）：--profile full 一键起完整栈；日常开发不受影响 ──
   api:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: server/Dockerfile
@@ -96,6 +97,7 @@ services:
       - "${MANGASHELF_API_PORT:-8080}:8080"
 
   worker:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: server/Dockerfile.worker
@@ -115,6 +117,7 @@ services:
         condition: service_started
 
   web:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: web/Dockerfile
