@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import Hls from 'hls.js'
 import { api, ApiError } from '../api'
+import Player, { type DanmakuItem } from '../components/Player'
 
 interface BoundEpisode {
   id: string; sourceId: string; sourceName: string; title: string
@@ -22,7 +22,7 @@ interface ProgressRow {
 const RESOLVE_POLL_MS = 2000
 const RESOLVE_MAX_MS = 90_000
 
-/** 外部集观看页：多线路切换 + 正片/特典分组 + 服务端进度续播（M10/M11）。 */
+/** 外部集观看页：多线路 + 正片/特典 + 服务端进度 + 自定义播放器与弹幕（M10–M13）。 */
 export default function ExternalWatch() {
   const { workId, episodeId } = useParams()
   const navigate = useNavigate()
@@ -32,9 +32,11 @@ export default function ExternalWatch() {
   const [lineName, setLineName] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [loadError, setLoadError] = useState('')
+  const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
+  const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(
+    () => localStorage.getItem('ms-danmaku') !== 'off')
+  const [sending, setSending] = useState(false)
   const current = episodes.find(e => e.id === episodeId) ?? null
-  const currentRef = useRef(current)
-  currentRef.current = current
 
   useEffect(() => {
     void (async () => {
@@ -50,16 +52,22 @@ export default function ExternalWatch() {
     })()
   }, [workId])
 
-  // 当前集所在线路同步到选择器
   useEffect(() => {
     if (current) setLineName(current.lineName)
   }, [current?.id])
 
+  // 换集：清解析状态、拉弹幕
   useEffect(() => {
     setStatus(null)
-    if (episodeId) void resolveAndPlay(episodeId)
+    if (!episodeId) return
+    void resolveAndPlay(episodeId)
+    if (workId && current) {
+      void api.get<DanmakuItem[]>(`/api/v1/danmaku?workId=${workId}&ordinal=${current.ordinal}`)
+        .then(setDanmakuItems)
+        .catch(() => setDanmakuItems([]))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [episodeId])
+  }, [episodeId, current?.ordinal])
 
   const resolveAndPlay = useCallback(async (id: string) => {
     try {
@@ -78,15 +86,35 @@ export default function ExternalWatch() {
           await new Promise(r => setTimeout(r, RESOLVE_POLL_MS))
         }
       }
-      if (currentRef.current?.id === id) setStatus(st)
+      setStatus(prev => (episodeId === id ? st : prev))
     } catch (e) {
-      if (currentRef.current?.id === id) setStatus({
+      setStatus({
         jobId: null, jobState: 'FAILED', playUrl: null, playKind: null, resolvedAt: null,
         errorCode: 'RESOLVE_ERROR',
         errorMessage: e instanceof ApiError ? e.message : '解析请求失败',
       })
     }
-  }, [])
+  }, [episodeId])
+
+  function toggleDanmaku() {
+    setDanmakuEnabled(v => {
+      localStorage.setItem('ms-danmaku', v ? 'off' : 'on')
+      return !v
+    })
+  }
+
+  async function sendDanmaku(content: string, color: string, timeMs: number) {
+    if (!workId || !current) return
+    setSending(true)
+    try {
+      const created = await api.post<DanmakuItem & { ordinal: number }>('/api/v1/danmaku', {
+        workId, ordinal: current.ordinal, episodeId: current.id, timeMs, content, color,
+      })
+      setDanmakuItems(prev => [...prev, created].sort((a, b) => a.timeMs - b.timeMs))
+    } finally {
+      setSending(false)
+    }
+  }
 
   const lines = [...new Map(episodes.map(e => [e.lineName, e.lineRank])).entries()]
     .sort((a, b) => a[1] - b[1])
@@ -99,10 +127,8 @@ export default function ExternalWatch() {
   const index = lineEpisodes.findIndex(e => e.id === episodeId)
   const prev = index > 0 ? lineEpisodes[index - 1] : null
   const next = index >= 0 && index < lineEpisodes.length - 1 ? lineEpisodes[index + 1] : null
-
   const goto = (id: string) => navigate(`/works/${workId}/external/${id}`)
 
-  /** 切线路：按同一集号映射到目标线路（进度按 work+ordinal 记录，不丢）。 */
   function switchLine(target: string) {
     setLineName(target)
     if (!current) return
@@ -114,6 +140,10 @@ export default function ExternalWatch() {
 
   if (loadError) return <main className="watch-page"><p className="error">{loadError}</p></main>
   if (!current) return <main className="watch-page page-center">加载中…</main>
+
+  const resolving = !status || (!status.playUrl && !status.errorCode
+    && (status.jobState === 'QUEUED' || status.jobState === 'RUNNING' || status.jobState === 'NONE'))
+  const failed = !!status?.errorCode
 
   return (
     <main className="watch-page">
@@ -128,11 +158,44 @@ export default function ExternalWatch() {
 
       <div className="watch-layout">
         <div>
-          <ExternalPlayer episodeId={current.id} workId={workId ?? ''} ordinal={current.ordinal}
-                          status={status}
-                          resumeMs={savedProgress?.ordinal === current.ordinal ? savedProgress.positionMs : 0}
-                          onEnded={() => next && goto(next.id)}
-                          onReResolve={() => void resolveAndPlay(current.id)} />
+          <Player
+            src={status?.playUrl ?? null}
+            kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
+            resumeMs={savedProgress?.ordinal === current.ordinal ? savedProgress.positionMs : 0}
+            onProgress={(ms) => {
+              if (!workId) return
+              void api.put('/api/v1/external-progress', {
+                workId, ordinal: current.ordinal, episodeId: current.id,
+                positionMs: ms, durationMs: null,
+              }).catch(() => {})
+            }}
+            onEnded={() => next && goto(next.id)}
+            onFatal={() => void resolveAndPlay(current.id)}
+            danmaku={{
+              items: danmakuItems,
+              enabled: danmakuEnabled,
+              sending,
+              onToggle: toggleDanmaku,
+              onSend: sendDanmaku,
+            }}
+            overlay={resolving ? (
+              <div className="player-overlay">
+                <div>
+                  <div className="player-spinner" />
+                  <div className="big">正在获取视频源</div>
+                  <div className="sub">无头浏览器解析直链中，通常需要 5～15 秒</div>
+                </div>
+              </div>
+            ) : failed ? (
+              <div className="player-overlay">
+                <div>
+                  <div className="big">解析失败</div>
+                  <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
+                  <button style={{ marginTop: 12 }} onClick={() => void resolveAndPlay(current.id)}>重试解析</button>
+                </div>
+              </div>
+            ) : undefined}
+          />
           <div className="watch-actions">
             <button className="ghost" disabled={!prev} onClick={() => prev && goto(prev.id)}>← 上一集</button>
             <button className="ghost" disabled={!next} onClick={() => next && goto(next.id)}>下一集 →</button>
@@ -177,6 +240,7 @@ export default function ExternalWatch() {
               <li><span className="k">解析状态</span><span>{resolveText(status)}</span></li>
               <li><span className="k">播放方式</span><span>浏览器直连（不经服务器）</span></li>
               <li><span className="k">进度</span><span>服务端保存（跨设备续播）</span></li>
+              <li><span className="k">弹幕</span><span>{danmakuItems.length} 条 · {danmakuEnabled ? '显示' : '已关闭'}</span></li>
             </ul>
           </div>
         </aside>
@@ -190,115 +254,4 @@ function resolveText(st: ResolveStatus | null): string {
   if (st.playUrl) return '已就绪'
   if (st.errorCode) return `失败（${st.errorMessage ?? st.errorCode}）`
   return '解析中…'
-}
-
-function loadSavedPosition(episodeId: string): number {
-  const v = Number(localStorage.getItem(`ms-ext-pos:${episodeId}`) ?? '0')
-  return Number.isFinite(v) && v > 0 ? v : 0
-}
-
-/** hls.js 播放器：解析覆盖层 + 失效重解析 + 服务端进度续播/上报。 */
-function ExternalPlayer({ episodeId, workId, ordinal, status, resumeMs, onEnded, onReResolve }: {
-  episodeId: string
-  workId: string
-  ordinal: number
-  status: ResolveStatus | null
-  resumeMs: number
-  onEnded: () => void
-  onReResolve: () => void
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const hlsRef = useRef<Hls | null>(null)
-  const retriedRef = useRef(false)
-  const [fatal, setFatal] = useState<string | null>(null)
-
-  const save = useCallback((force: boolean) => {
-    const v = videoRef.current
-    if (!v || !workId) return
-    const ms = Math.floor(v.currentTime * 1000)
-    if (!force && ms < 5000) return
-    localStorage.setItem(`ms-ext-pos:${episodeId}`, String(v.currentTime))
-    void api.put('/api/v1/external-progress', {
-      workId, ordinal, episodeId, positionMs: ms,
-      durationMs: Number.isFinite(v.duration) ? Math.floor(v.duration * 1000) : null,
-    }).catch(() => { /* 进度上报失败不打断播放 */ })
-  }, [episodeId, workId, ordinal])
-
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v || !status?.playUrl) return
-    setFatal(null)
-    let hls: Hls | null = null
-    if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true })
-      hlsRef.current = hls
-      hls.loadSource(status.playUrl)
-      hls.attachMedia(v)
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (!data.fatal) return
-        if (!retriedRef.current && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          retriedRef.current = true
-          save(true)
-          hls?.destroy()
-          onReResolve()
-        } else {
-          setFatal('视频流中断且重试未恢复，请重新解析或跳转原站')
-        }
-      })
-    } else {
-      v.src = status.playUrl
-    }
-    const onTime = () => {
-      if (Math.floor(v.currentTime) % 10 === 0) save(false)
-    }
-    const onLoaded = () => {
-      const target = Math.max(resumeMs, loadSavedPosition(episodeId))
-      if (target > 0 && target < (v.duration || Infinity) * 1000 - 5000) {
-        v.currentTime = target / 1000
-      }
-    }
-    v.addEventListener('timeupdate', onTime)
-    v.addEventListener('loadedmetadata', onLoaded)
-    v.addEventListener('ended', onEnded)
-    v.play().catch(() => { /* 自动播放被拦截时等用户点击 */ })
-    return () => {
-      save(true)
-      v.removeEventListener('timeupdate', onTime)
-      v.removeEventListener('loadedmetadata', onLoaded)
-      v.removeEventListener('ended', onEnded)
-      hls?.destroy()
-      hlsRef.current = null
-      v.removeAttribute('src')
-      v.load()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.playUrl, episodeId])
-
-  const resolving = !status || (!status.playUrl && !status.errorCode
-    && (status.jobState === 'QUEUED' || status.jobState === 'RUNNING' || status.jobState === 'NONE'))
-  const failed = !!status?.errorCode || !!fatal
-
-  return (
-    <div className="player-shell">
-      <video ref={videoRef} controls playsInline />
-      {resolving && (
-        <div className="player-overlay">
-          <div>
-            <div className="player-spinner" />
-            <div className="big">正在获取视频源</div>
-            <div className="sub">无头浏览器解析直链中，通常需要 5～15 秒</div>
-          </div>
-        </div>
-      )}
-      {failed && (
-        <div className="player-overlay">
-          <div>
-            <div className="big">解析失败</div>
-            <div className="sub">{fatal ?? status?.errorMessage ?? '未知错误'}</div>
-            <button style={{ marginTop: 12 }} onClick={onReResolve}>重试解析</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }

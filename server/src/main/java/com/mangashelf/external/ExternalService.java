@@ -17,14 +17,17 @@ public class ExternalService {
     private final CatalogService catalog;
     private final RuleEngine ruleEngine;
     private final com.mangashelf.ingestion.JobCreationService jobCreation;
+    private final DanmakuRepository danmaku;
 
     public ExternalService(ExternalRepository externals, CatalogService catalog,
                            RuleEngine ruleEngine,
-                           com.mangashelf.ingestion.JobCreationService jobCreation) {
+                           com.mangashelf.ingestion.JobCreationService jobCreation,
+                           DanmakuRepository danmaku) {
         this.externals = externals;
         this.catalog = catalog;
         this.ruleEngine = ruleEngine;
         this.jobCreation = jobCreation;
+        this.danmaku = danmaku;
     }
 
     // ── 规则源 ──
@@ -160,6 +163,28 @@ public class ExternalService {
     public WorkExternalMeta workExternalMeta(CurrentUser user, UUID workId) {
         catalog.requireVisibleWork(user, workId);
         return externals.workExternalMeta(workId);
+    }
+
+    // ── 弹幕（M13）──
+
+    public List<DanmakuRepository.Danmaku> listDanmaku(CurrentUser user, UUID workId, int ordinal) {
+        catalog.requireVisibleWork(user, workId);
+        return danmaku.list(workId, ordinal);
+    }
+
+    public DanmakuRepository.Danmaku sendDanmaku(CurrentUser user, UUID workId, int ordinal,
+                                                 UUID episodeId, long timeMs,
+                                                 String content, String color) {
+        catalog.requireVisibleWork(user, workId);
+        String text = content == null ? "" : content.strip();
+        if (text.isEmpty() || text.length() > 200) {
+            throw new ApiException(400, "DANMAKU_INVALID", "弹幕内容需为 1–200 字。");
+        }
+        String c = color == null || color.isBlank() ? "#ffffff" : color;
+        if (!c.matches("^#[0-9a-fA-F]{6}$")) {
+            throw new ApiException(400, "DANMAKU_COLOR_INVALID", "弹幕颜色需为 #RRGGBB。");
+        }
+        return danmaku.insert(workId, ordinal, episodeId, user.id(), Math.max(0, timeMs), text, c);
     }
 
     // ── 观看进度（M10）──

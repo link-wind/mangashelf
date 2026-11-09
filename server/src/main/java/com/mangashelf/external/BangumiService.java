@@ -288,14 +288,14 @@ public class BangumiService {
 
     public record CalendarEntry(long subjectId, String name, String nameCn, String coverUrl,
                                 Double rating, Integer airWeekday, boolean covered,
-                                String catalogItemId, String workId) {}
+                                String catalogItemId, String workId, String summary) {}
 
     /** 本季新番（含资源覆盖标记），按星期分组供前端展示。 */
     public List<CalendarEntry> calendar() {
         return jdbc.query("""
                 SELECT DISTINCT ON (b.subject_id)
                        b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
-                       (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id
+                       (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id, b.summary
                 FROM bangumi_subjects b
                 LEFT JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
                 WHERE b.in_calendar
@@ -307,7 +307,7 @@ public class BangumiService {
                 out.add(new CalendarEntry(rs.getLong(1), rs.getString(2), rs.getString(3),
                         rs.getString(4), rating == null ? null : rating.doubleValue(),
                         (Integer) rs.getObject(6),
-                        rs.getBoolean(7), rs.getString(8), rs.getString(9)));
+                        rs.getBoolean(7), rs.getString(8), rs.getString(9), rs.getString(10)));
             }
             out.sort(java.util.Comparator
                     .comparing((CalendarEntry e) -> e.airWeekday() == null ? 99 : e.airWeekday())

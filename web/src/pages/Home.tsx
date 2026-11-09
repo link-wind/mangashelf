@@ -3,6 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import SeasonSection from './SeasonSection'
 
+interface CalendarEntry {
+  subjectId: number; name: string; nameCn: string; coverUrl: string
+  rating: number | null; airWeekday: number | null; covered: boolean
+  catalogItemId: string | null; workId: string | null; summary: string | null
+}
+
 interface ProgressRow {
   workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
   episodeId: string | null; lineName: string | null; coverUrl: string | null
@@ -38,22 +44,7 @@ export default function Home() {
 
   return (
     <main className="home-page">
-      <section className="hero card">
-        <div>
-          <h1>MangaShelf</h1>
-          <p className="muted">读漫画、追改编动画、按剧情找内容——你的私人书架。</p>
-        </div>
-        <div className="hero-search">
-          <input placeholder="搜索动画、标题、别名…" className="search"
-                 onKeyDown={e => {
-                   if (e.key === 'Enter') {
-                     const q = (e.target as HTMLInputElement).value.trim()
-                     if (q) navigate(`/search?q=${encodeURIComponent(q)}`)
-                   }
-                 }} />
-          <Link to="/anime" className="btn ghost">番剧索引 →</Link>
-        </div>
-      </section>
+      <Banner />
 
       {error && <p className="error">{error}</p>}
 
@@ -134,5 +125,97 @@ export function WorkCardView({ w }: { w: WorkCard }) {
         </div>
       </div>
     </Link>
+  )
+}
+
+const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+/** 首页 Banner（M13，gugu 式）：本季高评分番剧轮播，模糊封面做背景。 */
+function Banner() {
+  const navigate = useNavigate()
+  const [items, setItems] = useState<CalendarEntry[]>([])
+  const [idx, setIdx] = useState(0)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    void api.get<CalendarEntry[]>('/api/v1/calendar')
+      .then(list => {
+        const top = list
+          .filter(i => (i.rating ?? 0) > 0)
+          .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+          .slice(0, 5)
+        setItems(top)
+      })
+      .catch(() => setItems([]))
+  }, [])
+
+  useEffect(() => {
+    if (items.length < 2) return
+    const t = setInterval(() => setIdx(i => (i + 1) % items.length), 6500)
+    return () => clearInterval(t)
+  }, [items.length])
+
+  async function play(it: CalendarEntry) {
+    if (it.workId) { navigate(`/works/${it.workId}`); return }
+    if (!it.catalogItemId) return
+    setBusy(it.catalogItemId)
+    try {
+      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
+      navigate(`/works/${res.workId}`)
+    } catch { /* 失败保留在当前页 */ } finally { setBusy(null) }
+  }
+
+  if (items.length === 0) {
+    return (
+      <section className="hero">
+        <div>
+          <h1>MangaShelf</h1>
+          <p className="muted">读漫画、追改编动画、按剧情找内容——你的私人书架。</p>
+        </div>
+        <div className="hero-search">
+          <Link to="/anime" className="btn ghost pill">番剧索引 →</Link>
+        </div>
+      </section>
+    )
+  }
+
+  const it = items[idx]
+  return (
+    <section className="banner">
+      <div className="banner-bg" style={{ backgroundImage: `url(/api/v1/bangumi-covers/${it.subjectId})` }} />
+      <div className="banner-mask" />
+      <div className="banner-inner">
+        <div className="banner-cover">
+          <img src={`/api/v1/bangumi-covers/${it.subjectId}`} alt={it.nameCn || it.name}
+               onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        </div>
+        <div className="banner-info">
+          <h1>{it.nameCn || it.name}</h1>
+          <div className="banner-tags">
+            {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
+            {it.airWeekday && <span>{WEEKDAYS[it.airWeekday]}放送</span>}
+            {it.covered
+              ? <span className="tag pub">资源已收录</span>
+              : <span className="tag priv">资源未收录</span>}
+          </div>
+          {it.summary && <p className="banner-summary">{it.summary}</p>}
+          <div className="banner-actions">
+            {it.covered && (
+              <button className="pill" disabled={busy === it.catalogItemId}
+                      onClick={() => void play(it)}>
+                {busy === it.catalogItemId ? '处理中…' : (it.workId ? '立即观看' : '播放')}
+              </button>
+            )}
+            <Link to={`/anime`} className="btn ghost pill">查看本季全部</Link>
+          </div>
+        </div>
+      </div>
+      <div className="banner-dots">
+        {items.map((x, i) => (
+          <button key={x.subjectId} className={'banner-dot' + (i === idx ? ' on' : '')}
+                  onClick={() => setIdx(i)} aria-label={`第 ${i + 1} 张`} />
+        ))}
+      </div>
+    </section>
   )
 }

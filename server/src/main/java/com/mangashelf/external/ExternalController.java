@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
 import org.springframework.validation.annotation.Validated;
@@ -166,6 +167,26 @@ public class ExternalController {
             @RequestParam(required = false) UUID sourceId,
             @RequestParam(required = false) Integer categoryId) {
         return catalog.listItems(cursor, limit, q, sourceId, categoryId);
+    }
+
+    // ── 弹幕（M13）──
+
+    @GetMapping("/danmaku")
+    public List<DanmakuRepository.Danmaku> listDanmaku(@AuthUser CurrentUser user,
+                                                       @RequestParam UUID workId,
+                                                       @RequestParam int ordinal) {
+        return externals.listDanmaku(user, workId, ordinal);
+    }
+
+    public record DanmakuRequest(@NotNull UUID workId, int ordinal, UUID episodeId,
+                                 long timeMs, @NotBlank @Size(max = 200) String content,
+                                 String color) {}
+
+    @PostMapping("/danmaku")
+    public DanmakuRepository.Danmaku sendDanmaku(@AuthUser CurrentUser user,
+                                                 @Valid @RequestBody DanmakuRequest request) {
+        return externals.sendDanmaku(user, request.workId(), request.ordinal(),
+                request.episodeId(), request.timeMs(), request.content(), request.color());
     }
 
     // ── 观看进度与历史（M10）──
