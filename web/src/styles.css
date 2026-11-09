@@ -426,12 +426,8 @@ button.mini.ghost { padding: 3px 9px; }
   background: #10151a;
 }
 .hero-bg {
-  position: absolute; inset: -3%; background-size: cover; background-position: center 22%;
-  filter: blur(5px) saturate(125%) brightness(.58); transform: scale(1.04);
-}
-.hero-bg::after {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(120% 90% at 76% 34%, transparent 0%, rgba(8, 12, 16, .55) 72%);
+  position: absolute; inset: 0; background-size: cover; background-position: center 24%;
+  filter: saturate(112%) brightness(.62);
 }
 .hero-shade {
   position: absolute; inset: 0;

@@ -65,7 +65,7 @@ export default function SeasonSection({ layout = 'grid', limit }: {
         {shown.map(it => (
           <div key={it.subjectId} className="work-card">
             <div className="cover">
-              <img src={`/api/v1/bangumi-covers/${it.subjectId}`} alt={it.nameCn || it.name} loading="lazy"
+              <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
               {typeof it.rating === 'number' && it.rating > 0 && (
                 <span className="badge-anim" style={{ left: 'auto', right: 8, background: '#f0a020' }}>

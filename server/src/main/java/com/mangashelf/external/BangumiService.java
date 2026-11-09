@@ -73,7 +73,7 @@ public class BangumiService {
                         it.path("id").asLong(),
                         it.path("name").asText(""),
                         it.path("name_cn").asText(""),
-                        it.path("images").path("common").asText(""),
+                        pickImage(it.path("images")),
                         it.path("rating").path("score").asDouble(0) == 0 ? null : it.path("rating").path("score").asDouble(),
                         parseDate(it.path("air_date").asText("")),
                         weekday,
@@ -99,8 +99,8 @@ public class BangumiService {
         List<Subject> out = new ArrayList<>();
         for (JsonNode x : objectMapper.readTree(resp.body()).path("data")) {
             out.add(new Subject(x.path("id").asLong(), x.path("name").asText(""),
-                    x.path("name_cn").asText(""), x.path("images").path("common").asText(""),
-                    null, parseDate(x.path("date").asText("")), null, ""));
+                    x.path("name_cn").asText(""), pickImage(x.path("images")), null,
+                    parseDate(x.path("date").asText("")), null, ""));
         }
         return out;
     }
@@ -108,7 +108,31 @@ public class BangumiService {
     /** 封面代理：按 subjectId 取图（不接受任意 URL，避免 SSRF；仅访问库内 cover_url）。 */
     public record Cover(byte[] bytes, String contentType) {}
 
-    public Cover fetchCover(long subjectId) throws Exception {
+    /** 封面磁盘缓存目录（首次回源后落盘，后续零上游请求）。 */
+    private java.nio.file.Path coverCacheDir() {
+        return java.nio.file.Path.of(props.processing().workRoot()).getParent()
+                .resolve("covers");
+    }
+
+    public Cover fetchCover(long subjectId, String size) throws Exception {
+        String sz = size == null || size.isBlank() ? "medium" : size;
+        java.nio.file.Path cached = coverCacheDir().resolve(subjectId + "-" + sz + ".jpg");
+        if (java.nio.file.Files.isRegularFile(cached)) {
+            return new Cover(java.nio.file.Files.readAllBytes(cached), "image/jpeg");
+        }
+        Cover fetched = fetchCoverRemote(subjectId, sz);
+        if (fetched != null) {
+            try {
+                java.nio.file.Files.createDirectories(cached.getParent());
+                java.nio.file.Files.write(cached, fetched.bytes());
+            } catch (Exception e) {
+                log.warn("cover cache write failed for {}: {}", subjectId, e.getMessage());
+            }
+        }
+        return fetched;
+    }
+
+    private Cover fetchCoverRemote(long subjectId, String size) throws Exception {
         String url = jdbc.queryForObject(
                 "SELECT cover_url FROM bangumi_subjects WHERE subject_id = ? AND cover_url <> ''",
                 String.class, subjectId);
@@ -116,6 +140,14 @@ public class BangumiService {
         if (url.startsWith("http://lain.bgm.tv")) {
             url = "https://" + url.substring("http://".length());
         }
+        // 同图多尺寸：/pic/cover/{l|m|c|s}/… —— 网格用 medium 降低流量
+        String seg = switch (size == null ? "medium" : size) {
+            case "large" -> "l";
+            case "common" -> "c";
+            case "small" -> "s";
+            default -> "m";
+        };
+        url = url.replaceFirst("/pic/cover/[lmcs]/", "/pic/cover/" + seg + "/");
         HttpRequest request = requestBuilder(url).GET().build();
         HttpResponse<byte[]> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
         if (resp.statusCode() != 200) return null;
@@ -320,6 +352,15 @@ public class BangumiService {
     }
 
     // ── 内部 ──
+
+    /** 优先大图（Banner 需要），回退 medium/common。 */
+    private static String pickImage(JsonNode images) {
+        for (String field : new String[]{"large", "medium", "common"}) {
+            String v = images.path(field).asText("");
+            if (!v.isBlank()) return v;
+        }
+        return "";
+    }
 
     private void upsertSubject(Subject s, boolean inCalendar) {
         jdbc.update("""

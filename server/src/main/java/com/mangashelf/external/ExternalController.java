@@ -229,14 +229,16 @@ public class ExternalController {
     /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）。 */
     @GetMapping("/bangumi-covers/{subjectId}")
     public ResponseEntity<byte[]> bangumiCover(@AuthUser CurrentUser user,
-                                               @PathVariable long subjectId) throws Exception {
-        BangumiService.Cover cover = bangumi.fetchCover(subjectId);
+                                               @PathVariable long subjectId,
+                                               @RequestParam(defaultValue = "medium") String size)
+            throws Exception {
+        BangumiService.Cover cover = bangumi.fetchCover(subjectId, size);
         if (cover == null) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok()
                 .header("Content-Type", cover.contentType())
-                .header("Cache-Control", "public, max-age=86400")
+                .header("Cache-Control", "public, max-age=604800")
                 .body(cover.bytes());
     }
 
