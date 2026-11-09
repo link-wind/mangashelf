@@ -553,3 +553,116 @@ button.ext-card:hover { background: var(--card); }
   background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
   text-align: center;
 }
+
+/* ── 漫画详情（M21，参照哔哩哔哩漫画）── */
+.manga-hero { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+.manga-cover {
+  width: 208px; aspect-ratio: 3 / 4; border-radius: 14px; overflow: hidden; flex-shrink: 0;
+  background: var(--bg-soft); display: grid; place-items: center; border: 1px solid var(--border);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .12);
+}
+.manga-cover img { width: 100%; height: 100%; object-fit: cover; }
+.manga-info { flex: 1; min-width: 280px; }
+.manga-info h1 { margin: 0; font-size: 27px; letter-spacing: -.4px; }
+.manga-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
+.chip {
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-strong);
+}
+.chip.ghost { background: var(--bg-soft); color: var(--ink-2); }
+.manga-desc {
+  margin: 0; color: var(--ink-2); line-height: 1.75; font-size: 13.5px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.manga-desc.expanded { display: block; -webkit-line-clamp: unset; }
+.link-btn { background: none; border: 0; color: var(--accent-strong); font-size: 13px; padding: 4px 0; cursor: pointer; }
+.manga-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.manga-read-btn { padding: 11px 28px; font-size: 15px; font-weight: 600; }
+
+.chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.chapter-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer; transition: all .12s;
+}
+.chapter-cell:hover { border-color: var(--accent); background: var(--accent-soft); }
+.cc-no { font-size: 15px; font-weight: 700; color: var(--ink); }
+.cc-sub { font-size: 11px; color: var(--muted); }
+
+/* ── 漫画阅读器（M21）：全屏黑底 + 浮层 ── */
+.reader-full {
+  min-height: 100vh; background: #08090a; color: #fff;
+}
+/* 阅读时隐藏站点导航与页脚，保持沉浸 */
+body.reader-open .nav, body.reader-open .site-footer { display: none; }
+.reader-full-inner { min-height: 100vh; display: grid; place-items: center; gap: 12px; padding: 24px; }
+.rf-top, .rf-bottom {
+  position: fixed; left: 0; right: 0; z-index: 110;
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(rgba(0, 0, 0, .82), transparent);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.rf-top { top: 0; padding: 10px 16px 26px; }
+.rf-bottom {
+  bottom: 0; padding: 26px 16px 14px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .86));
+}
+.reader-full:not(.show-ui) .rf-top { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+.reader-full:not(.show-ui) .rf-bottom { opacity: 0; transform: translateY(8px); pointer-events: none; }
+
+.rf-icon {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .12); color: #fff; text-decoration: none; border: 0;
+  font-size: 17px; cursor: pointer; flex-shrink: 0;
+}
+.rf-icon:hover { background: rgba(255, 255, 255, .24); }
+.rf-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rf-comic { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rf-chapter { font-size: 12px; color: rgba(255, 255, 255, .7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.rf-stage { max-width: 860px; margin: 0 auto; padding: 64px 0 96px; }
+.rf-stage img {
+  width: 100%; height: auto; display: block; background: #0d0f11; min-height: 120px;
+}
+.rf-paged { position: absolute; inset: 0; display: grid; place-items: center; cursor: pointer; }
+.rf-paged img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.rf-text-btn {
+  background: transparent; border: 1px solid rgba(255, 255, 255, .3); color: #fff;
+  border-radius: 999px; padding: 6px 14px; font-size: 13px; flex-shrink: 0;
+}
+.rf-text-btn:disabled { opacity: .35; }
+.rf-progress { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rf-page { font-size: 12px; color: rgba(255, 255, 255, .8); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.rf-progress input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+
+.rf-sheet {
+  position: fixed; right: 16px; bottom: 72px; z-index: 120;
+  background: rgba(28, 32, 36, .96); border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+  min-width: 260px; box-shadow: 0 12px 30px rgba(0, 0, 0, .5);
+}
+.rf-sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.rf-sheet-row .row-inline { gap: 6px; }
+
+/* ── 漫画索引两栏（M21）── */
+.manga-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .manga-layout { grid-template-columns: 1fr; } }
+.manga-side { position: sticky; top: 72px; }
+
+.hot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hot-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; padding: 6px; border-radius: 8px;
+  text-align: left; cursor: pointer;
+}
+.hot-row:hover { background: var(--bg-soft); }
+.hot-row img { width: 36px; height: 48px; object-fit: cover; border-radius: 5px; flex-shrink: 0; background: var(--bg-soft); }
+.hot-no {
+  width: 18px; flex-shrink: 0; text-align: center; font-size: 13px; font-weight: 700;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.hot-no.top { color: var(--accent); }
+.hot-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hot-title { font-size: 13px; color: var(--ink); line-height: 1.3; }
+.hot-meta { font-size: 11px; color: var(--muted); }
