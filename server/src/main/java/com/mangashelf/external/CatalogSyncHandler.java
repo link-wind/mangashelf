@@ -15,9 +15,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 /**
  * catalog.sync：拉取资源站 MacCMS 目录入资源目录层（M8 D2）。
@@ -33,15 +30,15 @@ public class CatalogSyncHandler implements JobHandler {
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
     private final ExternalRepository externals;
-    private final ExternalCatalogRepository catalogItems;
+    private final CatalogItemWriter itemWriter;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(HTTP_TIMEOUT).build();
 
-    public CatalogSyncHandler(ExternalRepository externals, ExternalCatalogRepository catalogItems,
+    public CatalogSyncHandler(ExternalRepository externals, CatalogItemWriter itemWriter,
                               ObjectMapper objectMapper) {
         this.externals = externals;
-        this.catalogItems = catalogItems;
+        this.itemWriter = itemWriter;
         this.objectMapper = objectMapper;
     }
 
@@ -142,34 +139,10 @@ public class CatalogSyncHandler implements JobHandler {
     private long upsertPage(JobContext ctx, ExternalSource source, JsonNode d) {
         long n = 0;
         for (JsonNode v : d.path("list")) {
-            String playFrom = v.path("vod_play_from").asText("");
-            String playUrl = v.path("vod_play_url").asText("");
-            // 线路组：play_from 与 play_url 以 $$$ 对应；play_groups 存 [{from, raw}]
-            var groups = objectMapper.createArrayNode();
-            String[] froms = playFrom.split("\\$\\$\\$");
-            String[] urlGroups = playUrl.split("\\$\\$\\$");
-            int episodeCount = 0;
-            for (int i = 0; i < urlGroups.length; i++) {
-                var g = objectMapper.createObjectNode();
-                g.put("from", i < froms.length ? froms[i] : "line" + i);
-                g.put("raw", urlGroups[i]);
-                groups.add(g);
-                episodeCount = Math.max(episodeCount, urlGroups[i].split("#").length);
-            }
-            catalogItems.upsert(source.id(), v.path("vod_id").asLong(), v.path("vod_name").asText(),
-                    v.path("vod_pic").asText(""), v.path("vod_remarks").asText(""),
-                    v.path("type_id").asInt(), v.path("type_name").asText(""),
-                    playFrom, groups.toString(), episodeCount, parseTime(v.path("vod_time").asText("")));
+            itemWriter.upsertVod(source.id(), v);
             n++;
         }
         return n;
     }
 
-    private static Instant parseTime(String s) {
-        try {
-            return LocalDateTime.parse(s.replace(" ", "T")).atOffset(ZoneOffset.ofHours(8)).toInstant();
-        } catch (Exception e) {
-            return null;
-        }
-    }
 }

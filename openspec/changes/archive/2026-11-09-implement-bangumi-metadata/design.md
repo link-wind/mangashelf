@@ -44,3 +44,18 @@ ALTER TABLE external_catalog_items ADD COLUMN bangumi_subject_id bigint REFERENC
 
 `syncIncremental` 读取 params.categories 过滤 type_id；M8 遗留的非动漫条目
 （category_id ∉ {29,30,31,32,33}）清理。
+
+## D6. 2026-11-09 补记：匹配增强与时刻表
+
+- 匹配算法重写：标题归一化（小写/去括号注释/去标点空白/去第N季·Season N 后缀）
+  + 字符二元组 Jaccard 相似度；精确相等或相似度 ≥ 0.62 才关联，每次同步先重置
+  旧关联重算（避免初版前缀匹配过宽）。
+- 反查补漏：本地未命中的 subject 用**资源站搜索 API**（ac=videolist&wd=）反查，
+  名称相似度 ≥ 0.5 或互相包含（长度 ≥4）则写入目录并关联；单请求 8s 超时、
+  总预算 120s、间隔 250ms，超预算下一轮继续。
+- 反查源选择：取最近一次 SUCCEEDED 的 catalog.sync 的 sync_source_id（按名称
+  排序会命中历史 mock 源，实测踩坑）。
+- Bangumi 日历请求加一次重试（代理链路偶发 connect timeout）。
+- 实测：本地匹配 55 部 + 反查 14 部 = **68/114 覆盖（60%）**，此前 29/114。
+- 新增「新番时刻表」周视图页（/schedule）：按放送星期分栏 + 放送日未定分区，
+  覆盖条目可一键播放/打开。

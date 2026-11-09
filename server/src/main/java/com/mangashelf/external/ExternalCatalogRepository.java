@@ -86,6 +86,16 @@ public class ExternalCatalogRepository {
                 "SELECT count(*) FROM external_catalog_items %s".formatted(where), Long.class, args.toArray());
     }
 
+    public Optional<UUID> findIdByVod(UUID sourceId, long vodId) {
+        return jdbc.query("SELECT id FROM external_catalog_items WHERE source_id = ? AND vod_id = ?",
+                (rs, i) -> rs.getObject("id", UUID.class), sourceId, vodId).stream().findFirst();
+    }
+
+    public void linkSubject(UUID itemId, long subjectId) {
+        jdbc.update("UPDATE external_catalog_items SET bangumi_subject_id = ? WHERE id = ?",
+                subjectId, itemId);
+    }
+
     public Optional<ExternalCatalogItem> findItem(UUID id) {
         return jdbc.query("SELECT * FROM external_catalog_items WHERE id = ?", mapper, id).stream().findFirst();
     }
@@ -99,6 +109,14 @@ public class ExternalCatalogRepository {
                 "SELECT * FROM jobs WHERE kind = ? ORDER BY created_at DESC LIMIT 1",
                 new DataClassRowMapper<>(com.mangashelf.ingestion.Job.class),
                 com.mangashelf.ingestion.Job.KIND_BANGUMI_SYNC).stream().findFirst();
+    }
+
+    /** 最近一次成功的目录同步所用资源源（反查匹配优先用真实在用的源）。 */
+    public Optional<UUID> findLatestCatalogSyncSourceId() {
+        return jdbc.queryForList(
+                "SELECT sync_source_id FROM jobs WHERE kind = ? AND status = 'SUCCEEDED' "
+                + "AND sync_source_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+                UUID.class, com.mangashelf.ingestion.Job.KIND_CATALOG_SYNC).stream().findFirst();
     }
 
     public Optional<com.mangashelf.ingestion.Job> findLatestSyncJob(UUID sourceId) {

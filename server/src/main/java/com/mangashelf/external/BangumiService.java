@@ -35,10 +35,16 @@ public class BangumiService {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    private final CatalogItemWriter itemWriter;
+    private final ExternalCatalogRepository catalogItems;
+
+    public BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper,
+                          CatalogItemWriter itemWriter, ExternalCatalogRepository catalogItems) {
         this.props = props;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.itemWriter = itemWriter;
+        this.catalogItems = catalogItems;
         var cfg = props.bangumi();
         var builder = HttpClient.newBuilder().connectTimeout(TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL);
@@ -119,39 +125,163 @@ public class BangumiService {
 
     // ── 标题匹配（本地，Bangumi subject ↔ 资源目录条目）──
 
-    /** 用缓存的本季 subject 名称/中文名归一化匹配目录条目；返回匹配数。 */
-    public int matchCalendarToCatalog() {
+    /**
+     * 用缓存的本季 subject 名称/中文名匹配目录条目；返回关联条目数。
+     * 归一化（大小写/标点/空白/季期后缀/括号注释）后：先精确相等，再二元组相似度 ≥ 0.62。
+     * 目录侧一次性载入内存（数千条）逐条比较，避免 N 次全表查询。
+     */
+    public record MatchStats(int local, int viaSearch) {
+        public int total() { return local + viaSearch; }
+    }
+
+    public MatchStats matchCalendarToCatalog(ExternalSource source) {
         record S(long id, String name, String cn) {}
+        record C(java.util.UUID id, String raw, String norm) {}
+
         List<S> subjects = new ArrayList<>();
         jdbc.query("SELECT subject_id, name, name_cn FROM bangumi_subjects WHERE in_calendar", rs -> {
             subjects.add(new S(rs.getLong(1), rs.getString(2), rs.getString(3)));
         });
-        int matched = 0;
+
+        // 重置旧关联（M9 初版的前缀匹配可能过宽，按新算法重算）
+        jdbc.update("UPDATE external_catalog_items SET bangumi_subject_id = NULL");
+
+        List<C> candidates = new ArrayList<>();
+        jdbc.query("SELECT id, name FROM external_catalog_items", rs -> {
+            String raw = rs.getString("name");
+            String norm = normalizeTitle(raw);
+            if (norm.length() >= 2) {
+                candidates.add(new C(rs.getObject("id", java.util.UUID.class), raw, norm));
+            }
+        });
+
+        java.util.Set<java.util.UUID> used = new java.util.HashSet<>();
+        List<Object[]> updates = new ArrayList<>();
         for (S s : subjects) {
-            for (String candidate : normalizeCandidates(s.name(), s.cn())) {
-                int n = jdbc.update("""
-                        UPDATE external_catalog_items SET bangumi_subject_id = ?
-                        WHERE bangumi_subject_id IS NULL AND name = ?
-                        """, s.id(), candidate);
-                if (n == 0) {
-                    n = jdbc.update("""
-                            UPDATE external_catalog_items SET bangumi_subject_id = ?
-                            WHERE bangumi_subject_id IS NULL AND name ILIKE ?
-                            """, s.id(), candidate + "%");
+            C best = null;
+            double bestScore = 0;
+            for (String raw : List.of(s.cn(), s.name())) {
+                String norm = normalizeTitle(raw);
+                if (norm.length() < 2) continue;
+                for (C c : candidates) {
+                    if (used.contains(c.id())) continue;
+                    double score;
+                    if (c.norm().equals(norm)) {
+                        score = 1.0;
+                    } else if (Math.min(c.norm().length(), norm.length()) >= 4) {
+                        score = bigramSimilarity(c.norm(), norm);
+                    } else {
+                        continue;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = c;
+                    }
+                    if (bestScore >= 1.0) break;
                 }
-                matched += n;
-                if (n > 0) break;
+                if (bestScore >= 1.0) break;
+            }
+            if (best != null && bestScore >= 0.62) {
+                used.add(best.id());
+                updates.add(new Object[]{s.id(), best.id()});
             }
         }
-        return matched;
+        if (!updates.isEmpty()) {
+            jdbc.batchUpdate(
+                    "UPDATE external_catalog_items SET bangumi_subject_id = ? WHERE id = ?", updates);
+        }
+
+        // 本地未命中的，用资源站搜索反查（标题差异大的同义名）
+        // 预算 120s：资源站搜索偶有慢响应，超预算即停止，剩余留给下次同步
+        int viaSearch = 0;
+        if (source != null) {
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(120).toNanos();
+            java.util.Set<Long> linked = new java.util.HashSet<>();
+            for (Object[] u : updates) linked.add((Long) u[0]);
+            for (S s : subjects) {
+                if (linked.contains(s.id())) continue;
+                if (System.nanoTime() > deadline) {
+                    log.info("bangumi reverse search budget exhausted after {} links", viaSearch);
+                    break;
+                }
+                try {
+                    if (attachViaSearch(source, s.id(), s.cn(), s.name())) viaSearch++;
+                } catch (Exception e) {
+                    log.warn("bangumi reverse search failed for {}: {}", s.id(), e.getMessage());
+                }
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return new MatchStats(updates.size(), viaSearch);
     }
 
-    private static List<String> normalizeCandidates(String name, String cn) {
-        List<String> out = new ArrayList<>();
-        for (String raw : List.of(cn, name)) {
-            if (raw == null || raw.isBlank()) continue;
-            String v = raw.trim().replaceAll("\\s+", " ");
-            if (!v.isEmpty() && !out.contains(v)) out.add(v);
+    /** 资源站搜索首批结果，名称相似度达阈值则入库并关联；返回是否关联成功。 */
+    private boolean attachViaSearch(ExternalSource source, long subjectId, String cn, String name)
+            throws Exception {
+        for (String keyword : List.of(cn, name)) {
+            if (keyword == null || keyword.isBlank()) continue;
+            String url = source.baseUrl() + "/api.php/provide/vod/?ac=videolist&wd="
+                    + java.net.URLEncoder.encode(keyword, java.nio.charset.StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(8))
+                    .header("User-Agent", UA).GET().build();
+            HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) continue;
+            JsonNode d = objectMapper.readTree(resp.body());
+            if (d.path("code").asInt(0) != 1) continue;
+            String normTarget = normalizeTitle(keyword);
+            for (JsonNode v : d.path("list")) {
+                String candidate = v.path("vod_name").asText("");
+                String normCand = normalizeTitle(candidate);
+                boolean similar = normCand.equals(normTarget)
+                        || (Math.min(normCand.length(), normTarget.length()) >= 4
+                            && bigramSimilarity(normCand, normTarget) >= 0.5)
+                        || (normCand.length() >= 4 && (normCand.contains(normTarget) || normTarget.contains(normCand)));
+                if (!similar) continue;
+                itemWriter.upsertVod(source.id(), v);
+                var id = catalogItems.findIdByVod(source.id(), v.path("vod_id").asLong());
+                if (id.isPresent()) {
+                    catalogItems.linkSubject(id.get(), subjectId);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 标题归一化：小写、去括号注释、去标点空白、去季/期/season 后缀（两侧同规则）。 */
+    static String normalizeTitle(String s) {
+        if (s == null) return "";
+        String v = s.toLowerCase(java.util.Locale.ROOT);
+        v = v.replaceAll("（[^）]*）|\\([^)]*\\)|\\[[^]]*]|【[^】]*】", "");
+        v = v.replaceAll("[\\s\\p{P}]", "");
+        v = v.replaceAll("第[一二三四五六七八九十百0-9]+[季期部篇话集]", "");
+        v = v.replaceAll("season[0-9]+", "");
+        v = v.replaceAll("(tv|ova|oad|剧场版|完结|全集)$", "");
+        return v;
+    }
+
+    /** 字符二元组 Jaccard 相似度（对中文短标题稳定，无需分词）。 */
+    static double bigramSimilarity(String a, String b) {
+        var sa = bigrams(a);
+        var sb = bigrams(b);
+        if (sa.isEmpty() || sb.isEmpty()) return 0;
+        var inter = new java.util.HashSet<>(sa);
+        inter.retainAll(sb);
+        var union = new java.util.HashSet<>(sa);
+        union.addAll(sb);
+        return inter.size() / (double) union.size();
+    }
+
+    private static java.util.Set<String> bigrams(String s) {
+        var out = new java.util.HashSet<String>();
+        for (int i = 0; i + 1 < s.length(); i++) {
+            out.add(s.substring(i, i + 2));
         }
         return out;
     }
@@ -207,13 +337,24 @@ public class BangumiService {
                 .header("User-Agent", UA).header("Accept", "application/json");
     }
 
+    /** GET + 一次重试：代理链路偶发连接超时（实测），重试显著提高同步成功率。 */
     private JsonNode get(String url) throws Exception {
-        HttpResponse<String> resp = httpClient.send(requestBuilder(url).GET().build(),
-                HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("Bangumi HTTP " + resp.statusCode());
+        Exception last = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpResponse<String> resp = httpClient.send(requestBuilder(url).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    throw new IllegalStateException("Bangumi HTTP " + resp.statusCode());
+                }
+                return objectMapper.readTree(resp.body());
+            } catch (java.io.IOException e) {
+                last = e;
+                log.warn("bangumi request attempt {} failed: {}", attempt, e.getMessage());
+                Thread.sleep(1000);
+            }
         }
-        return objectMapper.readTree(resp.body());
+        throw last != null ? last : new IllegalStateException("Bangumi request failed");
     }
 
     private static LocalDate parseDate(String s) {
