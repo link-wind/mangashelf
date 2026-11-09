@@ -50,6 +50,19 @@ export default function WorkDetail() {
       .catch(() => setMeta(null))
   }, [id])
 
+  // 纯外部动画作品：点进作品即进播放页（与参考站一致）
+  useEffect(() => {
+    if (!id || !data) return
+    if (data.chapters.length > 0) return
+    void api.get<{ episodeId: string } | null>(`/api/v1/works/${id}/play-target`)
+      .then(target => {
+        if (target?.episodeId) {
+          navigate(`/works/${id}/external/${target.episodeId}`, { replace: true })
+        }
+      })
+      .catch(() => { /* 无外部集则停留详情页 */ })
+  }, [id, data, navigate])
+
   async function addToShelf() {
     try {
       await api.put(`/api/v1/me/library/${id}`)

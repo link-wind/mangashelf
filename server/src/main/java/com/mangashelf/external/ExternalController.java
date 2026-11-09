@@ -111,6 +111,12 @@ public class ExternalController {
         return externals.bindEpisodes(user, workId, request.sourceId(), request.episodes());
     }
 
+    @GetMapping("/works/{workId}/play-target")
+    public ExternalService.PlayTarget playTarget(@AuthUser CurrentUser user,
+                                                 @PathVariable UUID workId) {
+        return externals.playTarget(user, workId);
+    }
+
     @GetMapping("/works/{workId}/external-meta")
     public ExternalService.WorkExternalMeta externalMeta(@AuthUser CurrentUser user,
                                                          @PathVariable UUID workId) {

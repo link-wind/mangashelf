@@ -187,6 +187,27 @@ public class ExternalService {
         return danmaku.insert(workId, ordinal, episodeId, user.id(), Math.max(0, timeMs), text, c);
     }
 
+    /** 点进作品的播放目标（M19）：优先上次观看的集与线路，否则首集。 */
+    public record PlayTarget(UUID episodeId, int ordinal, String lineName) {}
+
+    public PlayTarget playTarget(CurrentUser user, UUID workId) {
+        catalog.requireVisibleWork(user, workId);
+        List<ExternalEpisode> eps = externals.listEpisodes(workId);
+        if (eps.isEmpty()) return null;
+        var progress = externals.recentProgress(user.id(), 100).stream()
+                .filter(p -> p.workId().equals(workId)).findFirst();
+        int ordinal = progress.map(ExternalRepository.ProgressRow::ordinal)
+                .orElse(eps.get(0).ordinal());
+        String line = progress.map(ExternalRepository.ProgressRow::lineName).orElse(null);
+        ExternalEpisode chosen = eps.stream()
+                .filter(e -> e.ordinal() == ordinal)
+                .filter(e -> line == null || line.equals(e.lineName()))
+                .findFirst()
+                .orElseGet(() -> eps.stream().filter(e -> e.ordinal() == ordinal)
+                        .findFirst().orElse(eps.get(0)));
+        return new PlayTarget(chosen.id(), chosen.ordinal(), chosen.lineName());
+    }
+
     // ── 观看进度（M10）──
 
     public void saveProgress(CurrentUser user, UUID workId, int ordinal, UUID episodeId,
