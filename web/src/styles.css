@@ -718,8 +718,8 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .manga-hero-shade {
   position: absolute; inset: 0; z-index: 0;
   background:
-    linear-gradient(90deg, rgba(12, 14, 16, .88) 0%, rgba(12, 14, 16, .55) 46%, rgba(12, 14, 16, .18) 100%),
-    linear-gradient(0deg, rgba(12, 14, 16, .45), transparent 55%);
+    linear-gradient(90deg, rgba(12, 14, 16, .84) 0%, rgba(12, 14, 16, .48) 46%, rgba(12, 14, 16, .08) 100%),
+    linear-gradient(0deg, rgba(12, 14, 16, .38), transparent 55%);
   backdrop-filter: blur(1px);
 }
 .manga-hero-inner {
