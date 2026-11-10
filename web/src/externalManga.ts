@@ -20,3 +20,11 @@ export function onImgError(e: React.SyntheticEvent<HTMLImageElement>) {
     img.style.display = 'none'
   }
 }
+
+/** 封面高清档（M24 hero 背景用）：腾讯 /210→/0（原图），哔哩 @480w→@960w。 */
+export function hdCover(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.includes('manhua.acimg.cn')) return url.replace(/\/(210|600|0)$/, '/0')
+  if (url.includes('hdslb.com')) return url.replace(/@\d+w\.jpg$/, '@960w.jpg')
+  return url
+}

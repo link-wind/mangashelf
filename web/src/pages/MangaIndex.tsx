@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { proxyImage } from '../externalManga'
+import { proxyImage, hdCover } from '../externalManga'
 
 interface MangaCard {
   id: string; title: string; description: string; visibility: string
@@ -169,7 +169,7 @@ function MangaDiscovery() {
 
       {hero && (
         <div className="manga-hero-banner"
-             style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hero.coverUrl)})` } : undefined}>
+             style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hdCover(hero.coverUrl))})` } : undefined}>
           <div className="manga-hero-shade" />
           <div className="manga-hero-inner">
             <button className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
