@@ -68,3 +68,27 @@ TBD - created by archiving change implement-manga-sources. Update Purpose after 
 
 - **WHEN** 打开不带 source 参数的外部漫画详情/阅读链接
 - **THEN** 按 MangaDex 处理（与历史进度兼容）
+
+### Requirement: 漫画首页发现流
+
+漫画首页 MUST 展示至少一个数据源的推荐/榜单分区，并支持源切换。
+
+#### Scenario: 首页展示多分区
+
+- **WHEN** 用户打开漫画首页并选择腾讯动漫
+- **THEN** 依次展示编辑推荐、飙升榜、畅销榜、新作榜、真香榜等分区，每区可横向浏览并进入详情
+
+#### Scenario: 分区内打开作品
+
+- **WHEN** 用户点击任一分区中的作品
+- **THEN** 进入该源的站内详情页，可继续阅读
+
+#### Scenario: 无多分区的源
+
+- **WHEN** 用户切换到只有单榜单的源（哔哩漫画/MangaDex）
+- **THEN** 页面以单个「热门」分区展示，不报错
+
+#### Scenario: 发现流不可用
+
+- **WHEN** 所选源接口失败或上游改版
+- **THEN** 页面显示明确错误，本地漫画区块仍可正常使用
