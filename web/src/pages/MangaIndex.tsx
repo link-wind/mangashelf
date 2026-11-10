@@ -9,15 +9,23 @@ interface MangaCard {
   coverUrl: string | null; updatedAt: string
 }
 
-interface SourceInfo { id: string; name: string; capabilities: string[]; note: string }
+interface SourceInfo {
+  id: string; name: string; language: string; capabilities: string[]; note: string
+}
 interface RankItem {
   source: string; id: string; title: string; authors: string[]; coverUrl: string | null
   finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
   readSource: string | null; readId: string | null
 }
-interface SourceSection { id: string; name: string; items: RankItem[] }
+interface SourceSection {
+  id: string; name: string; items: RankItem[]
+  sourceId?: string | null; sourceName?: string | null
+}
+interface DiscoveryResult { rows: SourceSection[]; errors: string[] }
 
 const SOURCE_KEY = 'ms-manga-source'
+/** 综合聚合（M25）：跨中文源 RRF 融合榜。 */
+const ALL = 'all'
 
 /**
  * 漫画首页（M24，参照哔哩哔哩漫画/快看）：发现流（源切换 + 轮播 hero +
@@ -43,33 +51,39 @@ export default function MangaIndex() {
 function MangaDiscovery() {
   const navigate = useNavigate()
   const [sources, setSources] = useState<SourceInfo[]>([])
-  const [source, setSource] = useState<string>(() => localStorage.getItem(SOURCE_KEY) ?? '')
+  const [source, setSource] = useState<string>(() => localStorage.getItem(SOURCE_KEY) ?? ALL)
   const [sections, setSections] = useState<SourceSection[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [warnings, setWarnings] = useState<string[]>([])
   const [heroIdx, setHeroIdx] = useState(0)
 
   useEffect(() => {
     void (async () => {
       try {
+        // 只保留中文源（M25）：MangaDex 等 multi 源不参与首页发现
         const list = (await api.get<SourceInfo[]>('/api/v1/manga-sources'))
-          .filter(s => s.capabilities.includes('RANK'))
+          .filter(s => s.capabilities.includes('RANK') && s.language === 'zh')
         setSources(list)
-        if (list.length > 0) {
-          setSource(prev => {
-            if (prev && list.some(s => s.id === prev)) return prev
-            return list.find(s => s.id === 'tencent')?.id ?? list[0].id
-          })
-        }
+        setSource(prev => {
+          if (prev === ALL || list.some(s => s.id === prev)) return prev
+          return ALL
+        })
       } catch { /* 源列表不可用不影响本地漫画 */ }
     })()
   }, [])
 
   const load = useCallback(async (src: string) => {
     if (!src) return
-    setLoading(true); setError(''); setSections([]); setHeroIdx(0)
+    setLoading(true); setError(''); setWarnings([]); setSections([]); setHeroIdx(0)
     try {
-      setSections(await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=12`))
+      if (src === ALL) {
+        const result = await api.get<DiscoveryResult>('/api/v1/manga-discovery?limit=12')
+        setSections(result.rows ?? [])
+        setWarnings(result.errors ?? [])
+      } else {
+        setSections(await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=12`))
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '推荐加载失败')
     } finally { setLoading(false) }
@@ -82,12 +96,17 @@ function MangaDiscovery() {
   }, [source, load])
 
   const current = sources.find(s => s.id === source)
-  // hero 取第一个有内容的分区前 5 条
-  const featured = useMemo(() => {
-    const first = sections.find(s => s.items.length > 0)
-    return first ? first.items.slice(0, 5) : []
-  }, [sections])
+  // hero 取第一个有内容的分区前 5 条（综合模式即综合热榜）
+  const featuredSection = useMemo(
+    () => sections.find(s => s.items.length > 0) ?? null, [sections])
+  const featured = useMemo(
+    () => (featuredSection ? featuredSection.items.slice(0, 5) : []), [featuredSection])
   const hero = featured[heroIdx] ?? null
+  const heroLabel = featuredSection
+    ? (featuredSection.sourceName
+        ? `${featuredSection.sourceName} · ${featuredSection.name}`
+        : `多源聚合 · ${featuredSection.name}`)
+    : ''
 
   // 自动轮播
   useEffect(() => {
@@ -110,13 +129,17 @@ function MangaDiscovery() {
     <section className="manga-discover">
       <div className="discover-head">
         <div className="source-tabs">
+          <button className={source === ALL ? 'mini' : 'mini ghost'}
+                  onClick={() => setSource(ALL)}>综合</button>
           {sources.map(s => (
             <button key={s.id} className={s.id === source ? 'mini' : 'mini ghost'}
                     onClick={() => setSource(s.id)}>{s.name}</button>
           ))}
         </div>
         <span className="muted" style={{ fontSize: 12 }}>
-          {current?.note ?? '选择数据源查看推荐与榜单'}
+          {source === ALL
+            ? '聚合中文源推荐与榜单（RRF 融合，同作去重）'
+            : current?.note ?? '选择数据源查看推荐与榜单'}
         </span>
       </div>
 
@@ -125,6 +148,11 @@ function MangaDiscovery() {
           <span className="error">{error}</span>
           <button className="ghost mini" onClick={() => void load(source)}>重试</button>
         </div>
+      )}
+      {warnings.length > 0 && (
+        <p className="muted" style={{ fontSize: 12, margin: '0 0 10px' }}>
+          {warnings.join('；')}
+        </p>
       )}
 
       {loading && sections.length === 0 && (
@@ -145,7 +173,7 @@ function MangaDiscovery() {
                 : <span className="cover-initial">{hero.title.slice(0, 1)}</span>}
             </button>
             <div className="manga-hero-info">
-              <span className="manga-hero-kicker">{current?.name ?? ''} · 推荐</span>
+              <span className="manga-hero-kicker">{heroLabel}</span>
               <h2>{hero.title}</h2>
               {hero.authors?.length > 0 && (
                 <p className="mh-author">{hero.authors.join(' / ')}</p>
@@ -176,8 +204,8 @@ function MangaDiscovery() {
       )}
 
       {sections.filter(s => s.items.length > 0).map(section => (
-        <SectionRow key={section.id} section={section}
-                    showRank={section.id !== 'recommend' && section.id !== 'hot'}
+        <SectionRow key={section.id + (section.sourceId ?? '')} section={section}
+                    showRank={section.id === 'all' || section.name.includes('榜')}
                     onOpen={open} />
       ))}
 
@@ -195,7 +223,14 @@ function SectionRow({ section, showRank, onOpen }: {
   return (
     <section className="manga-section">
       <div className="section-head">
-        <h2>{section.name}</h2>
+        <h2>
+          {section.name}
+          {section.sourceName && (
+            <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
+              {section.sourceName}
+            </span>
+          )}
+        </h2>
         <span className="muted" style={{ fontSize: 12 }}>{section.items.length} 部</span>
       </div>
       <div className="manga-row">

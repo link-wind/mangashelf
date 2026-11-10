@@ -17,6 +17,7 @@ public class RuleMangaSource implements MangaSource {
     private final String note;
     private final String rulesJson;
     private final Set<Capability> capabilities;
+    private final String language;
     private final MangaRuleEngine engine;
 
     public RuleMangaSource(String id, String name, String note, String rulesJson,
@@ -36,6 +37,7 @@ public class RuleMangaSource implements MangaSource {
             }
         }
         this.capabilities = caps;
+        this.language = root.path("language").asText("zh");
     }
 
     @Override
@@ -51,6 +53,11 @@ public class RuleMangaSource implements MangaSource {
     @Override
     public String note() {
         return note;
+    }
+
+    @Override
+    public String language() {
+        return language;
     }
 
     @Override

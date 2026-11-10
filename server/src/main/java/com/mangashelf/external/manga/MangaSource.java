@@ -16,6 +16,11 @@ public interface MangaSource {
 
     String name();
 
+    /** 内容语言（M25）：zh=中文源；multi=多语言（不参与中文聚合推荐）。 */
+    default String language() {
+        return "zh";
+    }
+
     Set<Capability> capabilities();
 
     /** 说明（来源与限制，展示给用户）。 */

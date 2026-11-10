@@ -28,6 +28,11 @@ public class MangaDexSource implements MangaSource {
     }
 
     @Override
+    public String language() {
+        return "multi";
+    }
+
+    @Override
     public Set<Capability> capabilities() {
         return EnumSet.of(Capability.RANK, Capability.SEARCH, Capability.DETAIL, Capability.READ);
     }

@@ -66,11 +66,12 @@ public class MangaSourceRegistry implements ApplicationListener<ApplicationReady
         return Optional.ofNullable(sources.get(id));
     }
 
-    public record SourceInfo(String id, String name, List<String> capabilities, String note) {}
+    public record SourceInfo(String id, String name, String language,
+                             List<String> capabilities, String note) {}
 
     public List<SourceInfo> describe() {
         return sources.values().stream()
-                .map(s -> new SourceInfo(s.id(), s.name(),
+                .map(s -> new SourceInfo(s.id(), s.name(), s.language(),
                         s.capabilities().stream().map(Enum::name).sorted().toList(), s.note()))
                 .toList();
     }
