@@ -39,9 +39,17 @@ public interface MangaSource {
 
     record Pages(List<String> pages, List<String> dataSaver, boolean external) {}
 
+    /** 首页发现流分区（M24）：编辑推荐/男生榜/女生榜/畅销榜等。 */
+    record Section(String id, String name, List<RankItem> items) {}
+
     /** 热门榜（RANK 能力）。 */
     default List<RankItem> rank(int limit) throws Exception {
         throw new UnsupportedOperationException("rank");
+    }
+
+    /** 首页发现流分区（RANK 能力）；默认把热门榜当作单分区。 */
+    default List<Section> sections(int limit) throws Exception {
+        return List.of(new Section("hot", "热门", rank(limit)));
     }
 
     /** 搜索（SEARCH 能力）。 */

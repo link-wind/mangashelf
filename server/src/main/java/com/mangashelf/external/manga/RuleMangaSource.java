@@ -64,6 +64,11 @@ public class RuleMangaSource implements MangaSource {
     }
 
     @Override
+    public List<Section> sections(int limit) throws Exception {
+        return engine.rankSections(rulesJson, id, limit);
+    }
+
+    @Override
     public List<SearchItem> search(String query, String lang, int limit) throws Exception {
         return engine.search(rulesJson, id, query, limit);
     }

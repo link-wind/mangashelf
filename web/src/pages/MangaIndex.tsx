@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { proxyImage } from '../externalManga'
@@ -9,10 +9,217 @@ interface MangaCard {
   coverUrl: string | null; updatedAt: string
 }
 
+interface SourceInfo { id: string; name: string; capabilities: string[]; note: string }
+interface RankItem {
+  source: string; id: string; title: string; authors: string[]; coverUrl: string | null
+  finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
+  readSource: string | null; readId: string | null
+}
+interface SourceSection { id: string; name: string; items: RankItem[] }
+
+const SOURCE_KEY = 'ms-manga-source'
+
 /**
- * 漫画索引（M21，参照哔哩哔哩漫画）：左主区（本地漫画）+ 右侧栏（热门榜/外部入口）。
+ * 漫画首页（M24，参照哔哩哔哩漫画/快看）：发现流（源切换 + 轮播 hero +
+ * 推荐/榜单分区横排）+ 本地漫画区块。
  */
 export default function MangaIndex() {
+  return (
+    <main className="watch-page">
+      <div className="watch-title"><h1>漫画</h1></div>
+      <div className="watch-meta">
+        <span>正版中文源推荐与榜单 · 本地书库</span>
+        <Link to="/manga-ext">外部漫画搜索 →</Link>
+        <Link to="/uploads">上传漫画 →</Link>
+      </div>
+
+      <MangaDiscovery />
+      <LocalManga />
+    </main>
+  )
+}
+
+/** 发现流：源切换 + hero 轮播 + 分区横向卡片行。 */
+function MangaDiscovery() {
+  const navigate = useNavigate()
+  const [sources, setSources] = useState<SourceInfo[]>([])
+  const [source, setSource] = useState<string>(() => localStorage.getItem(SOURCE_KEY) ?? '')
+  const [sections, setSections] = useState<SourceSection[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [heroIdx, setHeroIdx] = useState(0)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const list = (await api.get<SourceInfo[]>('/api/v1/manga-sources'))
+          .filter(s => s.capabilities.includes('RANK'))
+        setSources(list)
+        if (list.length > 0) {
+          setSource(prev => {
+            if (prev && list.some(s => s.id === prev)) return prev
+            return list.find(s => s.id === 'tencent')?.id ?? list[0].id
+          })
+        }
+      } catch { /* 源列表不可用不影响本地漫画 */ }
+    })()
+  }, [])
+
+  const load = useCallback(async (src: string) => {
+    if (!src) return
+    setLoading(true); setError(''); setSections([]); setHeroIdx(0)
+    try {
+      setSections(await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=12`))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '推荐加载失败')
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => {
+    if (!source) return
+    localStorage.setItem(SOURCE_KEY, source)
+    void load(source)
+  }, [source, load])
+
+  const current = sources.find(s => s.id === source)
+  // hero 取第一个有内容的分区前 5 条
+  const featured = useMemo(() => {
+    const first = sections.find(s => s.items.length > 0)
+    return first ? first.items.slice(0, 5) : []
+  }, [sections])
+  const hero = featured[heroIdx] ?? null
+
+  // 自动轮播
+  useEffect(() => {
+    if (featured.length < 2) return
+    const timer = window.setInterval(() => setHeroIdx(i => (i + 1) % featured.length), 6000)
+    return () => window.clearInterval(timer)
+  }, [featured.length, source])
+
+  function open(it: RankItem) {
+    if (it.externalUrl && !it.readId) {
+      window.open(it.externalUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+    navigate(`/manga-ext/${it.readId ?? it.id}?lang=all` +
+             `&source=${it.readSource ?? it.source}` +
+             `&title=${encodeURIComponent(it.title)}`)
+  }
+
+  return (
+    <section className="manga-discover">
+      <div className="discover-head">
+        <div className="source-tabs">
+          {sources.map(s => (
+            <button key={s.id} className={s.id === source ? 'mini' : 'mini ghost'}
+                    onClick={() => setSource(s.id)}>{s.name}</button>
+          ))}
+        </div>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {current?.note ?? '选择数据源查看推荐与榜单'}
+        </span>
+      </div>
+
+      {error && (
+        <div className="discover-error">
+          <span className="error">{error}</span>
+          <button className="ghost mini" onClick={() => void load(source)}>重试</button>
+        </div>
+      )}
+
+      {loading && sections.length === 0 && (
+        <>
+          <div className="manga-hero-banner skeleton" />
+          <p className="muted">加载推荐…</p>
+        </>
+      )}
+
+      {hero && (
+        <div className="manga-hero-banner"
+             style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hero.coverUrl)})` } : undefined}>
+          <div className="manga-hero-shade" />
+          <div className="manga-hero-inner">
+            <button className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
+              {hero.coverUrl
+                ? <img src={proxyImage(hero.coverUrl)} alt={hero.title} />
+                : <span className="cover-initial">{hero.title.slice(0, 1)}</span>}
+            </button>
+            <div className="manga-hero-info">
+              <span className="manga-hero-kicker">{current?.name ?? ''} · 推荐</span>
+              <h2>{hero.title}</h2>
+              {hero.authors?.length > 0 && (
+                <p className="mh-author">{hero.authors.join(' / ')}</p>
+              )}
+              <div className="mh-chips">
+                {hero.latestLabel && <span className="chip">{hero.latestLabel}</span>}
+                {hero.finished && <span className="chip">已完结</span>}
+                <span className="chip ghost">{hero.readable ? '站内可读' : '站外阅读'}</span>
+              </div>
+              <div className="manga-hero-actions">
+                <button className="pill" onClick={() => open(hero)}>
+                  {hero.readable ? '开始阅读' : '前往原站'}
+                </button>
+              </div>
+            </div>
+          </div>
+          {featured.length > 1 && (
+            <div className="manga-hero-dots">
+              {featured.map((it, i) => (
+                <button key={it.source + it.id}
+                        className={i === heroIdx ? 'active' : ''}
+                        aria-label={`第 ${i + 1} 张`}
+                        onClick={() => setHeroIdx(i)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sections.filter(s => s.items.length > 0).map(section => (
+        <SectionRow key={section.id} section={section}
+                    showRank={section.id !== 'recommend' && section.id !== 'hot'}
+                    onOpen={open} />
+      ))}
+
+      {!loading && !error && sections.length > 0 && sections.every(s => s.items.length === 0) && (
+        <p className="muted">该源暂无推荐内容。</p>
+      )}
+    </section>
+  )
+}
+
+/** 分区横向卡片行。 */
+function SectionRow({ section, showRank, onOpen }: {
+  section: SourceSection; showRank: boolean; onOpen: (it: RankItem) => void
+}) {
+  return (
+    <section className="manga-section">
+      <div className="section-head">
+        <h2>{section.name}</h2>
+        <span className="muted" style={{ fontSize: 12 }}>{section.items.length} 部</span>
+      </div>
+      <div className="manga-row">
+        {section.items.map((it, i) => (
+          <button key={it.source + it.id} className="manga-tile" onClick={() => onOpen(it)}
+                  title={it.title}>
+            <div className="mt-cover">
+              {it.coverUrl
+                ? <img src={proxyImage(it.coverUrl)} alt={it.title} loading="lazy" decoding="async" />
+                : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
+              {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
+              {!it.readable && <span className="mt-outside">站外</span>}
+            </div>
+            <div className="mt-title clamp">{it.title}</div>
+            <div className="mt-meta">{it.latestLabel || (it.finished ? '已完结' : '连载中')}</div>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** 本地漫画：搜索 + 网格（保留原书库功能）。 */
+function LocalManga() {
   const [items, setItems] = useState<MangaCard[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [q, setQ] = useState('')
@@ -42,167 +249,66 @@ export default function MangaIndex() {
   }
 
   return (
-    <main className="watch-page">
-      <div className="watch-title"><h1>漫画</h1></div>
-      <div className="watch-meta">
-        <span>本地 {items.length} 部可读 · 封面取章节首页</span>
-        <Link to="/manga-ext">外部漫画（MangaDex）→</Link>
+    <section className="manga-local">
+      <div className="section-head" style={{ marginTop: 30 }}>
+        <h2>我的本地漫画 <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
+          {items.length} 部</span></h2>
         <Link to="/uploads">上传漫画 →</Link>
       </div>
 
-      <div className="manga-layout">
-        <div className="manga-main">
-          <div className="row-inline" style={{ marginBottom: 14 }}>
-            <input placeholder="按标题搜索本地漫画…" className="search" value={q}
-                   onChange={e => setQ(e.target.value)}
-                   onKeyDown={e => e.key === 'Enter' && search()} />
-            <button onClick={search} disabled={loading}>搜索</button>
-            {activeQuery && (
-              <button className="ghost" onClick={() => { setQ(''); setActiveQuery(''); void load(null, '', true) }}>
-                清除
-              </button>
-            )}
-          </div>
-
-          {error && <p className="error">{error}</p>}
-          {items.length === 0 && !loading && (
-            <p className="muted">还没有可读的漫画——到「我的素材」上传图片或 CBZ 并发布章节。</p>
-          )}
-
-          <div className="card-grid">
-            {items.map(m => (
-              <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
-                <div className="cover">
-                  {m.coverUrl
-                    ? <img src={m.coverUrl} alt={m.title} loading="lazy" decoding="async"
-                           onError={e => {
-                             const img = e.target as HTMLImageElement
-                             img.style.display = 'none'
-                             const fb = img.nextElementSibling as HTMLElement | null
-                             if (fb) fb.style.display = 'grid'
-                           }} />
-                    : null}
-                  <span className="cover-initial" style={m.coverUrl ? { display: 'none' } : {}}>
-                    {m.title.slice(0, 1)}
-                  </span>
-                  {m.visibility === 'PRIVATE' && <span className="badge-anim" style={{ background: 'var(--priv)' }}>私人</span>}
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{m.title}</div>
-                  <div className="work-card-meta">
-                    <span>{m.chapterCount} 话</span>
-                    {m.latestOrdinal != null && <span>更新至第 {m.latestOrdinal} 话</span>}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-
-          {cursor && (
-            <div style={{ marginTop: 20, textAlign: 'center' }}>
-              <button className="ghost" disabled={loading} onClick={() => void load(cursor, activeQuery, false)}>
-                {loading ? '加载中…' : '加载更多'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        <aside className="manga-side">
-          <HotManga />
-          <div className="card" style={{ marginTop: 14 }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>外部漫画</h3>
-            <p className="muted" style={{ margin: '0 0 10px' }}>
-              MangaDex 开放接口，可站内阅读托管章节。
-            </p>
-            <Link className="btn ghost pill" to="/manga-ext">去搜索 →</Link>
-          </div>
-        </aside>
+      <div className="row-inline" style={{ marginBottom: 14 }}>
+        <input placeholder="按标题搜索本地漫画…" className="search" value={q}
+               onChange={e => setQ(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && search()} />
+        <button onClick={search} disabled={loading}>搜索</button>
+        {activeQuery && (
+          <button className="ghost" onClick={() => { setQ(''); setActiveQuery(''); void load(null, '', true) }}>
+            清除
+          </button>
+        )}
       </div>
-    </main>
-  )
-}
 
-interface SourceInfo { id: string; name: string; capabilities: string[]; note: string }
-interface RankItem {
-  source: string; id: string; title: string; authors: string[]; coverUrl: string
-  finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
-  readSource: string | null; readId: string | null
-}
-
-/** 热门漫画（M17/M21）：侧栏纵向榜单，按源切换。 */
-function HotManga() {
-  const navigate = useNavigate()
-  const [sources, setSources] = useState<SourceInfo[]>([])
-  const [source, setSource] = useState('')
-  const [items, setItems] = useState<RankItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const list = await api.get<SourceInfo[]>('/api/v1/manga-sources')
-        const ranked = list.filter(s => s.capabilities.includes('RANK'))
-        setSources(ranked)
-        if (ranked[0]) setSource(ranked[0].id)
-      } catch { /* 榜单不可用不影响本地漫画 */ }
-    })()
-  }, [])
-
-  useEffect(() => {
-    if (!source) return
-    setLoading(true); setError('')
-    void api.get<RankItem[]>(`/api/v1/manga-sources/${source}/rank?limit=12`)
-      .then(setItems)
-      .catch(e => setError(e instanceof Error ? e.message : '榜单加载失败'))
-      .finally(() => setLoading(false))
-  }, [source])
-
-  if (sources.length === 0) return null
-  const current = sources.find(s => s.id === source)
-
-  function open(it: RankItem) {
-    if (it.readId) {
-      navigate(`/manga-ext/${it.readId}?lang=all&source=${it.readSource ?? 'mangadex'}` +
-               `&title=${encodeURIComponent(it.title)}`)
-    } else if (it.externalUrl) {
-      window.open(it.externalUrl, '_blank', 'noopener,noreferrer')
-    }
-  }
-
-  return (
-    <div className="card">
-      <div className="section-head" style={{ marginBottom: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 15 }}>热门漫画</h3>
-        <span className="muted" style={{ fontSize: 12 }}>{current?.name}</span>
-      </div>
-      <div className="row-inline" style={{ marginBottom: 10 }}>
-        {sources.map(s => (
-          <button key={s.id} className={s.id === source ? 'mini' : 'mini ghost'}
-                  onClick={() => setSource(s.id)}>{s.name}</button>
-        ))}
-      </div>
       {error && <p className="error">{error}</p>}
-      {loading && items.length === 0 && <p className="muted">加载榜单…</p>}
-      <ol className="hot-list">
-        {items.map((it, i) => (
-          <li key={it.source + it.id}>
-            <button className="hot-row" onClick={() => open(it)}>
-              <span className={'hot-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
-              <img src={proxyImage(it.coverUrl)} alt="" loading="lazy" decoding="async"
-                   onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }} />
-              <span className="hot-body">
-                <span className="hot-title clamp">{it.title}</span>
-                <span className="hot-meta">
-                  {it.latestLabel || (it.finished ? '已完结' : '连载中')}
-                  {it.readId ? ' · 站内可读' : ' · 站外'}
-                </span>
+      {items.length === 0 && !loading && (
+        <p className="muted">还没有可读的本地漫画——到「我的素材」上传图片或 CBZ 并发布章节。</p>
+      )}
+
+      <div className="card-grid">
+        {items.map(m => (
+          <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
+            <div className="cover">
+              {m.coverUrl
+                ? <img src={m.coverUrl} alt={m.title} loading="lazy" decoding="async"
+                       onError={e => {
+                         const img = e.target as HTMLImageElement
+                         img.style.display = 'none'
+                         const fb = img.nextElementSibling as HTMLElement | null
+                         if (fb) fb.style.display = 'grid'
+                       }} />
+                : null}
+              <span className="cover-initial" style={m.coverUrl ? { display: 'none' } : {}}>
+                {m.title.slice(0, 1)}
               </span>
-            </button>
-          </li>
+              {m.visibility === 'PRIVATE' && <span className="badge-anim" style={{ background: 'var(--priv)' }}>私人</span>}
+            </div>
+            <div className="work-card-body">
+              <div className="work-card-title clamp">{m.title}</div>
+              <div className="work-card-meta">
+                <span>{m.chapterCount} 话</span>
+                {m.latestOrdinal != null && <span>更新至第 {m.latestOrdinal} 话</span>}
+              </div>
+            </div>
+          </Link>
         ))}
-      </ol>
-      <p className="muted" style={{ fontSize: 11, margin: '8px 0 0' }}>{current?.note}</p>
-    </div>
+      </div>
+
+      {cursor && (
+        <div style={{ marginTop: 20, textAlign: 'center' }}>
+          <button className="ghost" disabled={loading} onClick={() => void load(cursor, activeQuery, false)}>
+            {loading ? '加载中…' : '加载更多'}
+          </button>
+        </div>
+      )}
+    </section>
   )
 }

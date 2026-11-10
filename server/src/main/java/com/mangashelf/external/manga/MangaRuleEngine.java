@@ -88,15 +88,109 @@ public class MangaRuleEngine {
         return parsed;
     }
 
-    /** HTML 榜单解析（包内可见便于测试）。 */
+    /**
+     * 首页发现流分区（M24）：规则 rank.sections 在同一页面内按块选择器拆分多个
+     * 推荐/榜单分区；无 sections 时降级为单分区「热门」。同 URL 只抓一次。
+     */
+    public List<MangaSource.Section> rankSections(String rulesJson, String sourceId, int limit) throws Exception {
+        JsonNode root = objectMapper.readTree(rulesJson);
+        JsonNode rule = section(root, "rank");
+        JsonNode sections = rule.path("sections");
+        if (!sections.isArray() || sections.isEmpty()) {
+            return List.of(new MangaSource.Section("hot", "热门", rank(rulesJson, sourceId, limit)));
+        }
+        boolean html = !"api".equals(rule.path("mode").asText("html"));
+        if (html) {
+            List<MangaSource.Section> out = new ArrayList<>();
+            boolean anyContent = false;
+            Map<String, Document> docs = new java.util.HashMap<>();
+            for (JsonNode s : sections) {
+                String url = s.path("url").asText(rule.path("url").asText());
+                Document doc = docs.get(url);
+                if (doc == null) {
+                    doc = fetchHtml(url, root.path("headers"));
+                    docs.put(url, doc);
+                }
+                List<MangaSource.RankItem> items = sectionItems(doc, s, rule, sourceId, limit);
+                if (!items.isEmpty()) anyContent = true;
+                out.add(new MangaSource.Section(s.path("id").asText("hot"),
+                        s.path("name").asText(s.path("id").asText("hot")), items));
+            }
+            if (!anyContent) {
+                throw new IllegalStateException("首页分区未匹配到任何条目（上游结构可能变化）");
+            }
+            return out;
+        }
+        List<MangaSource.Section> out = new ArrayList<>();
+        boolean anyContent = false;
+        for (JsonNode s : sections) {
+            String id = s.path("id").asText("hot");
+            String name = s.path("name").asText(id);
+            JsonNode fields = s.path("fields").isMissingNode() ? rule.path("fields") : s.path("fields");
+            String url = s.path("url").asText(rule.path("url").asText());
+            String listPath = s.path("list").asText(rule.path("list").asText("$[*]"));
+            List<MangaSource.RankItem> items = new ArrayList<>();
+            for (Map<String, Object> it : fetchApi(url, root.path("headers"), Map.of(), listPath)) {
+                if (items.size() >= limit) break;
+                Map<String, String> f = apiFields(fields, it);
+                String cid = f.getOrDefault("id", "");
+                String title = f.getOrDefault("title", "");
+                if (cid.isBlank() || title.isBlank()) continue;
+                items.add(new MangaSource.RankItem(sourceId, cid, title,
+                        List.of(), f.get("cover"), false, f.getOrDefault("latest", ""),
+                        true, null, sourceId, cid));
+            }
+            if (!items.isEmpty()) anyContent = true;
+            out.add(new MangaSource.Section(id, name, items));
+        }
+        if (!anyContent) {
+            throw new IllegalStateException("首页分区未匹配到任何条目（上游结构可能变化）");
+        }
+        return out;
+    }
+
+    /** 单分区字段解析（分区可覆盖 fields/list）。 */
+    private List<MangaSource.RankItem> sectionItems(Document doc, JsonNode section, JsonNode rule,
+                                                    String sourceId, int limit) {
+        JsonNode fields = section.path("fields").isMissingNode()
+                ? rule.path("fields") : section.path("fields");
+        return parseRank(doc, section.path("list").asText(rule.path("list").asText("")),
+                fields, sourceId, limit);
+    }
+
+    /** HTML 分区解析（包内可见便于测试）：同页内按块选择器拆分，逐区去重。 */
+    List<MangaSource.Section> parseRankSections(Document doc, JsonNode rule,
+                                                String sourceId, int limit) {
+        List<MangaSource.Section> out = new ArrayList<>();
+        boolean anyContent = false;
+        for (JsonNode s : rule.path("sections")) {
+            List<MangaSource.RankItem> items = sectionItems(doc, s, rule, sourceId, limit);
+            if (!items.isEmpty()) anyContent = true;
+            out.add(new MangaSource.Section(s.path("id").asText("hot"),
+                    s.path("name").asText(s.path("id").asText("hot")), items));
+        }
+        if (!anyContent) {
+            throw new IllegalStateException("首页分区未匹配到任何条目（上游结构可能变化）");
+        }
+        return out;
+    }
+
+    /** HTML 榜单解析（包内可见便于测试）：按 id 去重、标题为空（页脚链接）跳过。 */
     List<MangaSource.RankItem> parseRank(Document doc, JsonNode rule, String sourceId, int limit) {
+        return parseRank(doc, rule.path("list").asText(), rule.path("fields"), sourceId, limit);
+    }
+
+    List<MangaSource.RankItem> parseRank(Document doc, String listSelector, JsonNode fields,
+                                         String sourceId, int limit) {
         List<MangaSource.RankItem> out = new ArrayList<>();
-        for (Element el : doc.select(rule.path("list").asText())) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Element el : doc.select(listSelector)) {
             if (out.size() >= limit) break;
-            Map<String, String> f = htmlFields(rule.path("fields"), el);
+            Map<String, String> f = htmlFields(fields, el);
             String id = f.getOrDefault("id", "");
-            if (id.isBlank()) continue;
-            out.add(new MangaSource.RankItem(sourceId, id, f.getOrDefault("title", ""), List.of(),
+            String title = f.getOrDefault("title", "");
+            if (id.isBlank() || title.isBlank() || !seen.add(id)) continue;
+            out.add(new MangaSource.RankItem(sourceId, id, title, List.of(),
                     f.get("cover"), false, f.getOrDefault("latest", ""), true, null, sourceId, id));
         }
         return out;
@@ -294,7 +388,7 @@ public class MangaRuleEngine {
         return out;
     }
 
-    /** HTML 字段：{select?, attr?}，无 attr 取 text。 */
+    /** HTML 字段：{select?, attr?, regex?}，无 attr 取 text；regex 取第一个捕获组。 */
     private String extract(Element scope, JsonNode field) {
         if (field == null || field.isMissingNode()) return null;
         String select = field.path("select").asText("");
@@ -302,6 +396,13 @@ public class MangaRuleEngine {
         if (el == null) return null;
         String attr = field.path("attr").asText("");
         String v = attr.isEmpty() ? el.text() : el.attr(attr);
+        if (v == null) return null;
+        String regex = field.path("regex").asText("");
+        if (!regex.isEmpty()) {
+            Matcher m = Pattern.compile(regex).matcher(v);
+            if (!m.find()) return null;
+            v = m.groupCount() >= 1 ? m.group(1) : m.group();
+        }
         return v == null || v.isBlank() ? null : v.trim();
     }
 
@@ -333,7 +434,12 @@ public class MangaRuleEngine {
 
     private List<Map<String, Object>> fetchApi(JsonNode rule, JsonNode headers,
                                                Map<String, String> vars, String listPath) throws Exception {
-        return JsonPath.read(fetchText(applyVars(rule.path("url").asText(), vars), headers), listPath);
+        return fetchApi(rule.path("url").asText(), headers, vars, listPath);
+    }
+
+    private List<Map<String, Object>> fetchApi(String url, JsonNode headers,
+                                               Map<String, String> vars, String listPath) throws Exception {
+        return JsonPath.read(fetchText(applyVars(url, vars), headers), listPath);
     }
 
     private String fetchText(String url, JsonNode headers) throws Exception {

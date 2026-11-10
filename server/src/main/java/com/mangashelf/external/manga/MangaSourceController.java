@@ -39,6 +39,18 @@ public class MangaSourceController {
         }
     }
 
+    /** 首页发现流分区（M24）：推荐/男生榜/女生榜/畅销榜等。 */
+    @GetMapping("/{source}/sections")
+    public List<MangaSource.Section> sections(@PathVariable String source,
+                                              @RequestParam(defaultValue = "12") int limit) {
+        MangaSource s = require(source, MangaSource.Capability.RANK);
+        try {
+            return s.sections(limit);
+        } catch (Exception e) {
+            throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/{source}/search")
     public List<MangaSource.SearchItem> search(@PathVariable String source,
                                                @RequestParam(required = false) String q,

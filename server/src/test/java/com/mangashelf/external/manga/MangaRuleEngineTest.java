@@ -125,4 +125,72 @@ class MangaRuleEngineTest {
         assertEquals(1, rankOnly.capabilities().size());
         assertTrue(rankOnly.capabilities().contains(MangaSource.Capability.RANK));
     }
+
+    @Test
+    void hrefRegexExtractsIdWhenDataAttrMissing() throws Exception {
+        var fields = om.readTree("""
+                {
+                  "id":    { "attr": "href", "regex": "/id/(\\\\d+)" },
+                  "title": { "select": "strong.comic-title" }
+                }
+                """);
+        var items = engine.parseRank(Jsoup.parse("""
+                <a class="comic-link" href="/comic/index/id/624570">
+                  <strong class="comic-title">传武</strong></a>
+                """), "a.comic-link", fields, "tencent", 10);
+        assertEquals(1, items.size());
+        assertEquals("624570", items.getFirst().id());
+    }
+
+    @Test
+    void sectionsSplitByBlockAndDedupe() throws Exception {
+        var rules = om.readTree("""
+                {
+                  "url": "https://m.ac.qq.com/",
+                  "mode": "html",
+                  "fields": {
+                    "id":    { "attr": "data-id" },
+                    "title": { "select": "strong.comic-title" },
+                    "cover": { "select": "img", "attr": "src" }
+                  },
+                  "sections": [
+                    { "id": "recommend", "name": "编辑推荐", "list": "ul.recommend-list a.comic-link" },
+                    { "id": "male", "name": "男生榜", "list": "[class*=\\"rank-type-男生榜\\"] a.comic-link" },
+                    { "id": "bestseller", "name": "畅销榜", "list": "[class*=\\"rank-type-畅销榜\\"] a.comic-link" }
+                  ]
+                }
+                """);
+        var doc = Jsoup.parse("""
+                <html><body>
+                  <ul class="comic-list col-2 recommend-list">
+                    <li><a class="comic-link" data-id="17114"><img src="https://img/17114.jpg"/>
+                      <strong class="comic-title">尸兄</strong></a></li>
+                    <li><a class="comic-link" data-id="533395">
+                      <strong class="comic-title">妖神记</strong></a></li>
+                  </ul>
+                  <div class="swiper-slide rank-type rank-type-男生榜 rank-1-1">
+                    <a class="comic-link" data-id="624570"><strong class="comic-title">传武</strong></a>
+                    <a class="comic-link" data-id="523194"><strong class="comic-title">灵契</strong></a>
+                  </div>
+                  <div class="swiper-slide rank-type rank-type-男生榜 rank-1-2">
+                    <a class="comic-link" data-id="523194"><strong class="comic-title">灵契</strong></a>
+                    <a class="comic-link" data-id="637624"><strong class="comic-title">蛊真人</strong></a>
+                  </div>
+                  <div class="swiper-slide rank-type rank-type-畅销榜 rank-3-2">
+                    <a class="comic-link" data-id="531490"><strong class="comic-title">一人之下</strong></a>
+                    <a class="comic-link" data-id="9"><span>帮助</span></a>
+                  </div>
+                </body></html>
+                """);
+        var sections = engine.parseRankSections(doc, rules, "tencent", 10);
+        assertEquals(3, sections.size());
+        assertEquals("recommend", sections.get(0).id());
+        assertEquals(2, sections.get(0).items().size());
+        // 两页榜单合并 + 同 id 去重
+        assertEquals(3, sections.get(1).items().size());
+        assertEquals("传武", sections.get(1).items().getFirst().title());
+        // 页脚无标题链接被过滤
+        assertEquals(1, sections.get(2).items().size());
+        assertEquals("一人之下", sections.get(2).items().getFirst().title());
+    }
 }
