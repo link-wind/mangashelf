@@ -162,7 +162,7 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 .login h1 { margin: 0 0 4px; color: var(--accent-strong); font-size: 26px; }
 
 /* ── 观看页 ── */
-.watch-page { max-width: 1400px; margin: 0 auto; padding: 20px 24px 40px; }
+.watch-page { max-width: 1584px; margin: 0 auto; padding: 20px 24px 40px; }
 .watch-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
 .watch-title h1 { margin: 0; font-size: 22px; letter-spacing: -.2px; }
 .watch-title .ep-name { font-size: 16px; color: var(--ink-2); }
@@ -215,7 +215,7 @@ button.mini.ghost { padding: 3px 9px; }
 .info-list .k { color: var(--muted); flex-shrink: 0; }
 
 /* ── 首页 ── */
-.home-page { max-width: 1400px; margin: 0 auto; padding: 22px 24px 48px; }
+.home-page { max-width: 1584px; margin: 0 auto; padding: 22px 24px 48px; }
 .hero {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   padding: 26px 28px; flex-wrap: wrap; border-radius: 16px;
@@ -421,7 +421,7 @@ button.mini.ghost { padding: 3px 9px; }
 
 /* ── 首页首屏 Banner（gugu 式：全幅背景 + 信息层 + 右下缩略图切换）── */
 .hero-slide {
-  position: relative; min-height: 460px; border-radius: 0; overflow: hidden;
+  position: relative; min-height: 550px; border-radius: 0; overflow: hidden;
   display: flex; align-items: center;
   background: #10151a;
   margin: -22px -24px 26px;
@@ -710,7 +710,7 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .manga-hero-banner {
   position: relative; isolation: isolate;
   border-radius: 0; overflow: hidden;
-  min-height: 460px; margin: -20px -24px 26px;
+  min-height: 550px; margin: -20px -24px 26px;
   background-color: #23282c;
   background-size: cover; background-position: center 28%;
   box-shadow: 0 10px 32px rgba(25, 28, 29, .16);
@@ -726,7 +726,7 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .manga-hero-inner {
   position: relative; z-index: 1;
   display: flex; align-items: flex-end; gap: 24px;
-  min-height: 460px; padding: 32px 36px;
+  min-height: 550px; padding: 32px 36px;
 }
 .manga-hero-cover {
   flex-shrink: 0; width: 158px; height: 210px;
