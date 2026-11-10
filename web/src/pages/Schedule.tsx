@@ -83,7 +83,7 @@ export default function Schedule() {
             {unscheduled.map(it => (
               <div key={it.subjectId} className="work-card">
                 <div className="cover">
-                  <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
+                  <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   {it.covered && <span className="badge-anim">可看</span>}
                 </div>
@@ -115,7 +115,7 @@ function ScheduleCard({ it, busy, onPlay }: {
 }) {
   return (
     <div className="schedule-item">
-      <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt="" loading="lazy" decoding="async"
+      <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt="" loading="lazy" decoding="async"
            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
       <div className="schedule-body">
         <div className="schedule-name clamp">{it.nameCn || it.name}</div>

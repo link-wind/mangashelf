@@ -83,7 +83,7 @@ export default function Search() {
               <Link key={c.id} to={`/catalog/${c.id}`} className="work-card">
                 <div className="cover">
                   {c.bangumiSubjectId
-                    ? <img src={`/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=medium`} alt={c.name} loading="lazy" decoding="async"
+                    ? <img src={`/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=large`} alt={c.name} loading="lazy" decoding="async"
                            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                     : c.coverUrl
                       ? <img src={c.coverUrl} alt={c.name} loading="lazy" decoding="async"

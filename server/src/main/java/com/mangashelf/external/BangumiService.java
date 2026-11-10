@@ -140,7 +140,7 @@ public class BangumiService {
         if (url.startsWith("http://lain.bgm.tv")) {
             url = "https://" + url.substring("http://".length());
         }
-        // 同图多尺寸：/pic/cover/{l|m|c|s}/… —— 网格用 medium 降低流量
+        // 同图多尺寸：/pic/cover/{l|m|c|s}/… —— 网格用 common（300px 级）保证 retina 清晰度
         String seg = switch (size == null ? "medium" : size) {
             case "large" -> "l";
             case "common" -> "c";

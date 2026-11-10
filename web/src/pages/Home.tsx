@@ -183,7 +183,7 @@ export default function Home() {
             {topRated.map((it, i) => (
               <li key={it.subjectId} className="rank-item">
                 <span className={'rank-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
-                <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt=""
+                <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt=""
                      loading="lazy" decoding="async"
                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 <Link className="rank-name clamp"
@@ -336,7 +336,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
         {items.map((x, i) => (
           <button key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
                   onClick={() => setIdx(i)} title={x.nameCn || x.name}>
-            <img src={`/api/v1/bangumi-covers/${x.subjectId}?size=medium`} alt=""
+            <img src={`/api/v1/bangumi-covers/${x.subjectId}?size=large`} alt=""
                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
             <span className="hero-thumb-title">{x.nameCn || x.name}</span>
           </button>
@@ -378,7 +378,7 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
                 to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime')}
                 className="work-card">
             <div className="cover">
-              <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=medium`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
+              <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
               {it.covered && <span className="badge-anim">可看</span>}
             </div>
@@ -405,7 +405,7 @@ function CatalogCard({ it }: { it: CatalogItem }) {
             onClick={() => navigate(it.workId ? `/works/${it.workId}` : `/browse/${it.id}`)}>
       <div className="cover">
         {it.bangumiSubjectId
-          ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=medium`} alt={it.name} loading="lazy" decoding="async"
+          ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large`} alt={it.name} loading="lazy" decoding="async"
                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
           : it.coverUrl
             ? <img src={it.coverUrl} alt={it.name} loading="lazy" decoding="async"
