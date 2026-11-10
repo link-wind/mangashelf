@@ -63,11 +63,17 @@ public class MangaRuleEngine {
     public List<MangaSource.RankItem> rank(String rulesJson, String sourceId, int limit) throws Exception {
         JsonNode root = objectMapper.readTree(rulesJson);
         JsonNode rule = section(root, "rank");
+        JsonNode bootstrap = root.path("bootstrapVersion");
         boolean api = "api".equals(rule.path("mode").asText("html"));
+        // 源无 detail 节 = 详情/阅读不可用 → 条目标记站外（点击跳 externalUrl）
+        boolean readable = !root.path("detail").isMissingNode()
+                && !root.path("pages").isMissingNode();
+        String externalBase = root.path("externalUrl").asText("");
         List<MangaSource.RankItem> out = new ArrayList<>();
         if (api) {
             String listPath = rule.path("list").asText("$[*]");
-            for (Map<String, Object> it : fetchApi(rule, root.path("headers"), Map.of(), listPath)) {
+            for (Map<String, Object> it : fetchApi(rule.path("url").asText(),
+                    root.path("headers"), Map.of(), listPath, bootstrap)) {
                 if (out.size() >= limit) break;
                 Map<String, String> f = apiFields(rule.path("fields"), it);
                 String id = f.getOrDefault("id", "");
@@ -75,8 +81,9 @@ public class MangaRuleEngine {
                 out.add(new MangaSource.RankItem(sourceId, id, f.getOrDefault("title", ""),
                         f.containsKey("authors") ? Arrays.stream(f.get("authors").split("[,，]"))
                                 .map(String::trim).filter(s -> !s.isEmpty()).toList() : List.of(),
-                        f.get("cover"), false, f.getOrDefault("latest", ""), true,
-                        null, sourceId, id));
+                        f.get("cover"), false, f.getOrDefault("latest", ""), readable,
+                        externalBase.isEmpty() ? null : externalBase + id, sourceId,
+                        readable ? id : null));
             }
             return out;
         }
@@ -100,6 +107,7 @@ public class MangaRuleEngine {
             return List.of(new MangaSource.Section("hot", "热门", rank(rulesJson, sourceId, limit)));
         }
         boolean html = !"api".equals(rule.path("mode").asText("html"));
+        JsonNode bootstrap = root.path("bootstrapVersion");
         if (html) {
             List<MangaSource.Section> out = new ArrayList<>();
             boolean anyContent = false;
@@ -130,7 +138,7 @@ public class MangaRuleEngine {
             String url = s.path("url").asText(rule.path("url").asText());
             String listPath = s.path("list").asText(rule.path("list").asText("$[*]"));
             List<MangaSource.RankItem> items = new ArrayList<>();
-            for (Map<String, Object> it : fetchApi(url, root.path("headers"), Map.of(), listPath)) {
+            for (Map<String, Object> it : fetchApi(url, root.path("headers"), Map.of(), listPath, bootstrap)) {
                 if (items.size() >= limit) break;
                 Map<String, String> f = apiFields(fields, it);
                 String cid = f.getOrDefault("id", "");
@@ -439,10 +447,24 @@ public class MangaRuleEngine {
 
     private List<Map<String, Object>> fetchApi(String url, JsonNode headers,
                                                Map<String, String> vars, String listPath) throws Exception {
-        return JsonPath.read(fetchText(applyVars(url, vars), headers), listPath);
+        return fetchApi(url, headers, vars, listPath, null);
+    }
+
+    private List<Map<String, Object>> fetchApi(String url, JsonNode headers,
+                                               Map<String, String> vars, String listPath,
+                                               JsonNode bootstrap) throws Exception {
+        return JsonPath.read(fetchText(applyVars(url, vars), headers, bootstrap), listPath);
     }
 
     private String fetchText(String url, JsonNode headers) throws Exception {
+        return fetchText(url, headers, null);
+    }
+
+    /**
+     * GET 上游。bootstrap 为非 null 时先做「版本自举」（拷贝漫画风控要求请求头
+     * 携带最新版本号，见 V17）：GET 自举 URL → JSONPath 取版本 → 注入 header。
+     */
+    private String fetchText(String url, JsonNode headers, JsonNode bootstrap) throws Exception {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .timeout(HTTP_TIMEOUT).GET();
         if (headers != null) {
@@ -450,11 +472,48 @@ public class MangaRuleEngine {
                 if (e.getValue().isTextual()) b.header(e.getKey(), e.getValue().asText());
             }
         }
+        if (bootstrap != null && !bootstrap.isMissingNode()) {
+            String version = resolveBootstrapVersion(bootstrap);
+            String header = bootstrap.path("header").asText("version");
+            if (!version.isBlank()) {
+                b.header(header, version);
+                for (JsonNode also : bootstrap.path("also")) {
+                    if (also.isTextual()) b.header(also.asText(), version);
+                }
+            }
+        }
         HttpResponse<String> resp = httpClient.send(b.build(), HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             throw new IllegalStateException("上游 HTTP " + resp.statusCode());
         }
         return resp.body();
+    }
+
+    /** 自举版本号：GET bootstrap.url → JSONPath 取版本，缓存 1 小时。 */
+    private static final ConcurrentHashMap<String, CachedBootstrap> BOOTSTRAP_CACHE = new ConcurrentHashMap<>();
+
+    private record CachedBootstrap(String version, Instant expiresAt) {}
+
+    private String resolveBootstrapVersion(JsonNode bootstrap) throws Exception {
+        String url = bootstrap.path("url").asText();
+        String path = bootstrap.path("path").asText("$.version");
+        CachedBootstrap cached = BOOTSTRAP_CACHE.get(url);
+        if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
+            return cached.version();
+        }
+        String body = fetchText(url, null, null);
+        String version;
+        try {
+            Object v = JsonPath.read(body, path);
+            version = v == null ? "" : String.valueOf(v);
+        } catch (Exception e) {
+            throw new IllegalStateException("版本自举失败（路径无匹配）：" + path);
+        }
+        if (version.isBlank()) {
+            throw new IllegalStateException("版本自举结果为空");
+        }
+        BOOTSTRAP_CACHE.put(url, new CachedBootstrap(version, Instant.now().plus(Duration.ofHours(1))));
+        return version;
     }
 
     private Document fetchHtml(String url, JsonNode headers) throws Exception {

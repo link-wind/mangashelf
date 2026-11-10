@@ -145,7 +145,8 @@ public class MangaDexClient {
                     || host.endsWith(".mangadex.network")
                     || host.equals("mangadex.network")
                     || host.endsWith(".hdslb.com")
-                    || host.equals("manhua.acimg.cn");
+                    || host.equals("manhua.acimg.cn")
+                    || host.endsWith(".mangafunb.fun");
         } catch (Exception e) {
             return false;
         }

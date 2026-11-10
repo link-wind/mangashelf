@@ -27,8 +27,8 @@ public class MangaDiscoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(MangaDiscoveryService.class);
     private static final int RRF_K = 60;
-    /** 哔哩榜单首次做跨源桥接约 10s（之后走匹配缓存），故单源超时取 15s。 */
-    private static final long TIMEOUT_SECONDS = 15;
+    /** 单源超时：哔哩首次跨源桥接约 10s、拷贝上游延迟抖动大（实测 1~12s），取 20s。 */
+    private static final long TIMEOUT_SECONDS = 20;
     private static final long TTL_MS = 10 * 60 * 1000L;
     private static final Pattern HAN = Pattern.compile("[\\u4e00-\\u9fff]");
     /** 近似标题合并阈值：只合并同一标题的写法差异，版本后缀（全彩版等）不误合并。 */
