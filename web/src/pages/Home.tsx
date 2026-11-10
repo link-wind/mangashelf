@@ -77,9 +77,17 @@ export default function Home() {
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
     .slice(0, 10)
 
+  // banner 选片（M14→M27）：昨天放送的新番（昨日更新的番剧更接近可看状态），
+  // 按评分取前 4；昨天放送不足时回退全周高分
+  const yesterdayDow = ((new Date().getDay() || 7) + 6) % 7 + 1
+  const yesterdayAired = calendar
+    .filter(i => i.airWeekday === yesterdayDow && (i.rating ?? 0) > 0)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+  const bannerItems = (yesterdayAired.length >= 4 ? yesterdayAired : topRated).slice(0, 4)
+
   return (
     <main className="home-page">
-      <HeroBanner items={topRated.slice(0, 4)} />
+      <HeroBanner items={bannerItems} />
 
       {error && <p className="error">{error}</p>}
 
