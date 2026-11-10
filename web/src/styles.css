@@ -14,6 +14,7 @@
   --border: #e7eaec;
   --radius: 12px;
   --radius-sm: 8px;
+  --radius-lg: 18px;
   --shadow-hover: 0 6px 20px rgba(25, 28, 29, 0.07);
   --pub: #00a870;
   --priv: #b07a2a;
@@ -421,10 +422,9 @@ button.mini.ghost { padding: 3px 9px; }
 
 /* ── 首页首屏 Banner（gugu 式：全幅背景 + 信息层 + 右下缩略图切换）── */
 .hero-slide {
-  position: relative; min-height: 550px; border-radius: 0; overflow: hidden;
+  position: relative; min-height: 550px; border-radius: var(--radius-lg); overflow: hidden;
   display: flex; align-items: center;
   background: #10151a;
-  margin: -22px -24px 26px;
 }
 .hero-bg {
   position: absolute; inset: 0; background-size: cover; background-position: center 24%;
@@ -709,8 +709,8 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 
 .manga-hero-banner {
   position: relative; isolation: isolate;
-  border-radius: 0; overflow: hidden;
-  min-height: 550px; margin: -20px -24px 26px;
+  border-radius: var(--radius-lg); overflow: hidden;
+  min-height: 550px; margin: 2px 0 26px;
   background-color: #23282c;
   background-size: cover; background-position: center 28%;
   box-shadow: 0 10px 32px rgba(25, 28, 29, .16);
@@ -796,15 +796,54 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 
 .manga-local { border-top: 1px solid var(--border); padding-top: 4px; }
 
-@media (max-width: 640px) {
-  .manga-hero-inner { align-items: flex-end; gap: 14px; padding: 18px; min-height: 240px; }
-  .manga-hero-banner { min-height: 240px; }
-  .manga-hero-cover { width: 104px; height: 139px; }
-  .manga-hero-info h2 { font-size: 20px; }
+
+/* ── 响应式体系（M27）：1600 超宽 / 1280 标准 / 1024 窄屏 / 768 平板 / 480 手机 ── */
+
+/* 超宽屏：容器上限 1584 已由 max-width 控制；>1600 时 banner 高度封顶不再线性增长 */
+
+/* ≤1280：banner 收窄为 460，卡片行收紧 */
+@media (max-width: 1280px) {
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 460px; }
+  .manga-hero-inner { padding: 28px 30px; }
+}
+
+/* ≤1024：banner 400、封面缩小 */
+@media (max-width: 1024px) {
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 400px; }
+  .manga-hero-cover { width: 138px; height: 184px; }
+  .manga-hero-info h2 { font-size: 24px; }
+}
+
+/* ≤768：平板。banner 340、信息层纵排收紧；网格卡片 150 */
+@media (max-width: 768px) {
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 340px; }
+  .manga-hero-inner { padding: 22px; gap: 16px; }
+  .manga-hero-cover { width: 112px; height: 149px; }
+  .manga-hero-info h2 { font-size: 21px; }
   .mh-author { display: none; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .hscroll .work-card { min-width: 150px; max-width: 150px; }
+}
+
+/* ≤768：导航次级链接隐藏（链接仍在页脚可达） */
+@media (max-width: 768px) {
+  .nav { padding: 0 14px; gap: 10px; }
+  .nav nav { display: none; }
+}
+
+/* ≤480：手机。banner 300、单列堆叠、横排行 104 */
+@media (max-width: 480px) {
+  .home-page, .watch-page { padding: 14px 14px 32px; }
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 300px; }
+  .manga-hero-inner { padding: 16px; gap: 12px; }
+  .manga-hero-cover { width: 96px; height: 128px; }
+  .manga-hero-info h2 { font-size: 19px; }
+  .mh-chips { gap: 4px; }
   .manga-row { grid-auto-columns: 104px; gap: 10px; }
   .mt-cover { width: 104px; height: 139px; }
+  .manga-tile { min-width: 104px; }
 }
+
 
 /* ── 跨源同作合并徽标（M26）── */
 .mt-multi {
