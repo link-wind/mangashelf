@@ -17,8 +17,12 @@ interface RankItem {
   finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
   readSource: string | null; readId: string | null
 }
+interface DiscoveryItem extends RankItem {
+  sourceCount?: number
+  sources?: string[]
+}
 interface SourceSection {
-  id: string; name: string; items: RankItem[]
+  id: string; name: string; items: DiscoveryItem[]
   sourceId?: string | null; sourceName?: string | null
 }
 interface DiscoveryResult { rows: SourceSection[]; errors: string[] }
@@ -107,6 +111,7 @@ function MangaDiscovery() {
         ? `${featuredSection.sourceName} · ${featuredSection.name}`
         : `多源聚合 · ${featuredSection.name}`)
     : ''
+  const heroSources = hero?.sources ?? []
 
   // 自动轮播
   useEffect(() => {
@@ -181,6 +186,11 @@ function MangaDiscovery() {
               <div className="mh-chips">
                 {hero.latestLabel && <span className="chip">{hero.latestLabel}</span>}
                 {hero.finished && <span className="chip">已完结</span>}
+                {heroSources.length > 1 && (
+                  <span className="chip ghost" title={heroSources.join('、')}>
+                    {heroSources.length} 源
+                  </span>
+                )}
                 <span className="chip ghost">{hero.readable ? '站内可读' : '站外阅读'}</span>
               </div>
               <div className="manga-hero-actions">
@@ -236,12 +246,14 @@ function SectionRow({ section, showRank, onOpen }: {
       <div className="manga-row">
         {section.items.map((it, i) => (
           <button key={it.source + it.id} className="manga-tile" onClick={() => onOpen(it)}
-                  title={it.title}>
+                  title={(it.sources?.length ?? 0) > 1
+                    ? `${it.title}（${it.sources!.join('、')}）` : it.title}>
             <div className="mt-cover">
               {it.coverUrl
                 ? <img src={proxyImage(it.coverUrl)} alt={it.title} loading="lazy" decoding="async" />
                 : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
               {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
+              {(it.sourceCount ?? 1) > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}
               {!it.readable && <span className="mt-outside">站外</span>}
             </div>
             <div className="mt-title clamp">{it.title}</div>

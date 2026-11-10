@@ -3,13 +3,14 @@ package com.mangashelf.external.manga;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** 聚合推荐：RRF 累加/去重、中文过滤、非中文源排除。 */
+/** 聚合推荐：RRF 累加、作品聚簇（跨源合并/版本区分）、中文过滤、非中文源排除。 */
 class MangaDiscoveryServiceTest {
 
     private static MangaSource.RankItem item(String source, String title) {
@@ -19,25 +20,58 @@ class MangaDiscoveryServiceTest {
 
     @Test
     void fuseAccumulatesAcrossListsAndDedupes() {
-        var a = item("tencent", "航海王");
-        var b = item("tencent", "斗破苍穹");
-        var c = item("tencent", "一人之下");
         var fused = MangaDiscoveryService.fuse(List.of(
-                List.of(a, b, c),
-                List.of(c, a)
-        ), 10);
+                List.of(item("tencent", "航海王"), item("tencent", "斗破苍穹"), item("tencent", "一人之下")),
+                List.of(item("bilibili", "一人之下"), item("bilibili", "航海王"))
+        ), 10, Map.of("tencent", "腾讯动漫", "bilibili", "哔哩漫画"));
         assertEquals(3, fused.size());
         assertEquals("航海王", fused.get(0).title());   // 1/61 + 1/62
         assertEquals("一人之下", fused.get(1).title()); // 1/63 + 1/61
         assertEquals("斗破苍穹", fused.get(2).title()); // 1/62
-        assertEquals(1, fused.stream().filter(x -> x.title().equals("航海王")).count());
+        // 跨源同作合并为一条，sources 汇总
+        assertEquals(2, fused.get(0).sourceCount());
+        assertEquals(List.of("腾讯动漫", "哔哩漫画"), fused.get(0).sources());
+        assertEquals(1, fused.get(2).sourceCount());
+    }
+
+    @Test
+    void editionSuffixStaysSeparate() {
+        var fused = MangaDiscoveryService.fuse(List.of(
+                List.of(item("tencent", "航海王"), item("tencent", "航海王（全彩版）"))
+        ), 10, Map.of());
+        assertEquals(2, fused.size());
+    }
+
+    @Test
+    void nearIdenticalTitlesMerge() {
+        // 仅空格/标点差异 → 同作
+        var fused = MangaDiscoveryService.fuse(List.of(
+                List.of(item("tencent", "斗破苍穹"), item("bilibili", "斗破苍穹!"))
+        ), 10, Map.of("tencent", "腾讯动漫", "bilibili", "哔哩漫画"));
+        assertEquals(1, fused.size());
+        assertEquals(2, fused.getFirst().sourceCount());
+    }
+
+    @Test
+    void readableVersionWinsAsRepresentative() {
+        var readable = new MangaSource.RankItem("tencent", "505430", "航海王", List.of(), null,
+                false, "更新到701话", true, null, "tencent", "505430");
+        var notReadable = new MangaSource.RankItem("bilibili", "24742", "航海王", List.of(), null,
+                false, "更新至 1198", false, "https://manga.bilibili.com/detail/mc24742", null, null);
+        var fused = MangaDiscoveryService.fuse(List.of(
+                List.of(notReadable), List.of(readable)
+        ), 10, Map.of("tencent", "腾讯动漫"));
+        assertEquals(1, fused.size());
+        assertTrue(fused.getFirst().readable());
+        assertEquals("更新到701话", fused.getFirst().latestLabel());
+        assertEquals(2, fused.getFirst().sourceCount());
     }
 
     @Test
     void fuseFiltersNonChineseTitles() {
         var fused = MangaDiscoveryService.fuse(List.of(
                 List.of(item("tencent", "One Piece"), item("tencent", "航海王"))
-        ), 10);
+        ), 10, Map.of());
         assertEquals(1, fused.size());
         assertEquals("航海王", fused.getFirst().title());
     }

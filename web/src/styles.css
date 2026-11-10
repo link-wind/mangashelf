@@ -804,3 +804,10 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
   .manga-row { grid-auto-columns: 104px; gap: 10px; }
   .mt-cover { width: 104px; height: 139px; }
 }
+
+/* ── 跨源同作合并徽标（M26）── */
+.mt-multi {
+  position: absolute; right: 6px; top: 6px;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 600;
+}

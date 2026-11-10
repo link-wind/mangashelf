@@ -18,7 +18,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
- * 多源聚合推荐（M25）：只聚合中文源，RRF 融合名次 + 标题归一化去重 + 中文标题过滤。
+ * 多源聚合推荐（M25/M26）：只聚合中文源，RRF 融合名次 + 作品聚簇（同作跨源
+ * 合并为一个条目，标 sourceCount/sources）+ 中文标题过滤。
  * 各源并行抓取（虚拟线程），单源超时/失败隔离；结果整体缓存 10 分钟。
  */
 @Service
@@ -30,16 +31,32 @@ public class MangaDiscoveryService {
     private static final long TIMEOUT_SECONDS = 15;
     private static final long TTL_MS = 10 * 60 * 1000L;
     private static final Pattern HAN = Pattern.compile("[\\u4e00-\\u9fff]");
+    /** 近似标题合并阈值：只合并同一标题的写法差异，版本后缀（全彩版等）不误合并。 */
+    private static final double MERGE_THRESHOLD = 0.9;
+
+    /** 聚合条目（M26）：摊平的 RankItem 字段 + 同作合并信息（sourceCount>1 表示跨源同作）。 */
+    public record DiscoveryItem(String source, String id, String title, List<String> authors,
+                                String coverUrl, boolean finished, String latestLabel,
+                                boolean readable, String externalUrl,
+                                String readSource, String readId,
+                                int sourceCount, List<String> sources) {
+
+        static DiscoveryItem of(MangaSource.RankItem item, int sourceCount, List<String> sources) {
+            return new DiscoveryItem(item.source(), item.id(), item.title(), item.authors(),
+                    item.coverUrl(), item.finished(), item.latestLabel(), item.readable(),
+                    item.externalUrl(), item.readSource(), item.readId(), sourceCount, sources);
+        }
+    }
 
     /** 发现流行：sourceId/sourceName 为空表示综合榜。 */
     public record Row(String id, String name, String sourceId, String sourceName,
-                      List<MangaSource.RankItem> items) {}
+                      List<DiscoveryItem> items) {}
 
     public record Result(List<Row> rows, List<String> errors) {}
 
     private record CacheEntry(Result result, long expiresAt) {}
 
-    private record Scored(MangaSource.RankItem item, double score) {}
+    private record Scored(String key, MangaSource.RankItem item, double score) {}
 
     private final MangaSourceRegistry registry;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -51,7 +68,7 @@ public class MangaDiscoveryService {
 
     public Result discover(int limit) throws Exception {
         int size = Math.max(1, Math.min(limit, 30));
-        String key = "v1:" + size;
+        String key = "v2:" + size;
         CacheEntry hit = cache.get(key);
         if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
             return hit.result();
@@ -86,6 +103,8 @@ public class MangaDiscoveryService {
 
         java.util.Set<String> zhSourceIds = fetched.stream()
                 .map(f -> f.source().id()).collect(java.util.stream.Collectors.toSet());
+        Map<String, String> sourceNames = registry.all().stream()
+                .collect(java.util.stream.Collectors.toMap(MangaSource::id, MangaSource::name));
         List<List<MangaSource.RankItem>> rankedLists = new ArrayList<>();
         for (Fetched f : fetched) {
             for (MangaSource.Section section : f.sections()) {
@@ -96,11 +115,12 @@ public class MangaDiscoveryService {
         }
 
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row("all", "综合热榜", null, null, fuse(rankedLists, size)));
+        rows.add(new Row("all", "综合热榜", null, null, fuse(rankedLists, size, sourceNames)));
         for (Fetched f : fetched) {
             for (MangaSource.Section section : f.sections()) {
-                List<MangaSource.RankItem> items = sanitize(section.items(), zhSourceIds).stream()
+                List<DiscoveryItem> items = sanitize(section.items(), zhSourceIds).stream()
                         .filter(it -> isChineseTitle(it.title()))
+                        .map(it -> DiscoveryItem.of(it, 1, List.of()))
                         .toList();
                 if (items.isEmpty()) continue;
                 rows.add(new Row(f.source().id() + ":" + section.id(), section.name(),
@@ -114,33 +134,66 @@ public class MangaDiscoveryService {
     }
 
     /**
-     * RRF 融合：每个榜单按名次计 1/(k+rank)，同一作品跨榜/跨源累加；
-     * 归一化标题去重，同分优先可站内阅读的版本。
+     * RRF 融合 + 作品聚簇（M26）：每个榜单按名次计 1/(k+rank)；条目按得分降序
+     * 依次归入聚簇——归一化标题精确相等或相似度 ≥0.9 视为同作。聚簇得分累加，
+     * 展示条目优先中文源站内可读，sources 为成员源名（按出现顺序去重）。
      */
-    static List<MangaSource.RankItem> fuse(List<List<MangaSource.RankItem>> rankedLists, int limit) {
-        Map<String, Scored> merged = new LinkedHashMap<>();
+    static List<DiscoveryItem> fuse(List<List<MangaSource.RankItem>> rankedLists, int limit,
+                                    Map<String, String> sourceNames) {
+        List<Cluster> clusters = new ArrayList<>();
+        // 先收集并按 RRF 得分降序，让高分（更热）版本成为聚簇代表
+        List<Scored> scored = new ArrayList<>();
         for (List<MangaSource.RankItem> list : rankedLists) {
             for (int i = 0; i < list.size(); i++) {
                 MangaSource.RankItem item = list.get(i);
                 if (!isChineseTitle(item.title())) continue;
                 String key = normalizeTitle(item.title());
                 if (key.isEmpty()) continue;
-                double score = 1.0 / (RRF_K + i + 1);
-                Scored current = merged.get(key);
-                if (current == null) {
-                    merged.put(key, new Scored(item, score));
-                } else {
-                    MangaSource.RankItem keep = current.item();
-                    if (!keep.readable() && item.readable()) keep = item;
-                    merged.put(key, new Scored(keep, current.score() + score));
-                }
+                scored.add(new Scored(key, item, 1.0 / (RRF_K + i + 1)));
             }
         }
-        return merged.values().stream()
-                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+        scored.sort((a, b) -> Double.compare(b.score(), a.score()));
+        for (Scored s : scored) {
+            Cluster target = null;
+            for (Cluster c : clusters) {
+                if (c.key.equals(s.key())
+                        || MangaMatcher.similarity(c.key, s.key()) >= MERGE_THRESHOLD) {
+                    target = c;
+                    break;
+                }
+            }
+            if (target == null) {
+                clusters.add(new Cluster(s.key(), s.item(), s.score(),
+                        new LinkedHashMap<>(Map.of(s.item().source(), s.item().source()))));
+            } else {
+                target.score += s.score();
+                if (!target.item.readable() && s.item().readable()) {
+                    target.item = s.item();
+                }
+                target.sources.putIfAbsent(s.item().source(), s.item().source());
+            }
+        }
+        return clusters.stream()
+                .sorted((a, b) -> Double.compare(b.score, a.score))
                 .limit(Math.max(1, limit))
-                .map(Scored::item)
+                .map(c -> DiscoveryItem.of(c.item, c.sources.size(),
+                        c.sources.keySet().stream().map(id -> sourceNames.getOrDefault(id, id)).toList()))
                 .toList();
+    }
+
+    /** 作品聚簇：代表 key + 展示条目 + 累计得分 + 成员源。 */
+    private static final class Cluster {
+        final String key;
+        MangaSource.RankItem item;
+        double score;
+        final Map<String, String> sources;
+
+        Cluster(String key, MangaSource.RankItem item, double score, Map<String, String> sources) {
+            this.key = key;
+            this.item = item;
+            this.score = score;
+            this.sources = sources;
+        }
     }
 
     /**
