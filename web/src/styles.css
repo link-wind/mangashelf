@@ -421,9 +421,10 @@ button.mini.ghost { padding: 3px 9px; }
 
 /* ── 首页首屏 Banner（gugu 式：全幅背景 + 信息层 + 右下缩略图切换）── */
 .hero-slide {
-  position: relative; min-height: 460px; border-radius: 16px; overflow: hidden;
-  display: flex; align-items: center; border: 1px solid var(--border);
+  position: relative; min-height: 460px; border-radius: 0; overflow: hidden;
+  display: flex; align-items: center;
   background: #10151a;
+  margin: -22px -24px 26px;
 }
 .hero-bg {
   position: absolute; inset: 0; background-size: cover; background-position: center 24%;
@@ -708,8 +709,8 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 
 .manga-hero-banner {
   position: relative; isolation: isolate;
-  border-radius: 18px; overflow: hidden;
-  min-height: 460px; margin: 2px 0 26px;
+  border-radius: 0; overflow: hidden;
+  min-height: 460px; margin: -20px -24px 26px;
   background-color: #23282c;
   background-size: cover; background-position: center 28%;
   box-shadow: 0 10px 32px rgba(25, 28, 29, .16);
