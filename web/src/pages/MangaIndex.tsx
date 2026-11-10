@@ -168,8 +168,10 @@ function MangaDiscovery() {
       )}
 
       {hero && (
-        <div className="manga-hero-banner"
-             style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hdCover(hero.coverUrl))})` } : undefined}>
+        <div className="manga-hero-banner">
+          {/* 交叉淡入：每张待显示的背景独立成层，key 变化触发淡入动画 */}
+          <div className="manga-hero-bg" key={hero.source + hero.id}
+               style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hdCover(hero.coverUrl))})` } : undefined} />
           <div className="manga-hero-shade" />
           <div className="manga-hero-inner">
             <button className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
@@ -201,12 +203,16 @@ function MangaDiscovery() {
             </div>
           </div>
           {featured.length > 1 && (
-            <div className="manga-hero-dots">
+            <div className="manga-hero-thumbs">
               {featured.map((it, i) => (
                 <button key={it.source + it.id}
-                        className={i === heroIdx ? 'active' : ''}
-                        aria-label={`第 ${i + 1} 张`}
-                        onClick={() => setHeroIdx(i)} />
+                        className={'manga-hero-thumb' + (i === heroIdx ? ' on' : '')}
+                        onClick={() => setHeroIdx(i)} title={it.title}>
+                  {it.coverUrl
+                    ? <img src={proxyImage(it.coverUrl)} alt="" loading="lazy" />
+                    : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
+                  <span className="manga-hero-thumb-title">{it.title}</span>
+                </button>
               ))}
             </div>
           )}
