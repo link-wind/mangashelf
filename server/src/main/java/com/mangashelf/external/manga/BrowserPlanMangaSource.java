@@ -117,7 +117,8 @@ public class BrowserPlanMangaSource implements MangaSource {
                 String cid = item.path("id").asText("");
                 String label = item.path("title").asText("");
                 if (cid.isBlank()) continue;
-                chapters.add(new ChapterItem(mangaId + "|" + cid, label, label, language, -1, false));
+                // API/列表章节的 id 已是站点章节标识（如嬉皮 hid），不再前缀作品 id
+                chapters.add(new ChapterItem(cid, label, label, language, -1, false));
             }
         }
         return new Detail(new SearchItem(id, mangaId, title, "", cover.isBlank() ? null : cover, null),
@@ -132,18 +133,18 @@ public class BrowserPlanMangaSource implements MangaSource {
 
     @Override
     public Pages pages(String chapterId) throws Exception {
-        int sep = chapterId.indexOf('|');
-        if (sep <= 0 || sep == chapterId.length() - 1) {
-            throw new IllegalArgumentException("章节 ID 应为 {mangaId}|{slot}：" + chapterId);
-        }
-        String mangaId = chapterId.substring(0, sep);
-        String slot = chapterId.substring(sep + 1);
-        if (!mangaId.matches("[a-zA-Z0-9_\\-]+") || !slot.matches("[a-zA-Z0-9_\\-]+")) {
+        if (chapterId == null || chapterId.isBlank() || chapterId.length() > 300
+                || !chapterId.matches("[A-Za-z0-9_.|~\\-]+")) {
             throw new IllegalArgumentException("章节 ID 格式不合法：" + chapterId);
         }
+        // 通用变量：chapterId 原样可用；若为 {mangaId}|{slot} 形态再拆出两段
         Map<String, String> vars = new LinkedHashMap<>();
-        vars.put("comicId", mangaId);
-        vars.put("slot", slot);
+        vars.put("chapterId", chapterId);
+        int sep = chapterId.indexOf('|');
+        if (sep > 0 && sep < chapterId.length() - 1) {
+            vars.put("comicId", chapterId.substring(0, sep));
+            vars.put("slot", chapterId.substring(sep + 1));
+        }
         JsonNode result = browser.resolvePlan("pages", planJson, vars, cookie, storageState);
         List<String> pages = new ArrayList<>();
         for (JsonNode p : result.path("pages")) {

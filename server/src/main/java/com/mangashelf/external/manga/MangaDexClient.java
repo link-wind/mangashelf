@@ -148,7 +148,8 @@ public class MangaDexClient {
                     || host.equals("manhua.acimg.cn")
                     || host.endsWith(".mangafunb.fun")
                     || host.endsWith(".bzcdn.net")
-                    || host.equals("static-tw.baozimh.com");
+                    || host.equals("static-tw.baozimh.com")
+                    || host.endsWith(".s3imgs.top");
         } catch (Exception e) {
             return false;
         }

@@ -109,6 +109,51 @@ def _extract_list(page: Any, plan: dict[str, Any]) -> list[dict[str, str]]:
     return [v for v in merged.values() if v.get("title")]
 
 
+def _resolve_path(data: Any, path: str) -> Any:
+    cur = data
+    for part in (path or "").split("."):
+        if not part:
+            continue
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _chapters_from_api(page: Any, api: dict[str, Any], vars_: dict[str, str]) -> list[dict[str, str]]:
+    base_vars = dict(vars_)
+    id_regex = str(api.get("idRegex") or "")
+    id_var = str(api.get("idVar") or "mid")
+    if id_regex:
+        m = re.match(id_regex, str(vars_.get("id") or ""))
+        if m:
+            base_vars[id_var] = m.group(1)
+    url_tpl = str(api.get("url") or "")
+    list_path = str(api.get("list") or "data.items")
+    total_path = str(api.get("totalPages") or "data.total_pages")
+    fields = api.get("fields") or {"id": "hid", "title": "title"}
+    out: list[dict[str, str]] = []
+    page_no = 1
+    total_pages = 1
+    while page_no <= total_pages and page_no <= 100:
+        url = url_tpl
+        for key, value in base_vars.items():
+            url = url.replace("{" + key + "}", str(value))
+        url = url.replace("{page}", str(page_no))
+        resp = page.request.get(url)
+        if not resp.ok:
+            break
+        payload = resp.json()
+        rows = _resolve_path(payload, list_path) or []
+        for row in rows:
+            item = {key: str(row.get(field) or "") for key, field in fields.items()}
+            if item.get("id"):
+                out.append(item)
+        total_pages = int(_resolve_path(payload, total_path) or 1)
+        page_no += 1
+    return out
+
+
 def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> dict[str, Any]:
     params = spec.get("params") or {}
     action = str(params.get("action") or "").strip()
@@ -231,6 +276,9 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 single[key] = _query_field(page, field_spec)
 
             items = _extract_list(page, section)
+            chapters_api = section.get("chaptersApi")
+            if chapters_api:
+                items = _chapters_from_api(page, chapters_api, vars_ or {})
 
             slots = section.get("slots")
             last_slot = None
