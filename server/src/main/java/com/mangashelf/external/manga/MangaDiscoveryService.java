@@ -131,7 +131,9 @@ public class MangaDiscoveryService {
         }
 
         Result result = new Result(rows, errors);
-        cache.put(key, new CacheEntry(result, System.currentTimeMillis() + TTL_MS));
+        // 有源失败时短缓存（60s），避免预热/瞬时抖动把错误状态锁 10 分钟
+        long ttl = errors.isEmpty() ? TTL_MS : 60_000L;
+        cache.put(key, new CacheEntry(result, System.currentTimeMillis() + ttl));
         return result;
     }
 
