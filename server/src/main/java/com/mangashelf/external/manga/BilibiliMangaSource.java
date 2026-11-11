@@ -114,14 +114,10 @@ public class BilibiliMangaSource implements MangaSource {
                 cover = cover + "@480w.jpg";
             }
             String title = c.path("title").asText();
-            // 跨源桥接：仅对前 12 条做匹配（首次约 10s，之后走缓存），避免榜单接口过慢
-            String readId = (out.size() < 12 ? matcher.findReadable(title) : java.util.Optional.<String>empty())
-                    .orElse(null);
             out.add(new RankItem("bilibili", comicId, title, authors, cover,
                     c.path("is_finish").asInt(0) == 1,
                     latest.isBlank() ? "" : "更新至 " + latest,
-                    readId != null, DETAIL_URL + comicId,
-                    readId == null ? null : "mangadex", readId));
+                    false, DETAIL_URL + comicId, null, null));
         }
         log.debug("bilibili hot list size={}", out.size());
         return out;
