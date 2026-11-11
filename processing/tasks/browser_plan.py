@@ -234,7 +234,7 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
 
     progress("browser", f"打开 {url}")
     with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage", "--no-proxy-server", "--disable-quic"])
         try:
             ctx_kwargs: dict[str, Any] = {
                 "user_agent": UA,
