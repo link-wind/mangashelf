@@ -13,6 +13,7 @@ from processing.tasks.external_resolve import run as external_resolve
 from processing.tasks.chapter_parse import run as chapter_parse
 from processing.tasks.image_derive import run as image_derive
 from processing.tasks.media_verify import run as media_verify
+from processing.tasks.manga_resolve import run as manga_resolve
 
 # 固定任务清单；不开放任意脚本执行（DESIGN 12.2）
 TASKS = {
@@ -21,6 +22,7 @@ TASKS = {
     "media.verify": media_verify,
     "chapter.ocr": chapter_ocr,
     "external.resolve": external_resolve,
+    "manga.resolve": manga_resolve,
 }
 
 SCHEMA_VERSION = 1

@@ -36,7 +36,10 @@ public class MangaSourceRegistry implements ApplicationListener<ApplicationReady
     public void onApplicationEvent(ApplicationReadyEvent event) {
         try {
             for (RuleMangaSource s : loader.load()) {
-                sources.put(s.id(), s);
+                // 代码源优先：规则行不能覆盖同名代码源（如拷贝漫画浏览器源）
+                if (sources.putIfAbsent(s.id(), s) != null) {
+                    log.warn("规则源 {} 与代码源重名，已忽略规则行", s.id());
+                }
             }
         } catch (Exception first) {
             // 典型场景：与 api 并发启动，规则表所属迁移尚未完成；延迟后重试一次
@@ -45,7 +48,9 @@ public class MangaSourceRegistry implements ApplicationListener<ApplicationReady
                 try {
                     Thread.sleep(10_000);
                     for (RuleMangaSource s : loader.load()) {
-                        sources.put(s.id(), s);
+                        if (sources.putIfAbsent(s.id(), s) != null) {
+                            log.warn("规则源 {} 与代码源重名，已忽略规则行", s.id());
+                        }
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

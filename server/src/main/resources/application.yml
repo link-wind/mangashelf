@@ -79,6 +79,12 @@ mangashelf:
     model-path: ${MANGASHELF_EMBEDDING_MODEL_PATH:./models/e5-small-v2.onnx}
     tokenizer-path: ${MANGASHELF_EMBEDDING_TOKENIZER_PATH:./models/tokenizer.json}
 
+  # 拷贝漫画浏览器源（M29）：登录后由 processing.manga_login 生成 storage_state，
+  # 或直接在环境变量里给 Cookie 串（二者其一）。
+  copymanga:
+    cookie: ${MANGASHELF_COPYMANGA_COOKIE:}
+    storage-state: ${MANGASHELF_COPYMANGA_STORAGE_STATE:}
+
   processing:
     python-binary: ${MANGASHELF_PYTHON:python3}
     # 包含 processing 包的目录（仓库根），Python 经 PYTHONPATH 导入
