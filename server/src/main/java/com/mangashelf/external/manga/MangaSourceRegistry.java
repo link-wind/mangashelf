@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -18,6 +19,7 @@ import java.util.Optional;
  * 尚未完成（实测 V15 竞态），失败后延迟重试一次。
  */
 @Component
+@Order(1)
 public class MangaSourceRegistry implements ApplicationListener<ApplicationReadyEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(MangaSourceRegistry.class);

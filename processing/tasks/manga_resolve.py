@@ -110,7 +110,11 @@ def _collect_chapters(page: Any) -> list[dict[str, str]]:
 
 def _resolve_search(page: Any, url: str) -> dict[str, Any]:
     page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
-    page.wait_for_timeout(3000)
+    try:
+        page.wait_for_load_state("load", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(2500)
     links = page.eval_on_selector_all(
         "a[href*='/comic/']",
         "els => els.filter(e => !(e.getAttribute('href') || '').includes('/chapter/'))"
@@ -135,6 +139,10 @@ def _resolve_search(page: Any, url: str) -> dict[str, Any]:
 
 def _resolve_detail(page: Any, url: str) -> dict[str, Any]:
     page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    try:
+        page.wait_for_load_state("load", timeout=8000)
+    except Exception:
+        pass
     page.wait_for_timeout(2500)
     _expand_catalog(page)
     info = page.evaluate(
@@ -172,14 +180,7 @@ def _resolve_detail(page: Any, url: str) -> dict[str, Any]:
     }
 
 
-def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
-    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
-    page.wait_for_timeout(2000)
-    # 章节图由 JS 解密后写入 data-src，滚动触发 lazysizes 拉取
-    for _ in range(LAZY_SCROLL_ROUNDS):
-        page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-        page.wait_for_timeout(700)
-
+def _collect_pages(page: Any) -> list[str]:
     images = page.eval_on_selector_all(
         "img",
         "els => els.map(e => ({ src: e.getAttribute('data-src') || e.currentSrc || e.src || '', "
@@ -194,6 +195,23 @@ def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
             continue
         if src not in pages:
             pages.append(src)
+    return pages
+
+
+def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
+    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    try:
+        page.wait_for_load_state("load", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(2000)
+    # 多数章节 JS 解密后已写入 data-src：先无滚动提取，失败再滚动触发 lazysizes
+    pages = _collect_pages(page)
+    if not pages:
+        for _ in range(LAZY_SCROLL_ROUNDS):
+            page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+            page.wait_for_timeout(700)
+        pages = _collect_pages(page)
 
     if pages:
         return {"status": "SUCCEEDED", "pages": pages}

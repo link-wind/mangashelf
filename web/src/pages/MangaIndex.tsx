@@ -30,6 +30,25 @@ interface DiscoveryResult { rows: SourceSection[]; errors: string[] }
 const SOURCE_KEY = 'ms-manga-source'
 /** 综合聚合（M25）：跨中文源 RRF 融合榜。 */
 const ALL = 'all'
+const CACHE_TTL_MS = 10 * 60 * 1000
+
+interface SectionCache { ts: number; sections: SourceSection[]; warnings: string[] }
+
+function readCache(key: string): SectionCache | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const cached = JSON.parse(raw) as SectionCache
+    if (!cached.sections || Date.now() - cached.ts > CACHE_TTL_MS) return null
+    return cached
+  } catch { return null }
+}
+
+function writeCache(key: string, sections: SourceSection[], warnings: string[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), sections, warnings }))
+  } catch { /* 超配额时忽略 */ }
+}
 
 /**
  * 漫画首页（M24，参照哔哩哔哩漫画/快看）：发现流（源切换 + 轮播 hero +
@@ -79,17 +98,33 @@ function MangaDiscovery() {
 
   const load = useCallback(async (src: string) => {
     if (!src) return
-    setLoading(true); setError(''); setWarnings([]); setSections([]); setHeroIdx(0)
+    const cacheKey = `ms-manga-cache:${src}`
+    const cached = readCache(cacheKey)
+    setLoading(true); setError(''); setHeroIdx(0)
+    if (cached) {
+      // 有缓存先渲染（切换源/刷新首页不白屏），后台再拉最新
+      setSections(cached.sections)
+      setWarnings(cached.warnings ?? [])
+    } else {
+      setSections([]); setWarnings([])
+    }
     try {
+      let sections: SourceSection[]
+      let warnings: string[] = []
       if (src === ALL) {
         const result = await api.get<DiscoveryResult>('/api/v1/manga-discovery?limit=12')
-        setSections(result.rows ?? [])
-        setWarnings(result.errors ?? [])
+        sections = result.rows ?? []
+        warnings = result.errors ?? []
       } else {
-        setSections(await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=12`))
+        sections = await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=12`)
       }
+      setSections(sections)
+      setWarnings(warnings)
+      writeCache(cacheKey, sections, warnings)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '推荐加载失败')
+      const message = e instanceof Error ? e.message : '推荐加载失败'
+      if (cached) setWarnings([message]) // 保留旧内容，仅提示刷新失败
+      else setError(message)
     } finally { setLoading(false) }
   }, [])
 
@@ -142,9 +177,9 @@ function MangaDiscovery() {
           ))}
         </div>
         <span className="muted" style={{ fontSize: 12 }}>
-          {source === ALL
+          {loading && sections.length > 0 ? '更新中…' : (source === ALL
             ? '聚合中文源推荐与榜单（RRF 融合，同作去重）'
-            : current?.note ?? '选择数据源查看推荐与榜单'}
+            : current?.note ?? '选择数据源查看推荐与榜单')}
         </span>
       </div>
 

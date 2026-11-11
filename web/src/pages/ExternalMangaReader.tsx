@@ -235,18 +235,21 @@ export default function ExternalMangaReader() {
     } finally { setResolving(false) }
   }, [])
 
-  // 滚动模式：窗口滚动换算页码 + 节流上报
+  // 滚动模式：窗口滚动换算页码（图片列表缓存 + 100ms 节流，避免长章节每帧遍历所有图）
   useEffect(() => {
     if (!data || effectiveMode !== 'single') return
-    const onScroll = () => {
-      const stage = stageRef.current
-      if (!stage) return
-      const imgs = Array.from(stage.querySelectorAll('img'))
+    let imgs: HTMLImageElement[] = []
+    const refresh = () => {
+      imgs = Array.from(stageRef.current?.querySelectorAll('img') ?? [])
+    }
+    refresh()
+    let lastMeasure = 0
+    const measure = () => {
       const mid = window.scrollY + window.innerHeight / 2
       let i = 0
-      imgs.forEach((img, k) => {
-        if (img.getBoundingClientRect().top + window.scrollY < mid) i = k
-      })
+      for (let k = 0; k < imgs.length; k++) {
+        if (imgs[k].getBoundingClientRect().top + window.scrollY < mid) i = k
+      }
       const p = i + 1
       if (p !== pageRef.current) {
         setPage(p)
@@ -257,10 +260,16 @@ export default function ExternalMangaReader() {
         }
       }
     }
+    const onScroll = () => {
+      const now = performance.now()
+      if (now - lastMeasure < 100) return
+      lastMeasure = now
+      measure()
+    }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       window.removeEventListener('scroll', onScroll)
-      saveProgress(pageRef.current, stageRef.current?.querySelectorAll('img').length ?? 0)
+      saveProgress(pageRef.current, imgs.length)
     }
   }, [data, effectiveMode, chapterId, saveProgress])
 
@@ -384,7 +393,14 @@ export default function ExternalMangaReader() {
     )
   }
   if (!data) {
-    return <div className="reader-full"><div className="reader-full-inner muted">加载中…</div></div>
+    const slowSource = source === 'baozimh' || source === 'hipmh' || source === 'copymanga'
+    return (
+      <div className="reader-full">
+        <div className="reader-full-inner muted">
+          {slowSource ? '解析中…（浏览器源首次打开约需 5–15 秒，之后走缓存）' : '加载中…'}
+        </div>
+      </div>
+    )
   }
 
   const backExternal = data.external || total === 0

@@ -18,9 +18,11 @@ import java.util.List;
 public class MangaSourceController {
 
     private final MangaSourceRegistry registry;
+    private final MangaSectionsService sectionsService;
 
-    public MangaSourceController(MangaSourceRegistry registry) {
+    public MangaSourceController(MangaSourceRegistry registry, MangaSectionsService sectionsService) {
         this.registry = registry;
+        this.sectionsService = sectionsService;
     }
 
     @GetMapping
@@ -45,7 +47,7 @@ public class MangaSourceController {
                                               @RequestParam(defaultValue = "12") int limit) {
         MangaSource s = require(source, MangaSource.Capability.RANK);
         try {
-            return s.sections(limit);
+            return sectionsService.get(s, limit);
         } catch (Exception e) {
             throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
         }

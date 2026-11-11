@@ -61,7 +61,7 @@ def _query_field(page: Any, spec: dict[str, Any], scope: str = "document") -> st
         }
         return (v || '').trim();
     }"""
-    return page.evaluate(js, {"scope": scope, "select": select, "attr": attr,
+    return _eval(page, js, {"scope": scope, "select": select, "attr": attr,
                               "attrs": attrs, "regex": regex, "last": last}) or ""
 
 
@@ -70,7 +70,7 @@ def _extract_list(page: Any, plan: dict[str, Any]) -> list[dict[str, str]]:
     fields = plan.get("fields") or {}
     if not selector:
         return []
-    raw = page.evaluate(
+    raw = _eval(page,
         """(args) => {
             const {selector, fields} = args;
             const pick = (el, spec) => {
@@ -107,6 +107,58 @@ def _extract_list(page: Any, plan: dict[str, Any]) -> list[dict[str, str]]:
         if row.get("cover"):
             entry["cover"] = row["cover"]
     return [v for v in merged.values() if v.get("title")]
+
+
+def _eval(page: Any, js: str, arg: Any = None, retries: int = 2) -> Any:
+    """页面 evaluate 包装：站点可能在数据出现后再跳转，遇到上下文销毁时重试。"""
+    for attempt in range(retries + 1):
+        try:
+            return page.evaluate(js, arg) if arg is not None else page.evaluate(js)
+        except Exception as exc:  # noqa: BLE001 —— 仅重试导航竞态
+            text = str(exc)
+            if "Execution context was destroyed" in text and attempt < retries:
+                try:
+                    page.wait_for_load_state("load", timeout=8000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(1200)
+                continue
+            raise
+
+
+def _settle(page: Any, timeout_ms: int = 9000) -> None:
+    """等待 URL 稳定（站点常在数据后 302 到镜像域），避免 evaluate/content 竞态。"""
+    deadline = timeout_ms / 1000.0
+    import time
+    started = time.monotonic()
+    last = None
+    stable = 0
+    while time.monotonic() - started < deadline:
+        try:
+            current = page.url
+        except Exception:
+            page.wait_for_timeout(500)
+            continue
+        if current == last:
+            stable += 1
+            if stable >= 2:
+                return
+        else:
+            stable = 0
+            last = current
+        page.wait_for_timeout(500)
+
+
+def _content(page: Any, retries: int = 3) -> str:
+    for attempt in range(retries + 1):
+        try:
+            return page.content()
+        except Exception:
+            if attempt == retries:
+                raise
+            _settle(page, 9000)
+            page.wait_for_timeout(800)
+    raise RuntimeError("unreachable")
 
 
 def _resolve_path(data: Any, path: str) -> Any:
@@ -198,11 +250,17 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded",
                       timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+            # 站点可能有 302 跳转（包子 → twmanga 等），等新文档 load 完再取数
+            try:
+                page.wait_for_load_state("load", timeout=8000)
+            except Exception:
+                pass
+            _settle(page)
             page.wait_for_timeout(int(section.get("wait_ms") or 2500))
 
             for text in section.get("click") or []:
                 try:
-                    page.evaluate(
+                    _eval(page,
                         """(t) => {
                             const els = [...document.querySelectorAll('a,button,div,span')];
                             const el = els.find(e => (e.textContent || '').trim() === t);
@@ -212,16 +270,33 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 except Exception:
                     pass
 
-            for _ in range(int(section.get("scroll") or 0)):
-                page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-                page.wait_for_timeout(700)
+            images_plan = section.get("images") or {}
+            pattern = str(images_plan.get("regex") or "")
+            # 页图能用 HTML 正则一次取全时不需要滚动（省 5~10s）
+            if not (action == "pages" and pattern):
+                for _ in range(int(section.get("scroll") or 0)):
+                    page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(700)
 
             if action == "pages":
-                images_plan = section.get("images") or {}
                 pattern = str(images_plan.get("regex") or "")
                 if pattern:
-                    html = page.content()
+                    html = _content(page)
                     found = re.findall(pattern, html)
+                    if not found:
+                        # 镜像页偶发先返回空壳：重载一次再取
+                        try:
+                            page.reload(wait_until="domcontentloaded", timeout=30000)
+                            try:
+                                page.wait_for_load_state("load", timeout=8000)
+                            except Exception:
+                                pass
+                            _settle(page)
+                            page.wait_for_timeout(int(section.get("wait_ms") or 2500))
+                            html = _content(page)
+                            found = re.findall(pattern, html)
+                        except Exception:
+                            pass
                     pages = []
                     seen_paths: set[str] = set()
                     excludes = [str(x) for x in (images_plan.get("exclude") or [])]
@@ -239,13 +314,13 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                         pages.append(src)
                     if not pages:
                         return {"status": "FAILED", "error_code": "NO_PAGES",
-                                "message": "未从页面提取到页图 URL"}
+                                "message": f"未从页面提取到页图 URL (url={page.url[:80]}, html={len(html)})"}
                     return {"status": "SUCCEEDED", "pages": pages}
                 selector = str(images_plan.get("select") or "img")
                 attrs = images_plan.get("attrs") or ["data-src", "src"]
                 min_width = int(images_plan.get("minWidth") or 0)
                 excludes = [str(x) for x in (images_plan.get("exclude") or [])]
-                raw = page.evaluate(
+                raw = _eval(page,
                     """(args) => {
                         const {selector, attrs, minWidth} = args;
                         return [...document.querySelectorAll(selector)].map(e => {

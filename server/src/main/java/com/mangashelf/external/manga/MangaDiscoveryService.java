@@ -59,11 +59,13 @@ public class MangaDiscoveryService {
     private record Scored(String key, MangaSource.RankItem item, double score) {}
 
     private final MangaSourceRegistry registry;
+    private final MangaSectionsService sectionsService;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
-    public MangaDiscoveryService(MangaSourceRegistry registry) {
+    public MangaDiscoveryService(MangaSourceRegistry registry, MangaSectionsService sectionsService) {
         this.registry = registry;
+        this.sectionsService = sectionsService;
     }
 
     public Result discover(int limit) throws Exception {
@@ -82,7 +84,7 @@ public class MangaDiscoveryService {
         record Fetched(MangaSource source, List<MangaSource.Section> sections) {}
         List<Future<Fetched>> futures = new ArrayList<>();
         for (MangaSource s : sources) {
-            futures.add(executor.submit(() -> new Fetched(s, s.sections(size))));
+            futures.add(executor.submit(() -> new Fetched(s, sectionsService.get(s, size))));
         }
 
         List<Fetched> fetched = new ArrayList<>();

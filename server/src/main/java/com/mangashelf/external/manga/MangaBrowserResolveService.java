@@ -70,12 +70,18 @@ public class MangaBrowserResolveService {
         if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
             return hit.result();
         }
+        JsonNode disk = readDiskCache(key);
+        if (disk != null) {
+            cache.put(key, new Cache(disk, System.currentTimeMillis() + DETAIL_TTL_MS));
+            return disk;
+        }
         if (!gate.tryAcquire(90, TimeUnit.SECONDS)) {
             throw new IllegalStateException("漫画解析繁忙，请稍后重试");
         }
         try {
             JsonNode result = runPlanTask(action, planJson, vars, cookie, storageState);
             cache.put(key, new Cache(result, System.currentTimeMillis() + DETAIL_TTL_MS));
+            writeDiskCache(key, result);
             return result;
         } finally {
             gate.release();
@@ -121,12 +127,18 @@ public class MangaBrowserResolveService {
         if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
             return hit.result();
         }
+        JsonNode disk = readDiskCache(key);
+        if (disk != null) {
+            cache.put(key, new Cache(disk, System.currentTimeMillis() + ttlMs));
+            return disk;
+        }
         if (!gate.tryAcquire(90, TimeUnit.SECONDS)) {
             throw new IllegalStateException("漫画解析繁忙，请稍后重试");
         }
         try {
             JsonNode result = runTask(mode, url, cookie, storageState);
             cache.put(key, new Cache(result, System.currentTimeMillis() + ttlMs));
+            writeDiskCache(key, result);
             return result;
         } finally {
             gate.release();
@@ -166,6 +178,52 @@ public class MangaBrowserResolveService {
         } finally {
             // task.json 含登录 Cookie，解析完即删，不在磁盘留凭据
             deleteQuietly(dir);
+        }
+    }
+
+    private java.nio.file.Path browserCacheDir() {
+        return Path.of(props.processing().workRoot()).toAbsolutePath().getParent()
+                .resolve("manga-browser-cache");
+    }
+
+    private JsonNode readDiskCache(String key) {
+        try {
+            Path file = browserCacheDir().resolve(sha256(key) + ".json");
+            if (!Files.isRegularFile(file)) return null;
+            JsonNode root = objectMapper.readTree(Files.readString(file));
+            if (root.path("expiresAt").asLong(0) < System.currentTimeMillis()) return null;
+            JsonNode result = root.path("result");
+            return result.isMissingNode() ? null : result;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void writeDiskCache(String key, JsonNode result) {
+        try {
+            java.nio.file.Path dir = browserCacheDir();
+            Files.createDirectories(dir);
+            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("expiresAt", System.currentTimeMillis() + DETAIL_TTL_MS);
+            payload.put("result", result);
+            Path tmp = dir.resolve(sha256(key) + ".tmp");
+            objectMapper.writeValue(tmp.toFile(), payload);
+            Files.move(tmp, dir.resolve(sha256(key) + ".json"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception ignored) {
+            // 缓存写失败不影响解析结果
+        }
+    }
+
+    private static String sha256(String s) {
+        try {
+            var md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] h = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : h) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(s.hashCode());
         }
     }
 

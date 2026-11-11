@@ -109,7 +109,7 @@ class MangaDiscoveryServiceTest {
                 List.of(new MangaSource.Section("hot", "热门",
                         List.of(item("mangadex", "One Piece")))));
         var registry = new MangaSourceRegistry(List.of(zh, multi), null);
-        var service = new MangaDiscoveryService(registry);
+        var service = new MangaDiscoveryService(registry, new MangaSectionsService());
 
         var result = service.discover(10);
         assertTrue(result.errors().isEmpty());
