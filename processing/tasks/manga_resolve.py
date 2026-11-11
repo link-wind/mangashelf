@@ -32,7 +32,7 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
 
-def _parse_cookies(cookie: str) -> list[dict[str, Any]]:
+def _parse_cookies(cookie: str, host: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for part in (cookie or "").split(";"):
         if "=" not in part:
@@ -41,7 +41,7 @@ def _parse_cookies(cookie: str) -> list[dict[str, Any]]:
         name, value = name.strip(), value.strip()
         if not name:
             continue
-        for domain in (".copy4000.com", "www.copy4000.com"):
+        for domain in ("." + host, host):
             out.append({"name": name, "value": value, "domain": domain, "path": "/"})
     return out
 
@@ -223,8 +223,9 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
     storage_state = str(params.get("storage_state") or "").strip() or None
     if mode not in ("detail", "chapter", "search"):
         return {"status": "FAILED", "error_code": "BAD_MODE", "message": f"未知 mode：{mode}"}
-    if not url.startswith("https://www.copy4000.com/"):
-        return {"status": "FAILED", "error_code": "BAD_URL", "message": "仅允许 copy4000.com 站内 URL"}
+    if not (url.startswith("https://www.mangacopy.com/")
+            or url.startswith("https://www.copy4000.com/")):
+        return {"status": "FAILED", "error_code": "BAD_URL", "message": "仅允许 mangacopy.com 站内 URL"}
 
     try:
         from playwright.sync_api import sync_playwright
@@ -248,7 +249,7 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 context_kwargs["storage_state"] = storage_state
             context = browser.new_context(**context_kwargs)
             if cookie:
-                context.add_cookies(_parse_cookies(cookie))
+                context.add_cookies(_parse_cookies(cookie, urlsplit(url).hostname or "www.mangacopy.com"))
             page = context.new_page()
             progress("manga", f"打开 {url}")
             if mode == "detail":

@@ -22,7 +22,7 @@ import java.util.Set;
 @Component
 public class CopyMangaBrowserSource implements MangaSource {
 
-    private static final String WEB = "https://www.copy4000.com";
+    private static final String WEB = "https://www.mangacopy.com";
     private static final String API = "https://api.copy202602.com/api/v3";
     private static final String UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
