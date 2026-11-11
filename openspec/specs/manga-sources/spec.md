@@ -155,3 +155,17 @@ TBD - created by archiving change implement-manga-sources. Update Purpose after 
 
 - **WHEN** 解析请求携带非 copy4000.com 的 URL
 - **THEN** Python 任务拒绝执行
+
+### Requirement: 详情页切换数据源
+
+外部漫画详情页 MUST 允许用户按标题在其它中文数据源查找同作并跳转。
+
+#### Scenario: 从腾讯动漫切到拷贝漫画
+
+- **WHEN** 用户在腾讯动漫某作品详情页点击「拷贝漫画」
+- **THEN** 按作品标题搜索拷贝漫画并列出结果，点击结果进入拷贝漫画详情
+
+#### Scenario: 当前源不出现
+
+- **WHEN** 详情页收集可切换源
+- **THEN** 排除当前源与非中文/不支持搜索的源，不显示无意义的自切换
