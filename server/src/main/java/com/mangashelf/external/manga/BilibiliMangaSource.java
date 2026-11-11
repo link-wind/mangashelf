@@ -2,6 +2,7 @@ package com.mangashelf.external.manga;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -35,9 +36,20 @@ public class BilibiliMangaSource implements MangaSource {
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(12)).build();
 
-    public BilibiliMangaSource(ObjectMapper objectMapper, MangaMatcher matcher) {
+    private final MangaBrowserResolveService browserResolver;
+    private final String cookie;
+    private final String storageState;
+    private BiliMangaCanvasSource canvasSource;
+
+    public BilibiliMangaSource(ObjectMapper objectMapper, MangaMatcher matcher,
+                               MangaBrowserResolveService browserResolver,
+                               @Value("${mangashelf.bilibili.cookie:}") String cookie,
+                               @Value("${mangashelf.bilibili.storage-state:}") String storageState) {
         this.objectMapper = objectMapper;
         this.matcher = matcher;
+        this.browserResolver = browserResolver;
+        this.cookie = cookie;
+        this.storageState = storageState;
     }
 
     @Override
@@ -52,12 +64,25 @@ public class BilibiliMangaSource implements MangaSource {
 
     @Override
     public Set<Capability> capabilities() {
-        return Set.of(Capability.RANK);
+        return Set.of(Capability.RANK, Capability.READ);
     }
 
     @Override
     public String note() {
-        return "热门榜元数据；阅读请前往哔哩漫画";
+        return "热门榜元数据；免费章节可站内阅读（canvas 截图）";
+    }
+
+    /** READ 委托 canvas 截图源（懒初始化，避免构造环）。 */
+    private synchronized BiliMangaCanvasSource canvas() {
+        if (canvasSource == null) {
+            canvasSource = new BiliMangaCanvasSource(browserResolver, objectMapper, cookie, storageState);
+        }
+        return canvasSource;
+    }
+
+    @Override
+    public Pages pages(String chapterId) throws Exception {
+        return canvas().pages(chapterId);
     }
 
     @Override

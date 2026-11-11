@@ -3,6 +3,9 @@ package com.mangashelf.external.manga;
 import com.mangashelf.config.MangaShelfProperties;
 import com.mangashelf.ingestion.PythonTaskRunner;
 import com.mangashelf.ingestion.TaskSpec;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -12,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,18 +44,84 @@ public class MangaBrowserResolveService {
     private final PythonTaskRunner python;
     private final ObjectMapper objectMapper;
     private final MangaShelfProperties props;
+    private final S3Client s3;
     private final Semaphore gate = new Semaphore(1, true);
     private final ConcurrentHashMap<String, Cache> cache = new ConcurrentHashMap<>();
 
     public MangaBrowserResolveService(PythonTaskRunner python, ObjectMapper objectMapper,
-                                      MangaShelfProperties props) {
+                                      MangaShelfProperties props, S3Client s3) {
         this.python = python;
         this.objectMapper = objectMapper;
         this.props = props;
+        this.s3 = s3;
     }
 
     public JsonNode resolveChapter(String url, String cookie, String storageState) throws Exception {
         return resolve("chapter", url, cookie, storageState, CHAPTER_TTL_MS);
+    }
+
+    /**
+     * canvas 截图模式（M35）：页图在 <canvas> 上，逐页截图上传对象存储，
+     * 返回站内读取 URL（/captured/...）列表。缓存 30 分钟。
+     */
+    public List<String> resolveChapterCanvas(String url, String cookie, String storageState)
+            throws Exception {
+        String key = "canvas|" + url;
+        Cache hit = cache.get(key);
+        if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
+            JsonNode arr = hit.result().path("urls");
+            List<String> urls = new java.util.ArrayList<>();
+            arr.forEach(u -> urls.add(u.asText()));
+            return urls;
+        }
+        if (!gate.tryAcquire(120, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("漫画解析繁忙，请稍后重试");
+        }
+        try {
+            Path workRoot = Path.of(props.processing().workRoot()).toAbsolutePath()
+                    .resolve("manga-resolve");
+            Path dir = workRoot.resolve(UUID.randomUUID().toString());
+            Files.createDirectories(dir);
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("mode", "chapter-canvas");
+            params.put("url", url);
+            params.put("timeout_seconds", TIMEOUT_SECONDS);
+            if (cookie != null && !cookie.isBlank()) params.put("cookie", cookie);
+            if (storageState != null && !storageState.isBlank()) params.put("storage_state", storageState);
+            TaskSpec spec = new TaskSpec(TaskSpec.SCHEMA_VERSION, UUID.randomUUID(), 0,
+                    "manga.resolve", List.of(), dir.toString(),
+                    new TaskSpec.Limits(0, 0, 0), params);
+            python.run(dir, spec, line -> { });
+            Path resultPath = dir.resolve("result.json");
+            if (!Files.isRegularFile(resultPath)) {
+                throw new IllegalStateException("canvas 解析未产出 result.json");
+            }
+            JsonNode result = objectMapper.readTree(Files.readString(resultPath));
+            if (!"SUCCEEDED".equals(result.path("status").asText())) {
+                throw new IllegalStateException(result.path("message").asText("canvas 解析失败"));
+            }
+            String bucket = props.storage().bucket();
+            String chapterKey = sha256(url).substring(0, 16);
+            List<String> urls = new ArrayList<>();
+            for (JsonNode artifact : result.path("artifacts")) {
+                Path png = dir.resolve(artifact.path("path").asText());
+                byte[] bytes = Files.readAllBytes(png);
+                String objectKey = "captured/" + chapterKey + "/"
+                        + artifact.path("ordinal").asInt() + ".png";
+                s3.putObject(PutObjectRequest.builder()
+                                .bucket(bucket).key(objectKey).contentType("image/png").build(),
+                        RequestBody.fromBytes(bytes));
+                urls.add(objectKey);
+            }
+            // 截图已上传，删除任务目录（不落盘留大文件）
+            deleteQuietly(dir);
+            JsonNode payload = objectMapper.readTree(objectMapper.writeValueAsString(
+                    java.util.Map.of("urls", urls)));
+            cache.put(key, new Cache(payload, System.currentTimeMillis() + 30 * 60 * 1000L));
+            return urls;
+        } finally {
+            gate.release();
+        }
     }
 
     public JsonNode resolveDetail(String url, String cookie, String storageState) throws Exception {

@@ -109,6 +109,29 @@ def _extract_list(page: Any, plan: dict[str, Any]) -> list[dict[str, str]]:
     return [v for v in merged.values() if v.get("title")]
 
 
+
+def _goto_with_retry(page: Any, url: str, timeout_seconds: int = 30) -> None:
+    """Chromium 偶发 SSL_BAD_RECORD_MAC（网络/代理干扰），重试 3 次。"""
+    last = None
+    for attempt in range(5):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_seconds * 1000)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            text = str(exc)
+            retryable = ("ERR_SSL_BAD_RECORD_MAC_ALERT" in text
+                         or "ERR_CONNECTION" in text
+                         or "ERR_TIMED_OUT" in text
+                         or "NS_ERROR" in text)
+            if attempt < 4 and retryable:
+                page.wait_for_timeout(1200)
+                continue
+            raise
+    if last:
+        raise last
+
+
 def _eval(page: Any, js: str, arg: Any = None, retries: int = 2) -> Any:
     """页面 evaluate 包装：站点可能在数据出现后再跳转，遇到上下文销毁时重试。"""
     for attempt in range(retries + 1):
@@ -248,8 +271,7 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
             if cookie:
                 context.add_cookies(_parse_cookies(cookie))
             page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded",
-                      timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+            _goto_with_retry(page, url, DEFAULT_TIMEOUT_SECONDS)
             # 站点可能有 302 跳转（包子 → twmanga 等），等新文档 load 完再取数
             try:
                 page.wait_for_load_state("load", timeout=8000)

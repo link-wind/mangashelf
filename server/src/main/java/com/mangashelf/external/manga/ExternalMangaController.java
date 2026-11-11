@@ -2,6 +2,7 @@ package com.mangashelf.external.manga;
 
 import com.mangashelf.config.ApiException;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.AuthUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,13 +27,16 @@ import java.util.UUID;
 public class ExternalMangaController {
 
     private final MangaDexClient client;
+    private final software.amazon.awssdk.services.s3.S3Client s3Client;
 
     /** 上游限流保护：MangaDex 约 5 req/s，这里限制并发并在 429 时退避重试。 */
     private static final java.util.concurrent.Semaphore GATE =
             new java.util.concurrent.Semaphore(3, true);
 
-    public ExternalMangaController(MangaDexClient client) {
+    public ExternalMangaController(MangaDexClient client,
+                                   software.amazon.awssdk.services.s3.S3Client s3Client) {
         this.client = client;
+        this.s3Client = s3Client;
     }
 
     @GetMapping("/search")
@@ -85,6 +89,28 @@ public class ExternalMangaController {
             out.add(base + "/" + kind + "/" + hash + "/" + f);
         }
         return out;
+    }
+
+    /** canvas 截图读取（M35）：/captured/{objectKey}，仅对象存储内已上传截图。 */
+    @org.springframework.web.bind.annotation.GetMapping("/captured/{path:.+}")
+    public org.springframework.http.ResponseEntity<byte[]> captured(
+            @AuthUser CurrentUser user,
+            @org.springframework.web.bind.annotation.PathVariable String path) throws Exception {
+        if (!path.matches("[a-f0-9]{16}/\\d+\\.png")) {
+            return org.springframework.http.ResponseEntity.badRequest().build();
+        }
+        String bucket = "mangashelf";
+        var get = software.amazon.awssdk.services.s3.model.GetObjectRequest.builder()
+                .bucket(bucket).key("captured/" + path).build();
+        try {
+            var obj = s3Client.getObject(get);
+            return org.springframework.http.ResponseEntity.ok()
+                    .header("Content-Type", "image/png")
+                    .header("Cache-Control", "public, max-age=604800")
+                    .body(org.springframework.util.StreamUtils.copyToByteArray(obj));
+        } catch (software.amazon.awssdk.services.s3.model.NoSuchKeyException e) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
     }
 
     /** 图片代理：仅 MangaDex 图片域名；按 URL 哈希磁盘缓存。 */

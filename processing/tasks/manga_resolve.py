@@ -32,6 +32,29 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
 
+
+def _goto_with_retry(page: Any, url: str, timeout_seconds: int = 30) -> None:
+    """Chromium 偶发 SSL_BAD_RECORD_MAC（网络/代理干扰），重试 5 次。"""
+    last = None
+    for attempt in range(5):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_seconds * 1000)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            text = str(exc)
+            retryable = ("ERR_SSL_BAD_RECORD_MAC_ALERT" in text
+                         or "ERR_CONNECTION" in text
+                         or "ERR_TIMED_OUT" in text
+                         or "NS_ERROR" in text)
+            if attempt < 4 and retryable:
+                page.wait_for_timeout(1200)
+                continue
+            raise
+    if last:
+        raise last
+
+
 def _parse_cookies(cookie: str, host: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for part in (cookie or "").split(";"):
@@ -109,7 +132,7 @@ def _collect_chapters(page: Any) -> list[dict[str, str]]:
 
 
 def _resolve_search(page: Any, url: str) -> dict[str, Any]:
-    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    _goto_with_retry(page, url, DEFAULT_TIMEOUT_SECONDS)
     try:
         page.wait_for_load_state("load", timeout=8000)
     except Exception:
@@ -138,7 +161,7 @@ def _resolve_search(page: Any, url: str) -> dict[str, Any]:
 
 
 def _resolve_detail(page: Any, url: str) -> dict[str, Any]:
-    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    _goto_with_retry(page, url, DEFAULT_TIMEOUT_SECONDS)
     try:
         page.wait_for_load_state("load", timeout=8000)
     except Exception:
@@ -199,7 +222,7 @@ def _collect_pages(page: Any) -> list[str]:
 
 
 def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
-    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    _goto_with_retry(page, url, DEFAULT_TIMEOUT_SECONDS)
     try:
         page.wait_for_load_state("load", timeout=8000)
     except Exception:
@@ -233,15 +256,90 @@ def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
     }
 
 
+def _resolve_chapter_canvas(page: Any, url: str, run_dir: Any) -> dict[str, Any]:
+    """哔哩漫画式 canvas 阅读器：页图渲染在 <canvas>，翻页逐屏截图（M35）。
+
+    - 等 canvas 出现并完成 WASM 解密渲染（实测 2~20s）；
+    - 对每个 canvas 元素截图（PNG，450×700 实测可读）；
+    - 键盘 ArrowRight 翻页，采集至达到页数提示或连续无变化；
+    - 输出 artifacts=[{path, ordinal}]，由 Java 上传对象存储。
+    """
+    import hashlib
+    _goto_with_retry(page, url, DEFAULT_TIMEOUT_SECONDS)
+    canvas_count = 0
+    for _ in range(15):
+        page.wait_for_timeout(2000)
+        canvas_count = page.locator("canvas").count()
+        if canvas_count > 0:
+            break
+    if canvas_count == 0:
+        body = page.inner_text("body")
+        return {"status": "FAILED", "error_code": "NO_CANVAS",
+                "message": f"阅读页未渲染 canvas（可能需登录/付费）：{body[:60]}"}
+
+    total_hint = 0
+    try:
+        m = re.search(r"(\d+)\s*P", page.inner_text("body"))
+        if m:
+            total_hint = int(m.group(1))
+    except Exception:
+        pass
+
+    artifacts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    # 连续多轮无新图才算翻完（翻页后 canvas 可能短暂显示加载中）
+    stale_rounds = 0
+    stale_limit = 6
+    for step in range(max(total_hint * 3, 120)):
+        canvases = page.locator("canvas").element_handles()
+        new_in_round = 0
+        for c in canvases:
+            try:
+                data = c.screenshot(timeout=8000)
+            except Exception:
+                continue
+            digest = hashlib.md5(data).hexdigest()
+            if digest in seen:
+                continue
+            seen.add(digest)
+            # 过滤页尾/空白 canvas（字节数过小）
+            if len(data) < 10000:
+                continue
+            path = run_dir / f"canvas-{len(artifacts):04d}.png"
+            path.write_bytes(data)
+            artifacts.append({"path": path.name, "ordinal": len(artifacts) + 1})
+            new_in_round += 1
+        if total_hint and len(artifacts) >= total_hint:
+            break
+        if new_in_round == 0:
+            stale_rounds += 1
+            if stale_rounds >= stale_limit:
+                break
+        else:
+            stale_rounds = 0
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(2500)
+
+    if not artifacts:
+        return {"status": "FAILED", "error_code": "NO_SHOTS",
+                "message": "canvas 截图未采集到页图"}
+    return {"status": "SUCCEEDED", "page_count": len(artifacts), "artifacts": artifacts}
+
+
 def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> dict[str, Any]:
     params = spec.get("params") or {}
     mode = str(params.get("mode") or "").strip()
     url = str(params.get("url") or "").strip()
     cookie = str(params.get("cookie") or "").strip()
     storage_state = str(params.get("storage_state") or "").strip() or None
-    if mode not in ("detail", "chapter", "search"):
+    if mode not in ("detail", "chapter", "search", "chapter-canvas"):
         return {"status": "FAILED", "error_code": "BAD_MODE", "message": f"未知 mode：{mode}"}
-    if not (url.startswith("https://www.mangacopy.com/")
+    if mode == "chapter-canvas":
+        allowed = ("https://manga.bilibili.com/",)
+        if not url.startswith(allowed):
+            return {"status": "FAILED", "error_code": "BAD_URL",
+                    "message": "canvas 模式仅允许哔哩漫画站内 URL"}
+    elif not (url.startswith("https://www.mangacopy.com/")
             or url.startswith("https://www.copy4000.com/")):
         return {"status": "FAILED", "error_code": "BAD_URL", "message": "仅允许 mangacopy.com 站内 URL"}
 
@@ -276,6 +374,8 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 return _resolve_detail(page, url)
             if mode == "search":
                 return _resolve_search(page, url)
+            if mode == "chapter-canvas":
+                return _resolve_chapter_canvas(page, url, run_dir)
             return _resolve_chapter(page, url)
         finally:
             browser.close()
