@@ -46,3 +46,22 @@ TBD - created by archiving change implement-external-manga. Update Purpose after
 
 - **WHEN** 用户在翻页模式横向快速滑动超过阈值
 - **THEN** 触发翻页；RTL 时方向反转
+
+### Requirement: 长条漫自动滚动
+
+阅读器 MUST 按页面图片比例自动识别长条漫，并默认使用滚动模式。
+
+#### Scenario: 长条漫自动切滚动
+
+- **WHEN** 章节前两张图的 高/宽 ≥ 3（竖向长条）
+- **THEN** 阅读器切换为滚动模式并显示「长条漫 · 滚动」提示，即使全局设置为双页
+
+#### Scenario: 普通页漫不受影响
+
+- **WHEN** 页面图片接近常规比例（高/宽 < 3）
+- **THEN** 阅读器保持用户选择的单页/双页模式
+
+#### Scenario: 手动覆盖
+
+- **WHEN** 用户在长条漫章节里手动选择双页
+- **THEN** 本次章节按手动选择渲染
