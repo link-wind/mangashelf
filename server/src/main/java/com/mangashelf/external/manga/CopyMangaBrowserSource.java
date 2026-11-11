@@ -68,7 +68,7 @@ public class CopyMangaBrowserSource implements MangaSource {
 
     @Override
     public Set<Capability> capabilities() {
-        return EnumSet.of(Capability.RANK, Capability.DETAIL, Capability.READ);
+        return EnumSet.of(Capability.RANK, Capability.SEARCH, Capability.DETAIL, Capability.READ);
     }
 
     @Override
@@ -161,6 +161,27 @@ public class CopyMangaBrowserSource implements MangaSource {
     /** 封面缩略图后缀 .328x422.jpg → 原图（672px）。 */
     private static String hdCover(String url) {
         return url == null ? "" : url.replaceFirst("\\.\\d+x\\d+\\.jpg$", "");
+    }
+
+    // ── SEARCH（网页版搜索，Playwright）──
+
+    @Override
+    public List<SearchItem> search(String query, String lang, int limit) throws Exception {
+        if (query == null || query.isBlank()) return List.of();
+        String url = WEB + "/search?q=" + java.net.URLEncoder.encode(query,
+                java.nio.charset.StandardCharsets.UTF_8);
+        JsonNode result = browser.resolveSearch(url, cookie, storageState);
+        List<SearchItem> out = new ArrayList<>();
+        for (JsonNode item : result.path("results")) {
+            if (out.size() >= limit) break;
+            String id = item.path("id").asText("");
+            String title = item.path("title").asText("");
+            if (id.isBlank() || title.isBlank()) continue;
+            String cover = item.path("cover").asText("");
+            out.add(new SearchItem("copymanga", id, title, "",
+                    cover.isBlank() ? null : hdCover(cover), null));
+        }
+        return out;
     }
 
     // ── DETAIL / READ（Playwright）──

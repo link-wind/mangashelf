@@ -32,6 +32,7 @@ public class MangaBrowserResolveService {
     private static final Logger log = LoggerFactory.getLogger(MangaBrowserResolveService.class);
     private static final long CHAPTER_TTL_MS = 10 * 60 * 1000L;
     private static final long DETAIL_TTL_MS = 30 * 60 * 1000L;
+    private static final long SEARCH_TTL_MS = 5 * 60 * 1000L;
     private static final int TIMEOUT_SECONDS = 45;
 
     private record Cache(JsonNode result, long expiresAt) {}
@@ -55,6 +56,10 @@ public class MangaBrowserResolveService {
 
     public JsonNode resolveDetail(String url, String cookie, String storageState) throws Exception {
         return resolve("detail", url, cookie, storageState, DETAIL_TTL_MS);
+    }
+
+    public JsonNode resolveSearch(String url, String cookie, String storageState) throws Exception {
+        return resolve("search", url, cookie, storageState, SEARCH_TTL_MS);
     }
 
     private JsonNode resolve(String mode, String url, String cookie, String storageState,

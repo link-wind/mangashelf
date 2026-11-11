@@ -108,6 +108,31 @@ def _collect_chapters(page: Any) -> list[dict[str, str]]:
     return list(seen.values())
 
 
+def _resolve_search(page: Any, url: str) -> dict[str, Any]:
+    page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+    page.wait_for_timeout(3000)
+    links = page.eval_on_selector_all(
+        "a[href*='/comic/']",
+        "els => els.filter(e => !(e.getAttribute('href') || '').includes('/chapter/'))"
+        ".map(e => ({ href: e.getAttribute('href') || '', "
+        "text: (e.innerText || '').trim(), "
+        "img: (e.querySelector('img') || {}).src || '' }))",
+    )
+    merged: dict[str, dict[str, str]] = {}
+    for link in links:
+        match = re.search(r"^/comic/([a-zA-Z0-9_-]+)/?$", link["href"])
+        if not match:
+            continue
+        path_word = match.group(1)
+        entry = merged.setdefault(path_word, {"id": path_word, "title": "", "cover": ""})
+        if link["text"]:
+            entry["title"] = link["text"]
+        if link["img"]:
+            entry["cover"] = link["img"]
+    results = [e for e in merged.values() if e["title"]]
+    return {"status": "SUCCEEDED", "results": results}
+
+
 def _resolve_detail(page: Any, url: str) -> dict[str, Any]:
     page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
     page.wait_for_timeout(2500)
@@ -196,7 +221,7 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
     url = str(params.get("url") or "").strip()
     cookie = str(params.get("cookie") or "").strip()
     storage_state = str(params.get("storage_state") or "").strip() or None
-    if mode not in ("detail", "chapter"):
+    if mode not in ("detail", "chapter", "search"):
         return {"status": "FAILED", "error_code": "BAD_MODE", "message": f"未知 mode：{mode}"}
     if not url.startswith("https://www.copy4000.com/"):
         return {"status": "FAILED", "error_code": "BAD_URL", "message": "仅允许 copy4000.com 站内 URL"}
@@ -228,6 +253,8 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
             progress("manga", f"打开 {url}")
             if mode == "detail":
                 return _resolve_detail(page, url)
+            if mode == "search":
+                return _resolve_search(page, url)
             return _resolve_chapter(page, url)
         finally:
             browser.close()

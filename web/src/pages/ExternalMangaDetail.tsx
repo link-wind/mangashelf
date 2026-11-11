@@ -13,6 +13,8 @@ interface ExtChapter {
 }
 interface Detail { manga: ExtManga; chapters: ExtChapter[] }
 interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number }
+interface SourceInfo { id: string; name: string; language: string; capabilities: string[]; note: string }
+interface SwitchItem { source: string; id: string; title: string; altTitle: string; coverUrl: string | null }
 
 const LANGS = [
   { key: 'zh', label: '中文' },
@@ -67,6 +69,13 @@ export default function ExternalMangaDetail() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [resume, setResume] = useState<{ chapterId: string; page: number } | null>(null)
+  // 数据源切换（M31）：在其它中文源按标题搜索同作
+  const [switchSources, setSwitchSources] = useState<SourceInfo[]>([])
+  const [switchTarget, setSwitchTarget] = useState('')
+  const [switchItems, setSwitchItems] = useState<SwitchItem[]>([])
+  const [switchLoading, setSwitchLoading] = useState(false)
+  const [switchError, setSwitchError] = useState('')
+  const [sourceNames, setSourceNames] = useState<Record<string, string>>({})
 
   const load = useCallback(async (language: string) => {
     if (!mangaId) return
@@ -85,6 +94,36 @@ export default function ExternalMangaDetail() {
   }, [mangaId, source])
 
   useEffect(() => { void load(lang) }, [lang, load])
+
+  useEffect(() => {
+    void api.get<SourceInfo[]>('/api/v1/manga-sources')
+      .then(list => {
+        const names: Record<string, string> = {}
+        list.forEach(s => { names[s.id] = s.name })
+        setSourceNames(names)
+        setSwitchSources(list.filter(s => s.language === 'zh'
+          && s.capabilities.includes('SEARCH') && s.id !== source))
+      })
+      .catch(() => { /* 源列表不可用不影响详情 */ })
+  }, [source])
+
+  async function findIn(target: SourceInfo) {
+    if (!detail) return
+    setSwitchTarget(target.id)
+    setSwitchItems([])
+    setSwitchError('')
+    setSwitchLoading(true)
+    try {
+      const rows = await api.get<SwitchItem[]>(
+        `/api/v1/manga-sources/${target.id}/search?q=${encodeURIComponent(detail.manga.title)}&limit=8`)
+      setSwitchItems(rows)
+      if (rows.length === 0) setSwitchError(`未在${target.name}找到同作`)
+    } catch (e) {
+      setSwitchError(e instanceof Error ? e.message : '搜索失败')
+    } finally {
+      setSwitchLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!mangaId) return
@@ -124,7 +163,7 @@ export default function ExternalMangaDetail() {
             {manga.year && <span className="chip">{manga.year}</span>}
             {manga.status && <span className="chip">{manga.status}</span>}
             {(manga.tags ?? []).slice(0, 4).map(t => <span key={t} className="chip ghost">{t}</span>)}
-            <span className="chip ghost">{source === 'mangadex' ? 'MangaDex' : '腾讯动漫'}</span>
+            <span className="chip ghost">{sourceNames[source] ?? (source === 'mangadex' ? 'MangaDex' : source)}</span>
           </div>
           <p className={'manga-desc' + (expanded ? ' expanded' : '')}>{manga.description || '（暂无简介）'}</p>
           {manga.description && manga.description.length > 120 && (
@@ -142,6 +181,38 @@ export default function ExternalMangaDetail() {
               : <span className="muted">暂无可读章节</span>}
             <Link className="btn ghost pill" to="/manga-ext">返回搜索</Link>
           </div>
+
+          {switchSources.length > 0 && (
+            <div className="manga-switch">
+              <span className="muted">切换数据源：</span>
+              {switchSources.map(s => (
+                <button key={s.id} className="mini ghost" disabled={switchLoading}
+                        onClick={() => void findIn(s)}>{s.name}</button>
+              ))}
+              {switchLoading && <span className="muted" style={{ fontSize: 12 }}>搜索中…</span>}
+            </div>
+          )}
+          {(switchItems.length > 0 || switchError) && (
+            <div className="switch-panel">
+              <div className="switch-panel-head">
+                {switchError || `在${sourceNames[switchTarget] ?? switchTarget}找到 ${switchItems.length} 个结果`}
+              </div>
+              {switchItems.length > 0 && (
+                <div className="switch-list">
+                  {switchItems.map(r => (
+                    <button key={r.source + r.id} className="switch-item"
+                            onClick={() => navigate(`/manga-ext/${r.id}?source=${r.source}` +
+                              `&title=${encodeURIComponent(r.title)}`)}>
+                      {r.coverUrl
+                        ? <img src={proxyImage(r.coverUrl)} alt="" loading="lazy" decoding="async" />
+                        : <span className="switch-cover-fallback">{(r.title || '?').slice(0, 1)}</span>}
+                      <span className="switch-item-title clamp">{r.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
