@@ -362,6 +362,8 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 "user_agent": UA,
                 "viewport": {"width": 1280, "height": 1000},
                 "locale": "zh-TW",
+                # Clash 系统代理下的 TUN 干扰直连；走代理反而更稳定（M35 实测）
+                "proxy": {"server": "http://127.0.0.1:7892"},
             }
             if storage_state:
                 context_kwargs["storage_state"] = storage_state
