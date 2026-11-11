@@ -14,6 +14,7 @@ from processing.tasks.chapter_parse import run as chapter_parse
 from processing.tasks.image_derive import run as image_derive
 from processing.tasks.media_verify import run as media_verify
 from processing.tasks.manga_resolve import run as manga_resolve
+from processing.tasks.browser_plan import run as browser_plan
 
 # 固定任务清单；不开放任意脚本执行（DESIGN 12.2）
 TASKS = {
@@ -23,6 +24,7 @@ TASKS = {
     "chapter.ocr": chapter_ocr,
     "external.resolve": external_resolve,
     "manga.resolve": manga_resolve,
+    "manga.plan": browser_plan,
 }
 
 SCHEMA_VERSION = 1

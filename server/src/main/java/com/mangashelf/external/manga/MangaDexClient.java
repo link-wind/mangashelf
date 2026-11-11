@@ -146,7 +146,9 @@ public class MangaDexClient {
                     || host.equals("mangadex.network")
                     || host.endsWith(".hdslb.com")
                     || host.equals("manhua.acimg.cn")
-                    || host.endsWith(".mangafunb.fun");
+                    || host.endsWith(".mangafunb.fun")
+                    || host.endsWith(".bzcdn.net")
+                    || host.equals("static-tw.baozimh.com");
         } catch (Exception e) {
             return false;
         }

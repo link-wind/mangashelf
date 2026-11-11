@@ -35,7 +35,7 @@ public class MangaSourceRegistry implements ApplicationListener<ApplicationReady
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
         try {
-            for (RuleMangaSource s : loader.load()) {
+            for (MangaSource s : loader.load()) {
                 // 代码源优先：规则行不能覆盖同名代码源（如拷贝漫画浏览器源）
                 if (sources.putIfAbsent(s.id(), s) != null) {
                     log.warn("规则源 {} 与代码源重名，已忽略规则行", s.id());
@@ -47,7 +47,7 @@ public class MangaSourceRegistry implements ApplicationListener<ApplicationReady
             Thread retry = new Thread(() -> {
                 try {
                     Thread.sleep(10_000);
-                    for (RuleMangaSource s : loader.load()) {
+                    for (MangaSource s : loader.load()) {
                         if (sources.putIfAbsent(s.id(), s) != null) {
                             log.warn("规则源 {} 与代码源重名，已忽略规则行", s.id());
                         }

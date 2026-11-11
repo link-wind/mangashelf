@@ -2,6 +2,7 @@ package com.mangashelf.external.manga;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -16,26 +17,39 @@ public class MangaRuleSourceLoader {
 
     private final MangaSourceRuleRepository repository;
     private final MangaRuleEngine engine;
+    private final MangaBrowserResolveService browser;
     private final ObjectMapper objectMapper;
+    private final String cookie;
+    private final String storageState;
 
     public MangaRuleSourceLoader(MangaSourceRuleRepository repository, MangaRuleEngine engine,
-                                 ObjectMapper objectMapper) {
+                                 MangaBrowserResolveService browser, ObjectMapper objectMapper,
+                                 @Value("${mangashelf.browser.cookie:}") String cookie,
+                                 @Value("${mangashelf.browser.storage-state:}") String storageState) {
         this.repository = repository;
         this.engine = engine;
+        this.browser = browser;
         this.objectMapper = objectMapper;
+        this.cookie = cookie == null ? "" : cookie.trim();
+        this.storageState = storageState == null ? "" : storageState.trim();
     }
 
-    public List<RuleMangaSource> load() {
-        List<RuleMangaSource> out = new ArrayList<>();
+    public List<MangaSource> load() {
+        List<MangaSource> out = new ArrayList<>();
         for (MangaSourceRuleRepository.RuleRow row : repository.findEnabled()) {
             try {
-                out.add(new RuleMangaSource(row.id(), row.name(), row.note(), row.rules(),
-                        engine, objectMapper));
+                if (row.rules().contains("\"browserPlan\"")) {
+                    out.add(new BrowserPlanMangaSource(row.id(), row.name(), row.note(), row.rules(),
+                            browser, objectMapper, cookie, storageState));
+                } else {
+                    out.add(new RuleMangaSource(row.id(), row.name(), row.note(), row.rules(),
+                            engine, objectMapper));
+                }
             } catch (Exception e) {
                 log.error("规则源 {} 加载失败：{}", row.id(), e.getMessage());
             }
         }
-        log.info("规则漫画源已加载：{}", out.stream().map(RuleMangaSource::id).toList());
+        log.info("规则漫画源已加载：{}", out.stream().map(MangaSource::id).toList());
         return out;
     }
 }
