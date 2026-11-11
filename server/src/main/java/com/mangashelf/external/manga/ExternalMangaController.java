@@ -92,16 +92,17 @@ public class ExternalMangaController {
     }
 
     /** canvas 截图读取（M35）：/captured/{objectKey}，仅对象存储内已上传截图。 */
-    @org.springframework.web.bind.annotation.GetMapping("/captured/{path:.+}")
+    @org.springframework.web.bind.annotation.GetMapping("/captured/{hash}/{ordinal}.png")
     public org.springframework.http.ResponseEntity<byte[]> captured(
             @AuthUser CurrentUser user,
-            @org.springframework.web.bind.annotation.PathVariable String path) throws Exception {
-        if (!path.matches("[a-f0-9]{16}/\\d+\\.png")) {
+            @org.springframework.web.bind.annotation.PathVariable String hash,
+            @org.springframework.web.bind.annotation.PathVariable int ordinal) throws Exception {
+        if (!hash.matches("[a-f0-9]{16}")) {
             return org.springframework.http.ResponseEntity.badRequest().build();
         }
-        String bucket = "mangashelf";
+        String key = "captured/" + hash + "/" + ordinal + ".png";
         var get = software.amazon.awssdk.services.s3.model.GetObjectRequest.builder()
-                .bucket(bucket).key("captured/" + path).build();
+                .bucket("mangashelf").key(key).build();
         try {
             var obj = s3Client.getObject(get);
             return org.springframework.http.ResponseEntity.ok()
