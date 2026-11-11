@@ -109,6 +109,9 @@ export default function ExternalMangaReader() {
   const [page, setPage] = useState(1)
   const [resumeSpread, setResumeSpread] = useState<number | null>(null)
   const [resolving, setResolving] = useState(false)
+  // 长条漫检测（M30）：首图高/宽 ≥3 视为竖向长条，强制滚动模式；用户手动切换可覆盖
+  const [longStrip, setLongStrip] = useState(false)
+  const [manualMode, setManualMode] = useState<PageMode | null>(null)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const gestureRef = useRef<{ x: number; y: number; t: number } | null>(null)
@@ -125,6 +128,9 @@ export default function ExternalMangaReader() {
       return next
     })
   }
+
+  // 长条漫 → 滚动模式；手动选择优先
+  const effectiveMode: PageMode = manualMode ?? (longStrip ? 'single' : settings.pageMode)
 
   // 沉浸模式：隐藏站点导航与页脚
   useEffect(() => {
@@ -146,6 +152,24 @@ export default function ExternalMangaReader() {
       }
     })()
   }, [chapterId, source])
+
+  // 长条漫探测：预加载前 2 张图，比例 ≥3 判定（长条漫通常 1:4 以上）
+  useEffect(() => {
+    setManualMode(null)
+    setLongStrip(false)
+    if (!data || data.pages.length === 0) return
+    let cancelled = false
+    const probes = data.pages.slice(0, 2).map(url => new Promise<number>(resolve => {
+      const img = new Image()
+      img.onload = () => resolve(img.naturalHeight / Math.max(1, img.naturalWidth))
+      img.onerror = () => resolve(0)
+      img.src = url
+    }))
+    void Promise.all(probes).then(ratios => {
+      if (!cancelled) setLongStrip(ratios.some(r => r >= 3))
+    })
+    return () => { cancelled = true }
+  }, [data])
 
   useEffect(() => {
     if (!mangaId) return
@@ -213,7 +237,7 @@ export default function ExternalMangaReader() {
 
   // 滚动模式：窗口滚动换算页码 + 节流上报
   useEffect(() => {
-    if (!data || settings.pageMode !== 'single') return
+    if (!data || effectiveMode !== 'single') return
     const onScroll = () => {
       const stage = stageRef.current
       if (!stage) return
@@ -238,7 +262,7 @@ export default function ExternalMangaReader() {
       window.removeEventListener('scroll', onScroll)
       saveProgress(pageRef.current, stageRef.current?.querySelectorAll('img').length ?? 0)
     }
-  }, [data, settings.pageMode, chapterId, saveProgress])
+  }, [data, effectiveMode, chapterId, saveProgress])
 
   // 续读位置（双页模式换算到所在 spread）
   useEffect(() => {
@@ -253,14 +277,14 @@ export default function ExternalMangaReader() {
           p = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '1')
         }
         setPage(Math.max(1, p))
-        if (settings.pageMode !== 'single') {
-          const base = settings.pageMode === 'double-cover' ? 1 : 0
+        if (effectiveMode !== 'single') {
+          const base = effectiveMode === 'double-cover' ? 1 : 0
           setSpread(Math.floor((Math.max(1, p) - 1 - base) / 2))
         }
       })
       .catch(() => { /* 无进度不影响阅读 */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mangaId, chapterId, data, settings.pageMode])
+  }, [mangaId, chapterId, data, effectiveMode])
 
   // Esc 逐层退出：设置 → 浮层 → 返回章节列表；F 全屏
   useEffect(() => {
@@ -284,7 +308,7 @@ export default function ExternalMangaReader() {
   const list = data ? (settings.hd ? data.pages : (data.dataSaver.length ? data.dataSaver : data.pages)) : []
   const total = list.length
 
-  const spreads = buildSpreads(total, settings.pageMode)
+  const spreads = buildSpreads(total, effectiveMode)
   const spreadCount = spreads.length
   const effSpread = Math.min(spread, Math.max(0, spreadCount - 1))
   const spreadPages = spreads[effSpread] ?? []
@@ -294,7 +318,7 @@ export default function ExternalMangaReader() {
   // 双页模式进度上报：spread 变化换算页码（单页模式由滚动处理器负责）
   const pagedMountedRef = useRef(false)
   useEffect(() => {
-    if (!data || settings.pageMode === 'single' || !chapterId) return
+    if (!data || effectiveMode === 'single' || !chapterId) return
     if (!pagedMountedRef.current) { pagedMountedRef.current = true; return }
     const first = (spreads[effSpread] ?? [0])[0] + 1
     if (Date.now() - lastSaveRef.current >= 3000) {
@@ -302,10 +326,10 @@ export default function ExternalMangaReader() {
       saveProgress(first, total)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effSpread, data, settings.pageMode, chapterId, saveProgress])
+  }, [effSpread, data, effectiveMode, chapterId, saveProgress])
 
   function flip(delta: number) {
-    if (settings.pageMode === 'single') {
+    if (effectiveMode === 'single') {
       setPage(p => Math.max(1, Math.min(total, p + delta)))
     } else {
       setSpread(s => Math.max(0, Math.min(spreadCount - 1, s + delta)))
@@ -375,7 +399,7 @@ export default function ExternalMangaReader() {
     )
   }
 
-  const singleMode = settings.pageMode === 'single'
+  const singleMode = effectiveMode === 'single'
   const displayList = singleMode
     ? [Math.max(0, Math.min(total - 1, page - 1))]
     : displayPages
@@ -390,6 +414,7 @@ export default function ExternalMangaReader() {
           <span className="rf-chapter">
             {chapter ? `第 ${chapter.chapter || '?'} 话` : ''} {chapter?.title ?? ''}
           </span>
+          {longStrip && <span className="rf-strip-hint">长条漫 · 滚动</span>}
         </div>
         <button className="rf-icon" aria-label="设置"
                 onClick={e => { e.stopPropagation(); setSettingsOpen(v => !v); pokeUi() }}>⚙</button>
@@ -428,12 +453,12 @@ export default function ExternalMangaReader() {
           <div className="rf-sheet-row">
             <span>页模式</span>
             <div className="row-inline">
-              <button className={settings.pageMode === 'single' ? 'mini' : 'mini ghost'}
-                      onClick={() => patchSettings({ pageMode: 'single' })}>单页</button>
-              <button className={settings.pageMode === 'double' ? 'mini' : 'mini ghost'}
-                      onClick={() => { patchSettings({ pageMode: 'double' }); setSpread(0) }}>双页</button>
-              <button className={settings.pageMode === 'double-cover' ? 'mini' : 'mini ghost'}
-                      onClick={() => { patchSettings({ pageMode: 'double-cover' }); setSpread(0) }}>首页单排</button>
+              <button className={effectiveMode === 'single' ? 'mini' : 'mini ghost'}
+                      onClick={() => { setManualMode('single'); patchSettings({ pageMode: 'single' }) }}>单页</button>
+              <button className={effectiveMode === 'double' ? 'mini' : 'mini ghost'}
+                      onClick={() => { setManualMode('double'); patchSettings({ pageMode: 'double' }); setSpread(0) }}>双页</button>
+              <button className={effectiveMode === 'double-cover' ? 'mini' : 'mini ghost'}
+                      onClick={() => { setManualMode('double-cover'); patchSettings({ pageMode: 'double-cover' }); setSpread(0) }}>首页单排</button>
             </div>
           </div>
           <div className="rf-sheet-row">

@@ -869,3 +869,10 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
   padding: 1px 6px; border-radius: 4px;
   background: var(--accent); color: #fff; font-size: 10px; font-weight: 600;
 }
+
+/* ── 长条漫提示（M30）：自动切滚动模式 ── */
+.rf-strip-hint {
+  margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; white-space: nowrap;
+  background: rgba(0, 174, 236, .14); color: var(--accent);
+}
