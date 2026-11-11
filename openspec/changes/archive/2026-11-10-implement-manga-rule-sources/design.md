@@ -93,6 +93,15 @@ CREATE TABLE manga_source_rules (
 
 ## 决策记录
 
+- 2026-11-10（M28）：接入拷贝漫画（V17，RANK-only）。从官方 APK 3.1.0 的
+  Flutter AOT 快照（libapp.so）提取当前主力 API 域名 api.copy202602.com 与
+  完整 /api/v3/ 路径清单；210 封禁跟 IP 走不跟域名走，详情/搜索暂不可用，
+  ranks/update/newest/recs 匿名可用。新增规则级 bootstrapVersion（版本自举：
+  GET appVersion/last 换最新版本号注入 version/appVersion 头，缓存 1h）；
+  无 detail/pages 节的源条目自动转站外（externalUrl + readable=false）。
+  聚合验证：综合榜来源 bilibili+copymanga+tencent 三源。
+  上游 ranks 延迟抖动大（1~12s、偶发 503），discovery 单源超时 15→20s。
+
 - 2026-11-10：按用户反馈改为规则驱动架构；TencentComicsSource 一次性实现废弃，
   解码逻辑保留为 `tencent-plain` 钩子；拷贝漫画探明形态、暂缓接入。
 - 2026-11-09：腾讯动漫选定首个全能力中文规则源；榜单不做跨源桥接（自身可读）。
