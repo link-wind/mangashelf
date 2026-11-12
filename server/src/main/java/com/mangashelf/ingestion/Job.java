@@ -35,7 +35,6 @@ public record Job(
         Instant updatedAt) {
 
     public static final String KIND_VERIFY = "content.verify";
-    public static final String KIND_PROCESS = "content.process";
     public static final String KIND_CHAPTER_PARSE = "chapter.parse";
     public static final String KIND_ANIMATION_VERIFY = "animation.verify";
     public static final String KIND_INDEX_BUILD = "index.build";
