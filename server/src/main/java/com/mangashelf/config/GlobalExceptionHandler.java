@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +37,13 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.badRequest()
                 .body(new ApiError("INVALID_ARGUMENT", "请求参数不合法。", currentRequestId(), details));
+    }
+
+    /** 未匹配路由（含已退役端点）返回 404，不落入通用 500。 */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException e) {
+        return ResponseEntity.status(404)
+                .body(new ApiError("NOT_FOUND", "请求的资源不存在。", currentRequestId(), Map.of()));
     }
 
     @ExceptionHandler(Exception.class)

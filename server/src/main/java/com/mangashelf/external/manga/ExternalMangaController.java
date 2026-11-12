@@ -13,14 +13,12 @@ import org.springframework.web.bind.annotation.RestController;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
- * 外部漫画（M16，MangaDex）：搜索 / 详情 / 章节页图 / 图片代理。
- * 页图默认返回 CDN 绝对地址由浏览器直连；图片代理带域名白名单与磁盘缓存，
- * 供 CDN 不可达时回退。
+ * 外部漫画（M16，MangaDex）：图片代理与历史截图链接 410。
+ * 搜索/详情/章节页图已统一到 /api/v1/manga-sources/mangadex（retire-legacy-implementations）；
+ * 图片代理带域名白名单与磁盘缓存，供 CDN 不可达时回退。
  */
 @RestController
 @RequestMapping("/api/v1/external-manga")
@@ -34,58 +32,6 @@ public class ExternalMangaController {
 
     public ExternalMangaController(MangaDexClient client) {
         this.client = client;
-    }
-
-    @GetMapping("/search")
-    public List<MangaDexClient.Manga> search(@RequestParam(required = false) String q,
-                                             @RequestParam(defaultValue = "zh") String lang,
-                                             @RequestParam(defaultValue = "24") int limit) {
-        try {
-            return client.search(q, "all".equals(lang) ? null : lang, limit);
-        } catch (Exception e) {
-            throw new ApiException(502, "MANGADEX_UNAVAILABLE", "MangaDex 请求失败：" + e.getMessage());
-        }
-    }
-
-    public record Detail(MangaDexClient.Manga manga, List<MangaDexClient.Chapter> chapters) {}
-
-    @GetMapping("/{mangaId}")
-    public Detail detail(@PathVariable String mangaId,
-                         @RequestParam(defaultValue = "zh") String lang) {
-        try {
-            MangaDexClient.Manga m = client.manga(mangaId);
-            List<MangaDexClient.Chapter> chapters =
-                    client.chapters(mangaId, "all".equals(lang) ? null : lang, 500);
-            return new Detail(m, chapters);
-        } catch (Exception e) {
-            throw new ApiException(502, "MANGADEX_UNAVAILABLE", "MangaDex 请求失败：" + e.getMessage());
-        }
-    }
-
-    public record ChapterPageView(String chapterId, String baseUrl, String hash,
-                                  List<String> pages, List<String> dataSaver, boolean external) {}
-
-    @GetMapping("/chapter/{chapterId}/pages")
-    public ChapterPageView pages(@PathVariable String chapterId) {
-        try {
-            MangaDexClient.ChapterPages p = client.pages(chapterId);
-            if (p.hash().isBlank() || p.pages().isEmpty()) {
-                return new ChapterPageView(chapterId, p.baseUrl(), p.hash(), List.of(), List.of(), true);
-            }
-            List<String> data = absolute(p.baseUrl(), "data", p.hash(), p.pages());
-            List<String> saver = absolute(p.baseUrl(), "data-saver", p.hash(), p.dataSaver());
-            return new ChapterPageView(chapterId, p.baseUrl(), p.hash(), data, saver, false);
-        } catch (Exception e) {
-            throw new ApiException(502, "MANGADEX_UNAVAILABLE", "MangaDex 请求失败：" + e.getMessage());
-        }
-    }
-
-    private static List<String> absolute(String base, String kind, String hash, List<String> files) {
-        List<String> out = new ArrayList<>(files.size());
-        for (String f : files) {
-            out.add(base + "/" + kind + "/" + hash + "/" + f);
-        }
-        return out;
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/captured/{hash}/{ordinal}.png")
