@@ -65,11 +65,11 @@ def run_task(spec: dict[str, Any], run_dir: Path, impl: Callable[..., dict[str, 
             "job_id": spec["job_id"],
             "task": spec["task"],
             "attempt": spec["attempt"],
-            "status": "SUCCEEDED",
+            "status": extra.get("status", "SUCCEEDED"),
         }
-        result.update(extra)
+        result.update({key: value for key, value in extra.items() if key != "status"})
         write_result(run_dir, result)
-        return 0
+        return 0 if result["status"] == "SUCCEEDED" else 1
     except Exception as exc:  # noqa: BLE001 —— 统一落盘失败清单供 Java 诊断
         log("task failed: " + "".join(traceback.format_exception(exc)))
         result = {

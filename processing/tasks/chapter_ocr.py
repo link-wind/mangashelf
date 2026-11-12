@@ -9,8 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from rapidocr import RapidOCR
-
 from processing import protocol
 
 _ocr: Any = None
@@ -19,6 +17,8 @@ _ocr: Any = None
 def _get_engine() -> Any:
     global _ocr
     if _ocr is None:
+        from rapidocr import RapidOCR
+
         _ocr = RapidOCR()
     return _ocr
 

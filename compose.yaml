@@ -80,12 +80,23 @@ services:
       MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
       MANGASHELF_RABBITMQ_ADDRESSES: rabbitmq:5672
       MANGASHELF_S3_ENDPOINT: http://storage:9000
+      MANGASHELF_S3_BUCKET: ${S3_BUCKET:-mangashelf}
+      MANGASHELF_BROWSER_PROXY: ${MANGASHELF_BROWSER_PROXY:-}
+      MANGASHELF_COPYMANGA_PROXY: ${MANGASHELF_COPYMANGA_PROXY:-}
+      MANGASHELF_BILIBILI_PROXY: ${MANGASHELF_BILIBILI_PROXY:-}
+      MANGASHELF_BILIBILI_CACHE_ROOT: /opt/data/bilibili-http-cache
+      MANGASHELF_BILIBILI_CACHE_MAX_BYTES: ${MANGASHELF_BILIBILI_CACHE_MAX_BYTES:-536870912}
+      MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS: ${MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS:-1800}
+      MANGASHELF_BILIBILI_INDEX_TTL_SECONDS: ${MANGASHELF_BILIBILI_INDEX_TTL_SECONDS:-600}
+      MANGASHELF_BILIBILI_IMAGE_TTL_SECONDS: ${MANGASHELF_BILIBILI_IMAGE_TTL_SECONDS:-604800}
       MANGASHELF_PLATFORM_ID: ${MANGASHELF_PLATFORM_ID:-mangashelf-instance-local}
+      MANGASHELF_ADMIN_PASSWORD: ${MANGASHELF_ADMIN_PASSWORD:-mangashelf-admin}
       MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
       MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
     volumes:
       # e5 模型只读挂载（133MB，不入镜像；前置：server/models/ 已按 README 下载）
       - ./server/models:/opt/models:ro
+      - bilibili-http-cache:/opt/data/bilibili-http-cache
     depends_on:
       db:
         condition: service_healthy
@@ -107,6 +118,7 @@ services:
       MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
       MANGASHELF_RABBITMQ_ADDRESSES: rabbitmq:5672
       MANGASHELF_S3_ENDPOINT: http://storage:9000
+      MANGASHELF_S3_BUCKET: ${S3_BUCKET:-mangashelf}
       MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
       MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
     volumes:
@@ -132,3 +144,4 @@ volumes:
   rabbitmq-data:
   storage-data:
   worker-jobs:
+  bilibili-http-cache:

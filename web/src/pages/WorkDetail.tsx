@@ -124,7 +124,7 @@ export default function WorkDetail() {
             {work.visibility === 'PUBLIC' ? '公开' : '私人'} · {work.status === 'PUBLISHED' ? '已发布' : work.status === 'WITHDRAWN' ? '已下架' : '草稿'}
           </span>
         </div>
-        {!owner && <button onClick={addToShelf}>加入书架</button>}
+        {!owner && <button onClick={addToShelf}>加入收藏</button>}
         {owner && work.status === 'PUBLISHED' && <button className="ghost" onClick={withdraw}>下架</button>}
       </div>
 

@@ -50,7 +50,7 @@ function Nav() {
         <NavLink to="/manga">漫画</NavLink>
         <NavLink to="/anime">番剧索引</NavLink>
         <NavLink to="/schedule">新番时刻表</NavLink>
-        <NavLink to="/shelf">我的书架</NavLink>
+        <NavLink to="/shelf">我的收藏</NavLink>
         <NavLink to="/history">观看历史</NavLink>
       </nav>
       <form className="nav-search" onSubmit={submit}>
@@ -125,7 +125,7 @@ function Footer() {
         </div>
         <div className="footer-col">
           <h3>我的追番</h3>
-          <NavLink to="/shelf">我的书架</NavLink>
+          <NavLink to="/shelf">我的收藏</NavLink>
           <NavLink to="/history">观看历史</NavLink>
           <NavLink to="/uploads">我的素材</NavLink>
         </div>

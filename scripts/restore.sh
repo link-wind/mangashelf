@@ -3,6 +3,7 @@
 # 用法：restore.sh <backup 目录>
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT="${COMPOSE_PROJECT_NAME:-mangashelf}"
 SRC="${1:?用法：restore.sh <backup 目录>}"
 [ -f "$SRC/db.dump" ] && [ -f "$SRC/storage-data.tar.gz" ] || { echo "备份产物不完整" >&2; exit 1; }
 
@@ -24,9 +25,9 @@ echo "   数据库恢复完成（Flyway 历史随库恢复，应用不再重复�
 
 echo "== 3. 回放对象存储数据卷 =="
 docker compose down storage > /dev/null 2>&1 || true
-docker volume rm mangashelf_storage-data > /dev/null 2>&1 || true
-docker volume create mangashelf_storage-data > /dev/null
-docker run --rm -v mangashelf_storage-data:/data -v "$SRC":/backup:ro alpine \
+docker volume rm "${PROJECT}_storage-data" > /dev/null 2>&1 || true
+docker volume create "${PROJECT}_storage-data" > /dev/null
+docker run --rm -v "${PROJECT}_storage-data:/data" -v "$SRC":/backup:ro alpine \
   sh -c "cd /data && tar xzf /backup/storage-data.tar.gz"
 docker compose up -d storage > /dev/null 2>&1
 sleep 5

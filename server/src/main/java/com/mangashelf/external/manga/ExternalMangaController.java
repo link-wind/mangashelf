@@ -27,16 +27,13 @@ import java.util.UUID;
 public class ExternalMangaController {
 
     private final MangaDexClient client;
-    private final software.amazon.awssdk.services.s3.S3Client s3Client;
 
     /** 上游限流保护：MangaDex 约 5 req/s，这里限制并发并在 429 时退避重试。 */
     private static final java.util.concurrent.Semaphore GATE =
             new java.util.concurrent.Semaphore(3, true);
 
-    public ExternalMangaController(MangaDexClient client,
-                                   software.amazon.awssdk.services.s3.S3Client s3Client) {
+    public ExternalMangaController(MangaDexClient client) {
         this.client = client;
-        this.s3Client = s3Client;
     }
 
     @GetMapping("/search")
@@ -91,27 +88,12 @@ public class ExternalMangaController {
         return out;
     }
 
-    /** canvas 截图读取（M35）：/captured/{objectKey}，仅对象存储内已上传截图。 */
     @org.springframework.web.bind.annotation.GetMapping("/captured/{hash}/{ordinal}.png")
     public org.springframework.http.ResponseEntity<byte[]> captured(
             @AuthUser CurrentUser user,
             @org.springframework.web.bind.annotation.PathVariable String hash,
             @org.springframework.web.bind.annotation.PathVariable int ordinal) throws Exception {
-        if (!hash.matches("[a-f0-9]{16}")) {
-            return org.springframework.http.ResponseEntity.badRequest().build();
-        }
-        String key = "captured/" + hash + "/" + ordinal + ".png";
-        var get = software.amazon.awssdk.services.s3.model.GetObjectRequest.builder()
-                .bucket("mangashelf").key(key).build();
-        try {
-            var obj = s3Client.getObject(get);
-            return org.springframework.http.ResponseEntity.ok()
-                    .header("Content-Type", "image/png")
-                    .header("Cache-Control", "public, max-age=604800")
-                    .body(org.springframework.util.StreamUtils.copyToByteArray(obj));
-        } catch (software.amazon.awssdk.services.s3.model.NoSuchKeyException e) {
-            return org.springframework.http.ResponseEntity.notFound().build();
-        }
+        throw new ApiException(410, "CAPTURE_REPLACED", "截图阅读已替换，请重新打开章节");
     }
 
     /** 图片代理：仅 MangaDex 图片域名；按 URL 哈希磁盘缓存。 */

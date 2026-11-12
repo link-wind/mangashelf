@@ -42,7 +42,13 @@ public interface MangaSource {
     record Detail(SearchItem item, String description, String status, String year,
                   List<String> tags, List<ChapterItem> chapters) {}
 
-    record Pages(List<String> pages, List<String> dataSaver, boolean external) {}
+    record PageSize(int width, int height) {}
+
+    record Pages(List<String> pages, List<String> dataSaver, boolean external, List<PageSize> dimensions) {
+        public Pages(List<String> pages, List<String> dataSaver, boolean external) {
+            this(pages, dataSaver, external, List.of());
+        }
+    }
 
     /** 首页发现流分区（M24）：编辑推荐/男生榜/女生榜/畅销榜等。 */
     record Section(String id, String name, List<RankItem> items) {}

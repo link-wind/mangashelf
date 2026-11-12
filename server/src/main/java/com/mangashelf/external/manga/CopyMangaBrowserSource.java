@@ -1,5 +1,6 @@
 package com.mangashelf.external.manga;
 
+import com.mangashelf.config.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -16,13 +17,13 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 拷贝漫画浏览器源（M29）：RANK 走公开 API（api.copy202602.com，版本自举头），
- * DETAIL/READ 走 Playwright 打开网页版（章节图由 JS 解密，需登录 Cookie）。
+ * 拷贝漫画：榜单、详情目录与公开章节图片走 HTTP API，搜索走浏览器；
+ * 只有明确要求登录且已配置登录态时，章节图片才回退浏览器。
  */
 @Component
 public class CopyMangaBrowserSource implements MangaSource {
 
-    private static final String WEB = "https://www.mangacopy.com";
+    private static final String WEB = "https://www.copy4000.com";
     private static final String API = "https://api.copy202602.com/api/v3";
     private static final String UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -31,6 +32,8 @@ public class CopyMangaBrowserSource implements MangaSource {
     private static final long RANK_TTL_MS = 10 * 60 * 1000L;
 
     private final MangaBrowserResolveService browser;
+    private final CopyMangaHttpDetailService httpDetail;
+    private final CopyMangaHttpReaderService httpReader;
     private final ObjectMapper objectMapper;
     private final String cookie;
     private final String storageState;
@@ -42,10 +45,13 @@ public class CopyMangaBrowserSource implements MangaSource {
     private volatile List<RankItem> rankCache;
     private volatile long rankExpiresAt;
 
-    public CopyMangaBrowserSource(MangaBrowserResolveService browser, ObjectMapper objectMapper,
+    public CopyMangaBrowserSource(MangaBrowserResolveService browser, CopyMangaHttpDetailService httpDetail,
+                                  CopyMangaHttpReaderService httpReader, ObjectMapper objectMapper,
                                   @Value("${mangashelf.copymanga.cookie:}") String cookie,
                                   @Value("${mangashelf.copymanga.storage-state:}") String storageState) {
         this.browser = browser;
+        this.httpDetail = httpDetail;
+        this.httpReader = httpReader;
         this.objectMapper = objectMapper;
         this.cookie = cookie == null ? "" : cookie.trim();
         this.storageState = storageState == null ? "" : storageState.trim();
@@ -74,8 +80,8 @@ public class CopyMangaBrowserSource implements MangaSource {
     @Override
     public String note() {
         return loginConfigured()
-                ? "浏览器解析源（站内阅读）"
-                : "浏览器解析源；阅读需配置 MANGASHELF_COPYMANGA_COOKIE 或登录态文件";
+                ? "详情、目录与章节图片通过官方 API 获取；搜索使用浏览器解析，受限章节可回退登录态"
+                : "详情、目录与章节图片通过官方 API 获取；搜索使用浏览器解析";
     }
 
     private boolean loginConfigured() {
@@ -184,30 +190,26 @@ public class CopyMangaBrowserSource implements MangaSource {
         return out;
     }
 
-    // ── DETAIL / READ（Playwright）──
-
     @Override
     public Detail detail(String mangaId, String lang) throws Exception {
-        JsonNode result = browser.resolveDetail(WEB + "/comic/" + mangaId, cookie, storageState);
-        List<ChapterItem> chapters = new ArrayList<>();
-        for (JsonNode ch : result.path("chapters")) {
-            String uuid = ch.path("id").asText("");
-            if (uuid.isBlank()) continue;
-            String label = ch.path("label").asText("");
-            String title = ch.path("title").asText("");
-            chapters.add(new ChapterItem(mangaId + "~" + uuid,
-                    label.isBlank() ? "?" : label, title, "zh", -1, false));
-        }
-        String title = result.path("title").asText(mangaId);
-        String author = result.path("author").asText("");
-        String cover = result.path("cover").asText("");
-        return new Detail(
-                new SearchItem("copymanga", mangaId, title, author, cover.isEmpty() ? null : cover, null),
-                result.path("description").asText(""), "", null, List.of(), chapters);
+        return httpDetail.detail(mangaId);
     }
 
     @Override
     public Pages pages(String chapterId) throws Exception {
+        try {
+            return httpReader.pages(chapterId);
+        } catch (ApiException error) {
+            // 公开章节只走 HTTP；只有明确要求登录且已配置登录态时，才回退浏览器。
+            if (error.getStatus() == 403 && "COPYMANGA_LOGIN_REQUIRED".equals(error.getCode())
+                    && loginConfigured()) {
+                return browserPages(chapterId);
+            }
+            throw error;
+        }
+    }
+
+    private Pages browserPages(String chapterId) throws Exception {
         int sep = chapterId.indexOf('~');
         if (sep <= 0 || sep == chapterId.length() - 1) {
             throw new IllegalArgumentException("章节 ID 应为 {pathWord}~{uuid}：" + chapterId);

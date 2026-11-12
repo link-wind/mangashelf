@@ -1,6 +1,13 @@
-# Worker 镜像：Java 运行层 + Python OCR/嗅探环境（同一 Ubuntu 基底，构建期联网、运行期零联网）。
+# Worker 镜像：Maven 构建层 + Java 运行层 + Python OCR/嗅探环境（构建期联网、运行期零联网）。
 # 注意：venv 不得跨基底复制（symlink 悬空 + glibc 差异），Python 环境直接装在与
 # Java 相同的 ubuntu noble 层；requirements 不变时依赖层走构建缓存。
+FROM maven:3-eclipse-temurin-25 AS build
+WORKDIR /src
+COPY server/pom.xml server/mvnw ./
+COPY server/.mvn .mvn
+COPY server/src src
+RUN chmod +x mvnw && ./mvnw -q -DskipTests package
+
 FROM eclipse-temurin:25-jre-noble
 WORKDIR /opt/app
 RUN apt-get update \
@@ -18,9 +25,9 @@ RUN mkdir -p /opt/ocr-home /opt/ms-playwright /opt/data/jobs \
       /opt/ocr-venv/bin/python -m playwright install --with-deps chromium \
  && chown -R 1000:1000 /opt/ocr-home /opt/ms-playwright /opt/data/jobs
 COPY processing /opt/processing
-COPY server/target/mangashelf-server-0.1.0-SNAPSHOT.jar app.jar
+COPY --from=build /src/target/mangashelf-server-0.1.0-SNAPSHOT.jar app.jar
 ENV MANGASHELF_PYTHON=/opt/ocr-venv/bin/python \
-    MANGASHELF_PROCESSING_ROOT=/opt/processing \
+    MANGASHELF_PROCESSING_ROOT=/opt \
     MANGASHELF_WORK_ROOT=/opt/data/jobs \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     HOME=/opt/ocr-home

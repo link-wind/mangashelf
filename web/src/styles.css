@@ -621,12 +621,28 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .rf-comic { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rf-chapter { font-size: 12px; color: rgba(255, 255, 255, .7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.rf-stage { max-width: 860px; margin: 0 auto; padding: 64px 0 96px; }
+.rf-stage { max-width: 860px; margin: 0 auto; padding: 64px 0 96px; overflow-anchor: none; }
 .rf-stage img {
   width: 100%; height: auto; display: block; background: #0d0f11; min-height: 120px;
 }
 .rf-paged { position: absolute; inset: 0; display: grid; place-items: center; cursor: pointer; }
 .rf-paged img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.rf-page-placeholder {
+  width: 100%; min-height: 420px; display: grid; place-items: center;
+  background: #0d0f11; color: rgba(255, 255, 255, .58); font-size: 13px;
+  border: 1px dashed rgba(255, 255, 255, .12); box-sizing: border-box;
+}
+.rf-paged .rf-page-placeholder { width: 50%; height: 100%; min-height: 0; }
+.rf-image-page { position: relative; width: 100%; background: #0d0f11; }
+.rf-stage .rf-image-page img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.rf-image-state {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  padding: 16px; color: #d5d9de; text-align: center; background: #0d0f11;
+}
+.rf-image-error { max-width: 28rem; overflow-wrap: anywhere; }
+.rf-image-error p { margin: 0 0 12px; }
+.rf-image-paged { max-width: 50%; max-height: 100%; height: 100%; width: auto; }
+.rf-paged .rf-image-paged img { max-width: 100%; width: 100%; height: 100%; }
 
 .rf-text-btn {
   background: transparent; border: 1px solid rgba(255, 255, 255, .3); color: #fff;

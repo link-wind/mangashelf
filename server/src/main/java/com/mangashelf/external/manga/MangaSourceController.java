@@ -1,6 +1,13 @@
 package com.mangashelf.external.manga;
 
 import com.mangashelf.config.ApiException;
+import com.mangashelf.identity.AuthUser;
+import com.mangashelf.identity.CurrentUser;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,15 +21,21 @@ import java.util.List;
  * 源不支持的能力返回 409 + 明确原因，不做静默降级。
  */
 @RestController
+@Profile("api")
 @RequestMapping("/api/v1/manga-sources")
 public class MangaSourceController {
 
+    private static final Logger log = LoggerFactory.getLogger(MangaSourceController.class);
+
     private final MangaSourceRegistry registry;
     private final MangaSectionsService sectionsService;
+    private final BilibiliReaderService bilibili;
 
-    public MangaSourceController(MangaSourceRegistry registry, MangaSectionsService sectionsService) {
+    public MangaSourceController(MangaSourceRegistry registry, MangaSectionsService sectionsService,
+                                 BilibiliReaderService bilibili) {
         this.registry = registry;
         this.sectionsService = sectionsService;
+        this.bilibili = bilibili;
     }
 
     @GetMapping
@@ -72,6 +85,8 @@ public class MangaSourceController {
         MangaSource s = require(source, MangaSource.Capability.DETAIL);
         try {
             return s.detail(mangaId, "all".equals(lang) ? null : lang);
+        } catch (ApiException e) {
+            throw e;
         } catch (Exception e) {
             throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
         }
@@ -82,9 +97,35 @@ public class MangaSourceController {
         MangaSource s = require(source, MangaSource.Capability.READ);
         try {
             return s.pages(chapterId);
+        } catch (ApiException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求已中断");
         } catch (Exception e) {
-            throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
+            log.warn("{} 章节 {} 请求失败", s.name(), chapterId, e);
+            throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败："
+                    + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
         }
+    }
+
+    @GetMapping("/capture/{sessionId}")
+    public MangaSource.Pages capture(@PathVariable String sessionId) {
+        throw new ApiException(410, "CAPTURE_REPLACED", "章节已改为按需加载，请重新打开章节");
+    }
+
+    @GetMapping("/bilibili/chapter/{chapterId}/image/{ordinal}")
+    public ResponseEntity<byte[]> bilibiliImage(@AuthUser CurrentUser user,
+            @PathVariable String chapterId, @PathVariable int ordinal, @RequestParam("v") String version,
+            HttpServletResponse response) {
+        response.setHeader("Cache-Control", "private, no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        BilibiliReaderService.PageImage image = bilibili.image(chapterId, ordinal, version);
+        return ResponseEntity.ok().header("Content-Type", image.contentType())
+                .header("Cache-Control", "private, no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("X-MangaShelf-Cache", image.cacheHit() ? "HIT" : "MISS")
+                .body(image.bytes());
     }
 
     private MangaSource require(String sourceId, MangaSource.Capability cap) {

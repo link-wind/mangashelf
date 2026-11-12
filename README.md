@@ -9,6 +9,7 @@
 
 - [详细设计 v0.1](docs/DESIGN.md) —— 产品边界、领域模型、异步处理、接入协议与验收标准
 - [系统架构图](docs/architecture.png)（可编辑源文件 [architecture.drawio](docs/architecture.drawio)）
+- [服务器部署](docs/deploy-server.md) —— Docker Compose、域名/TLS、管理员初始化与备份
 - [验证记录](docs/validation/) —— 每个里程碑的实测结果
 - [API 文档](docs/api/) —— 按里程碑逐步补充
 
@@ -84,7 +85,37 @@ Python 处理任务 venv：
 ```bash
 python3 -m venv processing/.venv
 processing/.venv/bin/pip install -r processing/requirements.txt   # Pillow 12.3.0（锁定）
+processing/.venv/bin/python -m playwright install chromium
 ```
+
+本机启动 API 时，如需使用浏览器漫画源，也要设置上面 Worker 命令中的
+`MANGASHELF_PYTHON`、`MANGASHELF_PROCESSING_ROOT` 和 `MANGASHELF_WORK_ROOT`。
+可选的 `MANGASHELF_BROWSER_PROXY` 用于指定其他浏览器漫画源的代理。
+全栈部署时填容器可达的代理地址，不要填宿主机的 `127.0.0.1`。
+
+哔哩目录和阅读使用 Java HTTP，`MANGASHELF_BILIBILI_PROXY` 留空时显式直连。
+章节先返回完整页序，图片按阅读位置下载；缓存保存无签名索引和校验后的原图，
+默认目录/索引有效期为 30/10 分钟，页图闲置 7 天过期，容量上限 512 MiB。
+配置见 `.env.example`；全栈通过 `bilibili-http-cache` 卷跨重启保存。
+不要将临时签名地址或 Cookie 写入配置、缓存或日志。
+真实本地与 Docker 的完整阅读、按需请求和跨重建缓存结果见
+[哔哩 HTTP 阅读验收](docs/validation/bilibili-http-reader.md)。
+
+所有外部漫画及条漫统一按阅读位置加载，恢复进度前不预读章首，失败页可独立重试。
+未知尺寸通过占位、已测尺寸记录和滚动锚点保持当前位置；各源清单提取方式及实测边界见
+[外部漫画与条漫按需加载验收](docs/validation/external-manga-lazy-loading.md)。
+
+拷贝漫画的详情与完整章节目录使用官方 v3 API（Java HTTP），缓存 30 分钟、最多
+128 部作品，缓存失效和进程重启后仍通过 API 获取。默认直连；出口受限时显式设置
+`MANGASHELF_COPYMANGA_PROXY`（如本机 `http://127.0.0.1:7892`，Docker 使用
+`http://host.docker.internal:7892`），不会自动换出口或回退浏览器。
+搜索和章节图片仍使用现有浏览器解析与 `MANGASHELF_BROWSER_PROXY`；公开章节可匿名读取，
+受限章节需要登录态。浏览器源与登录助手统一使用 `https://www.copy4000.com`，
+避免登录态按 `mangacopy.com` 域保存后无法复用。
+目录缺失或数量不符会报错；验收与限制见
+[拷贝漫画 HTTP 目录验收](docs/validation/copymanga-http-chapters.md)。
+受限章节可用登录助手生成 storage_state，设置
+`MANGASHELF_COPYMANGA_STORAGE_STATE` 后重启 API/Worker。
 
 Java 25 安装（Homebrew，keg-only）：
 

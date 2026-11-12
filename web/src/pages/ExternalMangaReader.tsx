@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import { proxyImage } from '../externalManga'
+import ExternalMangaPage from '../components/ExternalMangaPage'
+import { loadPageSizes, savePageSizes, type PageSizes } from '../readerPageSizes'
 
 interface Pages {
   chapterId?: string
   baseUrl?: string
   hash?: string
-  pages: string[]
+  pages: (string | null)[]
   dataSaver: string[]
   external: boolean
+  dimensions?: { width: number; height: number }[]
 }
 interface Chapter {
   id: string; chapter: string; title: string; lang: string; pages: number; external: boolean
@@ -97,9 +100,11 @@ export default function ExternalMangaReader() {
   const lang = params.get('lang') ?? 'zh'
   const title = params.get('title') ?? '外部漫画'
   const source = params.get('source') ?? 'mangadex'
+  const sizeKey = `${source}:${chapterId ?? ''}`
 
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings)
-  const [data, setData] = useState<Pages | null>(null)
+  const [resolved, setResolved] = useState<{ key: string; pages: Pages } | null>(null)
+  const data = resolved?.key === sizeKey ? resolved.pages : null
   const [detail, setDetail] = useState<{ manga: { title: string }; chapters: Chapter[] } | null>(null)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<ResolveStatus | null>(null)
@@ -107,15 +112,21 @@ export default function ExternalMangaReader() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [spread, setSpread] = useState(0)
   const [page, setPage] = useState(1)
-  const [resumeSpread, setResumeSpread] = useState<number | null>(null)
+  const [restoredData, setRestoredData] = useState<Pages | null>(null)
   const [resolving, setResolving] = useState(false)
   // 长条漫检测（M30）：首图高/宽 ≥3 视为竖向长条，强制滚动模式；用户手动切换可覆盖
   const [longStrip, setLongStrip] = useState(false)
   const [manualMode, setManualMode] = useState<PageMode | null>(null)
+  const [measured, setMeasured] = useState<{ key: string; sizes: PageSizes }>(
+    () => ({ key: sizeKey, sizes: loadPageSizes(sizeKey) }))
+  const pageSizes = measured.key === sizeKey ? measured.sizes : {}
 
   const stageRef = useRef<HTMLDivElement>(null)
   const gestureRef = useRef<{ x: number; y: number; t: number } | null>(null)
   const lastSaveRef = useRef(0)
+  const lastSavedPageRef = useRef(0)
+  const pendingScroll = useRef<number | null>(null)
+  const layoutAnchor = useRef<{ ordinal: number; top: number } | null>(null)
   const pageRef = useRef(1)
   pageRef.current = page
   const spreadRef = useRef(0)
@@ -138,52 +149,62 @@ export default function ExternalMangaReader() {
     return () => document.body.classList.remove('reader-open')
   }, [])
 
-  useEffect(() => {
-    void (async () => {
-      if (!chapterId) return
-      try {
-        if (source === 'mangadex') {
-          setData(await api.get<Pages>(`/api/v1/external-manga/chapter/${chapterId}/pages`))
-        } else {
-          setData(await api.get<Pages>(`/api/v1/manga-sources/${source}/chapter/${chapterId}/pages`))
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '章节加载失败')
-      }
-    })()
-  }, [chapterId, source])
+  const startChapter = useCallback(async (id: string, sourceId: string, signal: { cancelled: boolean }) => {
+    const path = sourceId === 'mangadex' ? '/api/v1/external-manga' : `/api/v1/manga-sources/${sourceId}`
+    return api.get<Pages>(`${path}/chapter/${id}/pages`).then(pages => {
+      if (!signal.cancelled) setResolved({ key: `${sourceId}:${id}`, pages })
+    }).catch(e => {
+      if (!signal.cancelled) setError(e instanceof Error ? e.message : '章节加载失败')
+    })
+  }, [])
 
-  // 长条漫探测：预加载前 2 张图，比例 ≥3 判定（长条漫通常 1:4 以上）
+  useEffect(() => {
+    const signal = { cancelled: false }
+    if (!chapterId) return
+    setError('')
+    setResolved(null)
+    setRestoredData(null)
+    setSpread(0)
+    setPage(1)
+    layoutAnchor.current = null
+    pendingScroll.current = null
+    setMeasured({ key: `${source}:${chapterId}`, sizes: loadPageSizes(`${source}:${chapterId}`) })
+    void (async () => {
+      await Promise.resolve()
+      if (signal.cancelled) return
+      await startChapter(chapterId, source, signal)
+    })()
+    return () => { signal.cancelled = true }
+  }, [chapterId, source, startChapter])
+
+  const isRestored = restoredData === data
+
   useEffect(() => {
     setManualMode(null)
-    setLongStrip(false)
-    if (!data || data.pages.length === 0) return
-    let cancelled = false
-    const probes = data.pages.slice(0, 2).map(url => new Promise<number>(resolve => {
-      const img = new Image()
-      img.onload = () => resolve(img.naturalHeight / Math.max(1, img.naturalWidth))
-      img.onerror = () => resolve(0)
-      img.src = url
-    }))
-    void Promise.all(probes).then(ratios => {
-      if (!cancelled) setLongStrip(ratios.some(r => r >= 3))
-    })
-    return () => { cancelled = true }
-  }, [data])
+    const sizes = data?.dimensions?.length ? data.dimensions : Object.values(loadPageSizes(sizeKey))
+    setLongStrip(sizes.some(size => size.height / Math.max(1, size.width) >= 3))
+  }, [data, sizeKey])
 
   useEffect(() => {
+    if (measured.key === sizeKey) savePageSizes(sizeKey, measured.sizes)
+  }, [measured, sizeKey])
+
+  useEffect(() => {
+    let cancelled = false
+    setDetail(null)
     if (!mangaId) return
     void (async () => {
       try {
         if (source === 'mangadex') {
-          setDetail(await api.get<{ manga: { title: string }; chapters: Chapter[] }>(
-            `/api/v1/external-manga/${mangaId}?lang=${lang}`))
+          const raw = await api.get<{ manga: { title: string }; chapters: Chapter[] }>(
+            `/api/v1/external-manga/${mangaId}?lang=${lang}`)
+          if (!cancelled) setDetail(raw)
         } else {
           const raw = await api.get<{ item: { title: string };
             chapters: { id: string; label: string; title: string; lang: string;
                         pages: number; external: boolean }[] }>(
             `/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${lang}`)
-          setDetail({
+          if (!cancelled) setDetail({
             manga: { title: raw.item.title },
             chapters: (raw.chapters ?? []).map(c => ({
               id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
@@ -193,6 +214,7 @@ export default function ExternalMangaReader() {
         }
       } catch { /* 章节导航不可用不影响阅读 */ }
     })()
+    return () => { cancelled = true }
   }, [mangaId, lang, source])
 
   const chapter = detail?.chapters.find(c => c.id === chapterId) ?? null
@@ -237,10 +259,10 @@ export default function ExternalMangaReader() {
 
   // 滚动模式：窗口滚动换算页码（图片列表缓存 + 100ms 节流，避免长章节每帧遍历所有图）
   useEffect(() => {
-    if (!data || effectiveMode !== 'single') return
-    let imgs: HTMLImageElement[] = []
+    if (!data || effectiveMode !== 'single' || !isRestored) return
+    let imgs: HTMLElement[] = []
     const refresh = () => {
-      imgs = Array.from(stageRef.current?.querySelectorAll('img') ?? [])
+      imgs = Array.from(stageRef.current?.querySelectorAll<HTMLElement>('[data-reader-page]') ?? [])
     }
     refresh()
     let lastMeasure = 0
@@ -254,10 +276,14 @@ export default function ExternalMangaReader() {
       if (p !== pageRef.current) {
         setPage(p)
         localStorage.setItem(`ms-ext-manga:${chapterId}`, String(p))
-        if (Date.now() - lastSaveRef.current >= 3000) {
-          lastSaveRef.current = Date.now()
-          saveProgress(p, imgs.length)
-        }
+      }
+      // 页码可能先于图片加载完成变化；图片就绪后会再次触发 scroll，
+      // 因此这里按“当前可见页已就绪”保存，而不是只在页码变化时保存。
+      if (imgs[i]?.dataset.pageReady === 'true'
+          && (p !== lastSavedPageRef.current || Date.now() - lastSaveRef.current >= 3000)) {
+        lastSaveRef.current = Date.now()
+        lastSavedPageRef.current = p
+        saveProgress(p, imgs.length)
       }
     }
     const onScroll = () => {
@@ -267,33 +293,45 @@ export default function ExternalMangaReader() {
       measure()
     }
     window.addEventListener('scroll', onScroll, { passive: true })
+    // 图片就绪事件不受滚动节流影响：跳到末页时页码可能先变化，图片随后才加载完成。
+    window.addEventListener('rf-page-ready', measure)
     return () => {
       window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('rf-page-ready', measure)
       saveProgress(pageRef.current, imgs.length)
     }
-  }, [data, effectiveMode, chapterId, saveProgress])
+  }, [data, isRestored, effectiveMode, chapterId, saveProgress, source])
+
+  // 打开/恢复到章节后先记录当前位置；单页或尚未滚动时也能保存续读点。
+  useEffect(() => {
+    if (!data || !isRestored) return
+    saveProgress(pageRef.current, data.pages.length)
+  }, [data, isRestored, chapterId, saveProgress, source])
 
   // 续读位置（双页模式换算到所在 spread）
   useEffect(() => {
-    if (!mangaId || !chapterId || !data) return
+    if (!chapterId || !data || isRestored) return
+    let cancelled = false
+    const resume = (rows: ProgressRow[]) => {
+      if (cancelled) return
+      const row = rows.find(r => r.source === source && r.mangaId === mangaId && r.chapterId === chapterId)
+      const stored = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '1')
+      const p = Math.max(1, Math.min(data.pages.length, row?.page ?? (stored || 1)))
+      setPage(p)
+      const base = effectiveMode === 'double-cover' ? 1 : 0
+      setSpread(Math.max(0, Math.floor((p - 1 - base) / 2) + base))
+      if (effectiveMode === 'single' && p > 1) {
+        stageRef.current?.querySelectorAll('[data-reader-page]')[p - 1]?.scrollIntoView()
+      }
+      setRestoredData(data)
+    }
     void api.get<ProgressRow[]>('/api/v1/me/manga-progress?limit=50')
-      .then(rows => {
-        const row = rows.find(r => r.source === source && r.mangaId === mangaId)
-        let p = 1
-        if (row && row.chapterId === chapterId && row.page > 1) {
-          p = row.page
-        } else {
-          p = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '1')
-        }
-        setPage(Math.max(1, p))
-        if (effectiveMode !== 'single') {
-          const base = effectiveMode === 'double-cover' ? 1 : 0
-          setSpread(Math.floor((Math.max(1, p) - 1 - base) / 2))
-        }
-      })
-      .catch(() => { /* 无进度不影响阅读 */ })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mangaId, chapterId, data, effectiveMode])
+      .then(resume)
+      .catch(() => resume([]))
+    return () => { cancelled = true }
+  }, [mangaId, chapterId, data, effectiveMode, source, isRestored])
+
+  const backTo = source === 'bilibili' && !detail ? '/history' : `/manga-ext/${mangaId}?lang=${lang}&source=${source}`
 
   // Esc 逐层退出：设置 → 浮层 → 返回章节列表；F 全屏
   useEffect(() => {
@@ -302,7 +340,7 @@ export default function ExternalMangaReader() {
       if (e.key === 'Escape') {
         if (settingsOpen) { setSettingsOpen(false); setUiVisible(true) }
         else if (!uiVisible) setUiVisible(true)
-        else navigate(`/manga-ext/${mangaId}?lang=${lang}&source=${source}`)
+        else navigate(backTo)
       }
       if (e.key === 'f' || e.key === 'F') {
         const el = document.querySelector('.reader-full')
@@ -312,9 +350,11 @@ export default function ExternalMangaReader() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [settingsOpen, uiVisible, navigate, mangaId, lang])
+  }, [settingsOpen, uiVisible, navigate, backTo])
 
-  const list = data ? (settings.hd ? data.pages : (data.dataSaver.length ? data.dataSaver : data.pages)) : []
+  const list: (string | null)[] = data
+    ? (settings.hd ? data.pages : (data.dataSaver.length ? data.dataSaver : data.pages))
+    : []
   const total = list.length
 
   const spreads = buildSpreads(total, effectiveMode)
@@ -324,24 +364,99 @@ export default function ExternalMangaReader() {
   // RTL 时组内页序反转（右页在前）
   const displayPages = settings.dir === 'rtl' ? [...spreadPages].reverse() : spreadPages
 
-  // 双页模式进度上报：spread 变化换算页码（单页模式由滚动处理器负责）
-  const pagedMountedRef = useRef(false)
-  useEffect(() => {
-    if (!data || effectiveMode === 'single' || !chapterId) return
-    if (!pagedMountedRef.current) { pagedMountedRef.current = true; return }
-    const first = (spreads[effSpread] ?? [0])[0] + 1
-    if (Date.now() - lastSaveRef.current >= 3000) {
-      lastSaveRef.current = Date.now()
-      saveProgress(first, total)
+  useLayoutEffect(() => {
+    if (effectiveMode !== 'single') return
+    const anchor = layoutAnchor.current
+    if (anchor) {
+      const target = stageRef.current?.querySelector(`[data-reader-page="${anchor.ordinal}"]`)
+      if (target) window.scrollBy(0, target.getBoundingClientRect().top - anchor.top)
+      layoutAnchor.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effSpread, data, effectiveMode, chapterId, saveProgress])
+    if (pendingScroll.current !== null) {
+      stageRef.current?.querySelectorAll('[data-reader-page]')[pendingScroll.current - 1]?.scrollIntoView()
+      pendingScroll.current = null
+    }
+  }, [effectiveMode, measured, longStrip])
+
+  function rememberDimensions(ordinal: number, width: number, height: number) {
+    if (width < 1 || height < 1) return
+    const previous = pageSizes[ordinal]
+    if (previous?.width === width && previous.height === height) return
+    if (effectiveMode === 'single' && !layoutAnchor.current) {
+      const target = stageRef.current?.querySelector(`[data-reader-page="${pageRef.current}"]`)
+      if (target) layoutAnchor.current = { ordinal: pageRef.current, top: target.getBoundingClientRect().top }
+    }
+    setMeasured(current => ({
+      key: sizeKey,
+      sizes: { ...(current.key === sizeKey ? current.sizes : {}), [ordinal]: { width, height } },
+    }))
+    if (height / width >= 3 && !longStrip) {
+      if (effectiveMode !== 'single' && manualMode === null) {
+        const current = spreadPages.includes(pageRef.current - 1) ? pageRef.current : (spreadPages[0] ?? 0) + 1
+        pendingScroll.current = current
+        setPage(current)
+      }
+      setLongStrip(true)
+    }
+  }
+
+  function pageSize(index: number) {
+    return data?.dimensions?.[index] ?? pageSizes[index + 1]
+      ?? { width: 800, height: longStrip ? 2400 : 1200 }
+  }
+
+  function changePageMode(next: PageMode) {
+    const current = effectiveMode === 'single' || spreadPages.includes(page - 1)
+      ? page : (spreadPages[0] ?? 0) + 1
+    setPage(current)
+    setSpread(Math.max(0, buildSpreads(total, next).findIndex(group => group.includes(current - 1))))
+    if (next === 'single') pendingScroll.current = current
+    setManualMode(next)
+    patchSettings({ pageMode: next })
+  }
+
+  useEffect(() => {
+    if (!isRestored || effectiveMode === 'single') return
+    const next = spreads[effSpread + 1] ?? []
+    const probes = next.map(index => {
+      const image = new Image()
+      const original = list[index] ?? ''
+      let proxied = false
+      image.onerror = () => {
+        if (original && !original.startsWith('/') && !proxied) {
+          proxied = true
+          image.src = proxyImage(original)
+        }
+      }
+      image.src = original
+      return image
+    })
+    return () => { probes.forEach(image => { image.onerror = null; image.src = '' }) }
+  }, [source, isRestored, effectiveMode, effSpread, data])
+
+  function jumpSpread(index: number) {
+    const next = Math.max(0, Math.min(spreadCount - 1, index))
+    if (!isRestored || next === effSpread || spreads[next]?.some(i => !list[i])) return
+    setSpread(next)
+    setPage((spreads[next]?.[0] ?? 0) + 1)
+    saveProgress((spreads[next]?.[0] ?? 0) + 1, total)
+  }
+
+  function jumpPage(index: number) {
+    const next = Math.max(1, Math.min(total, index))
+    if (!isRestored || next === page || !list[next - 1]) return
+    stageRef.current?.querySelectorAll('[data-reader-page]')[next - 1]?.scrollIntoView({ block: 'center' })
+    setPage(next)
+    saveProgress(next, total)
+  }
 
   function flip(delta: number) {
+    if (effectiveMode !== 'single' && spreads[effSpread + delta]?.some(i => !list[i])) return
+    if (effectiveMode === 'single' && !list[Math.max(0, Math.min(total - 1, page - 1 + delta))]) return
     if (effectiveMode === 'single') {
-      setPage(p => Math.max(1, Math.min(total, p + delta)))
+      jumpPage(page + delta)
     } else {
-      setSpread(s => Math.max(0, Math.min(spreadCount - 1, s + delta)))
+      jumpSpread(effSpread + delta)
     }
   }
 
@@ -383,27 +498,29 @@ export default function ExternalMangaReader() {
     navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&source=${source}` +
              `&title=${encodeURIComponent(comicTitle)}`)
 
-  const backTo = `/manga-ext/${mangaId}?lang=${lang}&source=${source}`
-
   if (error) {
     return (
       <div className="reader-full">
-        <div className="reader-full-inner"><p className="error">{error}</p></div>
+        <div className="reader-full-inner">
+          <p className="error" role="alert">{error}</p>
+          <Link className="btn ghost" to={backTo}>返回</Link>
+        </div>
       </div>
     )
   }
-  if (!data) {
+  if (!data || total === 0) {
     const slowSource = source === 'baozimh' || source === 'hipmh' || source === 'copymanga'
     return (
       <div className="reader-full">
         <div className="reader-full-inner muted">
-          {slowSource ? '解析中…（浏览器源首次打开约需 5–15 秒，之后走缓存）' : '加载中…'}
+          {source === 'bilibili' ? '正在确认哔哩章节页数…'
+            : slowSource ? '解析中…（浏览器源首次打开约需 5–15 秒，之后走缓存）' : '加载中…'}
         </div>
       </div>
     )
   }
 
-  const backExternal = data.external || total === 0
+  const backExternal = data.external
   if (backExternal) {
     return (
       <div className="reader-full">
@@ -438,19 +555,28 @@ export default function ExternalMangaReader() {
 
       {singleMode ? (
         <div ref={stageRef} className="rf-stage">
-          {list.map((src, i) => (
-            <img key={i} src={src} data-original={src} alt={`第 ${i + 1} 页`}
-                 loading={i < 3 ? 'eager' : 'lazy'} decoding="async"
-                 onError={onImgError} />
+          {list.map((src, i) => src ? (
+            <ExternalMangaPage key={`${source}-${chapterId}-${i}`} src={src} ordinal={i + 1}
+                               {...pageSize(i)} active={isRestored}
+                               fetchImage={source === 'bilibili'} onDimensions={rememberDimensions} />
+          ) : (
+            <div key={i} className="rf-page-placeholder" aria-label={`第 ${i + 1} 页加载中`}>
+              <span>第 {i + 1} 页 · 加载中…</span>
+            </div>
           ))}
         </div>
       ) : (
         <div className={'rf-paged' + (settings.anim === 'fade' ? ' rf-fade' : '')}
              key={animKey}
              onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
-          {displayPages.map(pageNo => (
-            <img key={pageNo} src={list[pageNo]} data-original={list[pageNo]} alt={`第 ${pageNo + 1} 页`}
-                 onError={onImgError} />
+          {displayPages.map(pageNo => list[pageNo] ? (
+            <ExternalMangaPage key={`${source}-${chapterId}-${pageNo}`} src={list[pageNo] as string}
+                               ordinal={pageNo + 1} {...pageSize(pageNo)} active={isRestored} paged
+                               fetchImage={source === 'bilibili'} onDimensions={rememberDimensions} />
+          ) : (
+            <div key={pageNo} className="rf-page-placeholder" aria-label={`第 ${pageNo + 1} 页加载中`}>
+              <span>第 {pageNo + 1} 页 · 加载中…</span>
+            </div>
           ))}
         </div>
       )}
@@ -470,11 +596,11 @@ export default function ExternalMangaReader() {
             <span>页模式</span>
             <div className="row-inline">
               <button className={effectiveMode === 'single' ? 'mini' : 'mini ghost'}
-                      onClick={() => { setManualMode('single'); patchSettings({ pageMode: 'single' }) }}>单页</button>
+                      onClick={() => changePageMode('single')}>单页</button>
               <button className={effectiveMode === 'double' ? 'mini' : 'mini ghost'}
-                      onClick={() => { setManualMode('double'); patchSettings({ pageMode: 'double' }); setSpread(0) }}>双页</button>
+                      onClick={() => changePageMode('double')}>双页</button>
               <button className={effectiveMode === 'double-cover' ? 'mini' : 'mini ghost'}
-                      onClick={() => { setManualMode('double-cover'); patchSettings({ pageMode: 'double-cover' }); setSpread(0) }}>首页单排</button>
+                      onClick={() => changePageMode('double-cover')}>首页单排</button>
             </div>
           </div>
           <div className="rf-sheet-row">
@@ -511,10 +637,10 @@ export default function ExternalMangaReader() {
           </span>
           {singleMode ? (
             <input type="range" min={1} max={Math.max(total, 1)} value={page}
-                   onChange={e => setPage(Number(e.target.value))} />
+                   onChange={e => jumpPage(Number(e.target.value))} />
           ) : (
             <input type="range" min={1} max={Math.max(spreadCount, 1)} value={effSpread + 1}
-                   onChange={e => setSpread(Number(e.target.value) - 1)} />
+                   onChange={e => jumpSpread(Number(e.target.value) - 1)} />
           )}
         </div>
         <button className="rf-text-btn" disabled={!nextCh} onClick={() => nextCh && jumpChapter(nextCh.id)}>
@@ -540,17 +666,4 @@ function pokeUi() {
   window.clearTimeout((root as unknown as { _hideTimer?: number })._hideTimer)
   ;(root as unknown as { _hideTimer?: number })._hideTimer =
     window.setTimeout(() => root?.classList.remove('show-ui'), 2200)
-}
-
-function onImgError(e: React.SyntheticEvent<HTMLImageElement>) {
-  const img = e.currentTarget
-  // 直连失败 → 代理回退一次（原始地址记在 data-original，避免对代理地址再代理）
-  const original = img.dataset.original || img.getAttribute('src') || ''
-  if (!original) return
-  if (!img.dataset.proxied && !original.startsWith('/api/')) {
-    img.dataset.proxied = '1'
-    img.src = proxyImage(original)
-    return
-  }
-  img.style.visibility = 'hidden'
 }

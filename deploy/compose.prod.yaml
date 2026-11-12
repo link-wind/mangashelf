@@ -1,0 +1,37 @@
+# 生产覆盖层：仅 Web 绑定到宿主机回环地址，由宿主机 Nginx/Caddy 终止 TLS。
+# 用法：
+#   docker compose -f compose.yaml -f deploy/compose.prod.yaml --profile full up -d --build
+#
+# 不要把 db/rabbitmq/storage/api 的端口重新暴露到公网；备份与迁移通过 compose 网络执行。
+services:
+  db:
+    restart: unless-stopped
+    ports: !reset []
+
+  rabbitmq:
+    restart: unless-stopped
+    ports: !reset []
+
+  storage:
+    restart: unless-stopped
+    ports: !reset []
+
+  api:
+    restart: unless-stopped
+    ports: !reset []
+    environment:
+      MANGASHELF_ADMIN_PASSWORD: ${MANGASHELF_ADMIN_PASSWORD:?set MANGASHELF_ADMIN_PASSWORD}
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
+
+  worker:
+    restart: unless-stopped
+    environment:
+      MANGASHELF_BROWSER_PROXY: ${MANGASHELF_BROWSER_PROXY:-}
+      MANGASHELF_COPYMANGA_PROXY: ${MANGASHELF_COPYMANGA_PROXY:-}
+      MANGASHELF_BILIBILI_PROXY: ${MANGASHELF_BILIBILI_PROXY:-}
+
+  web:
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:8080:80"

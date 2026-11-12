@@ -7,13 +7,13 @@ TBD - created by archiving change implement-manga-reading. Update Purpose after 
 
 ### Requirement: 收藏与取消收藏
 
-登录用户 MUST 能将可见作品加入或移出书架；同一用户对同一作品的收藏 MUST 唯一。
+登录用户 MUST 能将可见作品加入或移出收藏；同一用户对同一作品的收藏 MUST 唯一。
 重复加入返回既有收藏，不重复创建。
 
-#### Scenario: 重复加入书架
+#### Scenario: 重复加入收藏
 
-- **WHEN** 用户对已在书架中的作品再次发起收藏
-- **THEN** 系统返回既有书架条目，条目数量不变
+- **WHEN** 用户对已在收藏中的作品再次发起收藏
+- **THEN** 系统返回既有收藏条目，条目数量不变
 
 ### Requirement: 阅读进度以版本号防覆盖
 

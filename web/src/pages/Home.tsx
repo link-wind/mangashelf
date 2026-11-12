@@ -220,7 +220,7 @@ export default function Home() {
         <section style={{ marginTop: 30 }}>
           <div className="section-head">
             <h2>我的作品</h2>
-            <Link to="/shelf" className="muted">我的书架 →</Link>
+            <Link to="/shelf" className="muted">我的收藏 →</Link>
           </div>
           <div className="card-grid">
             {works.map(w => (
@@ -297,7 +297,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
       <section className="hero">
         <div>
           <h1>MangaShelf</h1>
-          <p className="muted">读漫画、追改编动画、按剧情找内容——你的私人书架。</p>
+          <p className="muted">读漫画、追改编动画、按剧情找内容——你的私人收藏。</p>
         </div>
         <div className="hero-search">
           <Link to="/anime" className="btn ghost pill">番剧索引 →</Link>

@@ -37,7 +37,7 @@ export default function MangaDetailPage() {
     if (!id) return
     try {
       await api.put(`/api/v1/me/library/${id}`)
-      setNotice('已加入书架')
+      setNotice('已加入收藏')
       setTimeout(() => setNotice(''), 2500)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '操作失败')
@@ -85,7 +85,7 @@ export default function MangaDetailPage() {
             ) : (
               <span className="muted">还没有已发布章节</span>
             )}
-            {!owner && <button className="ghost" onClick={() => void addToShelf()}>加入书架</button>}
+            {!owner && <button className="ghost" onClick={() => void addToShelf()}>加入收藏</button>}
             {owner && <Link className="btn ghost" to="/uploads">管理素材 →</Link>}
           </div>
         </div>

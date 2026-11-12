@@ -65,6 +65,7 @@ export default function ExternalMangaDetail() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [lang, setLang] = useState('zh')
   const [asc, setAsc] = useState(true)
+  const [showAllBiliChapters, setShowAllBiliChapters] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -135,12 +136,19 @@ export default function ExternalMangaDetail() {
       .catch(() => { /* 无进度 */ })
   }, [mangaId, source])
 
-  if (error) return <main className="watch-page"><p className="error">{error}</p></main>
+  const officialBiliUrl = source === 'bilibili' && /^\d{1,12}$/.test(mangaId ?? '')
+    ? `https://manga.bilibili.com/detail/mc${mangaId}` : null
+  const officialLink = officialBiliUrl
+    ? <a className="btn ghost pill" href={officialBiliUrl} target="_blank" rel="noopener noreferrer">前往哔哩原站</a>
+    : null
+
+  if (error) return <main className="watch-page"><p className="error" role="alert">{error}</p>{officialLink}</main>
   if (!detail) return <main className="watch-page page-center">加载中…</main>
 
   const { manga, chapters } = detail
   const readable = chapters.filter(c => !c.external && c.pages !== 0)
-  const ordered = asc ? readable : [...readable].reverse()
+  const shown = officialBiliUrl && showAllBiliChapters ? chapters : readable
+  const ordered = asc ? shown : [...shown].reverse()
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
 
@@ -179,7 +187,10 @@ export default function ExternalMangaDetail() {
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
               : <span className="muted">暂无可读章节</span>}
-            <Link className="btn ghost pill" to="/manga-ext">返回搜索</Link>
+            {officialLink}
+            <Link className="btn ghost pill" to={officialBiliUrl ? '/manga' : '/manga-ext'}>
+              {officialBiliUrl ? '返回漫画首页' : '返回搜索'}
+            </Link>
           </div>
 
           {switchSources.length > 0 && (
@@ -226,14 +237,25 @@ export default function ExternalMangaDetail() {
               <button key={l.key} className={lang === l.key ? 'mini' : 'mini ghost'}
                       onClick={() => setLang(l.key)}>{l.label}</button>
             ))}
+            {officialBiliUrl && chapters.length > readable.length && (
+              <button className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
+                {showAllBiliChapters ? `仅站内可读（${readable.length}）` : `显示全部（${chapters.length}）`}
+              </button>
+            )}
             <button className="mini ghost" onClick={() => setAsc(v => !v)}>{asc ? '倒序' : '正序'}</button>
           </div>
         </div>
 
         {loading && <p className="muted">加载章节…</p>}
-        {readable.length > 0 ? (
+        {ordered.length > 0 ? (
           <div className="chapter-grid">
-            {ordered.map(c => (
+            {ordered.map(c => c.external && officialBiliUrl ? (
+              <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
+                 target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
+                <span className="cc-no">{c.chapter || '?'}</span>
+                <span className="cc-sub">原站</span>
+              </a>
+            ) : (
               <button key={c.id} className="chapter-cell" onClick={() => open(c)}
                       title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>

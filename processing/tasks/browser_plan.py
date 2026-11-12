@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Callable
 from urllib.parse import urlsplit
@@ -264,9 +265,9 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
                 "viewport": {"width": 1280, "height": 1000},
                 "locale": "zh-CN",
                 "ignore_https_errors": True,
-                # Clash 系统代理下直连不稳定；走代理反而更稳定（M35 实测）
-                "proxy": {"server": "http://127.0.0.1:7892"},
             }
+            if proxy := os.environ.get("MANGASHELF_BROWSER_PROXY"):
+                ctx_kwargs["proxy"] = {"server": proxy}
             if storage_state:
                 ctx_kwargs["storage_state"] = storage_state
             context = browser.new_context(**ctx_kwargs)

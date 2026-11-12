@@ -70,11 +70,11 @@ export default function History() {
                 </span>
                 {m.chapterId ? (
                   <Link className="btn ghost"
-                        to={`/manga-ext/read/${m.chapterId}?mangaId=${m.mangaId}&lang=all&title=${encodeURIComponent(m.title)}`}>
+                        to={`/manga-ext/read/${m.chapterId}?${new URLSearchParams({ mangaId: m.mangaId, lang: 'all', source: m.source, title: m.title })}`}>
                     继续阅读
                   </Link>
                 ) : (
-                  <Link className="btn ghost" to={`/manga-ext/${m.mangaId}?lang=all`}>打开</Link>
+                  <Link className="btn ghost" to={`/manga-ext/${m.mangaId}?${new URLSearchParams({ lang: 'all', source: m.source })}`}>打开</Link>
                 )}
               </li>
             ))}

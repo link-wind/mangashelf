@@ -1,0 +1,14 @@
+.git
+**/.venv
+**/__pycache__
+**/.env
+**/.env.*
+**/node_modules
+**/.DS_Store
+server/target
+server/data
+server/models
+web/dist
+web/tsconfig.tsbuildinfo
+data
+backups

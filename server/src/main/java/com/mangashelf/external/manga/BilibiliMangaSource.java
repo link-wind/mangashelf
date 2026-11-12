@@ -2,54 +2,25 @@ package com.mangashelf.external.manga;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-/**
- * 哔哩漫画（M17）：仅匿名可用的 HomeHot 热门榜作为元数据/排序来源。
- * 详情与搜索需要登录态（实测 code=99），因此只声明 RANK 能力；
- * 阅读跳转官方页面，不在站内托管。
- */
+/** 哔哩匿名热门榜、章节目录与公开章节阅读。 */
 @Component
+@Profile("api")
 public class BilibiliMangaSource implements MangaSource {
 
     private static final Logger log = LoggerFactory.getLogger(BilibiliMangaSource.class);
-    private static final String HOME_HOT =
-            "https://manga.bilibili.com/twirp/comic.v1.Comic/HomeHot?device=pc";
     private static final String DETAIL_URL = "https://manga.bilibili.com/detail/mc";
-    private static final String UA =
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
-
-    private final ObjectMapper objectMapper;
-    private final MangaMatcher matcher;
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(12)).build();
-
-    private final MangaBrowserResolveService browserResolver;
-    private final String cookie;
-    private final String storageState;
-    private BiliMangaCanvasSource canvasSource;
-
-    public BilibiliMangaSource(ObjectMapper objectMapper, MangaMatcher matcher,
-                               MangaBrowserResolveService browserResolver,
-                               @Value("${mangashelf.bilibili.cookie:}") String cookie,
-                               @Value("${mangashelf.bilibili.storage-state:}") String storageState) {
-        this.objectMapper = objectMapper;
-        this.matcher = matcher;
-        this.browserResolver = browserResolver;
-        this.cookie = cookie;
-        this.storageState = storageState;
+    private final BilibiliHttpClient upstream;
+    private final BilibiliReaderService reader;
+    public BilibiliMangaSource(BilibiliHttpClient upstream, BilibiliReaderService reader) {
+        this.upstream = upstream;
+        this.reader = reader;
     }
 
     @Override
@@ -64,45 +35,29 @@ public class BilibiliMangaSource implements MangaSource {
 
     @Override
     public Set<Capability> capabilities() {
-        return Set.of(Capability.RANK, Capability.READ);
+        return Set.of(Capability.RANK, Capability.DETAIL, Capability.READ);
     }
 
     @Override
     public String note() {
-        return "热门榜元数据；免费章节可站内阅读（canvas 截图）";
+        return "热门榜、章节列表；公开免费章节可站内阅读";
     }
 
-    /** READ 委托 canvas 截图源（懒初始化，避免构造环）。 */
-    private synchronized BiliMangaCanvasSource canvas() {
-        if (canvasSource == null) {
-            canvasSource = new BiliMangaCanvasSource(browserResolver, objectMapper, cookie, storageState);
-        }
-        return canvasSource;
+    @Override
+    public Detail detail(String mangaId, String lang) throws Exception {
+        return reader.detail(mangaId);
     }
 
     @Override
     public Pages pages(String chapterId) throws Exception {
-        return canvas().pages(chapterId);
+        return reader.pages(chapterId);
     }
 
     @Override
     public List<RankItem> rank(int limit) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(HOME_HOT))
-                .timeout(Duration.ofSeconds(15))
-                .header("Content-Type", "application/json")
-                .header("User-Agent", UA)
-                .header("Referer", "https://manga.bilibili.com/")
-                .POST(HttpRequest.BodyPublishers.ofString("{}")).build();
-        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("哔哩漫画 HTTP " + resp.statusCode());
-        }
-        JsonNode root = objectMapper.readTree(resp.body());
-        if (root.path("code").asInt(-1) != 0) {
-            throw new IllegalStateException("哔哩漫画返回 code=" + root.path("code").asInt());
-        }
+        JsonNode data = upstream.hot();
         List<RankItem> out = new ArrayList<>();
-        for (JsonNode c : root.path("data")) {
+        for (JsonNode c : data) {
             if (out.size() >= Math.max(1, limit)) break;
             List<String> authors = new ArrayList<>();
             for (JsonNode a : c.path("author")) authors.add(a.asText());
@@ -117,7 +72,7 @@ public class BilibiliMangaSource implements MangaSource {
             out.add(new RankItem("bilibili", comicId, title, authors, cover,
                     c.path("is_finish").asInt(0) == 1,
                     latest.isBlank() ? "" : "更新至 " + latest,
-                    false, DETAIL_URL + comicId, null, null));
+                    false, DETAIL_URL + comicId, id(), comicId));
         }
         log.debug("bilibili hot list size={}", out.size());
         return out;

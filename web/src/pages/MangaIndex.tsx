@@ -228,11 +228,11 @@ function MangaDiscovery() {
                     {heroSources.length} 源
                   </span>
                 )}
-                <span className="chip ghost">{hero.readable ? '站内可读' : '站外阅读'}</span>
+                <span className="chip ghost">{hero.readable ? '站内可读' : hero.readId ? '有站内目录' : '站外阅读'}</span>
               </div>
               <div className="manga-hero-actions">
                 <button className="pill" onClick={() => open(hero)}>
-                  {hero.readable ? '开始阅读' : '前往原站'}
+                  {hero.readable ? '开始阅读' : hero.readId ? '查看章节' : '前往原站'}
                 </button>
               </div>
             </div>
@@ -295,7 +295,7 @@ function SectionRow({ section, showRank, onOpen }: {
                 : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
               {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
               {(it.sourceCount ?? 1) > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}
-              {!it.readable && <span className="mt-outside">站外</span>}
+              {!it.readable && !it.readId && <span className="mt-outside">站外</span>}
             </div>
             <div className="mt-title clamp">{it.title}</div>
             <div className="mt-meta">{it.latestLabel || (it.finished ? '已完结' : '连载中')}</div>

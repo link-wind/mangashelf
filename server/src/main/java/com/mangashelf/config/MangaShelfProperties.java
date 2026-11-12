@@ -9,6 +9,7 @@ import java.util.UUID;
 public record MangaShelfProperties(
         UUID demoOwnerId,
         String platformId,
+        String adminPassword,
         Storage storage,
         Jobs jobs,
         Processing processing,
