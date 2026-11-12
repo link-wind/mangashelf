@@ -19,7 +19,6 @@ from urllib.parse import urlsplit
 DEFAULT_TIMEOUT_SECONDS = 45
 LAZY_SCROLL_ROUNDS = 16
 MIN_IMAGE_WIDTH = 300
-CANVAS_SPREAD_WAIT_SECONDS = 18
 
 # 站点广告/静态资源特征（章节页图不应包含）
 AD_MARKERS = (
@@ -272,209 +271,9 @@ def _resolve_chapter(page: Any, url: str) -> dict[str, Any]:
     }
 
 
-def _resolve_chapter_canvas(page: Any, url: str, run_dir: Any,
-                            progress: Callable[..., None] | None = None) -> dict[str, Any]:
-    """使用官方匿名阅读器的页位与进度条；截图仅来自已渲染的页。"""
-    from hashlib import sha256
-    from io import BytesIO
-    from time import monotonic
-
-    from PIL import Image, ImageStat
-    from playwright.sync_api import Error as BrowserError, TimeoutError as BrowserTimeout
-
-    def failed(code: str, message: str) -> dict[str, Any]:
-        if progress:
-            progress("manga", json.dumps({"event": "capture-failed", "code": code,
-                                          "message": message}, ensure_ascii=False))
-        return {"status": "FAILED", "error_code": code, "message": message}
-
-    def same_chapter() -> bool:
-        target = urlsplit(page.url)
-        return (target.scheme, target.netloc, target.path) == ("https", "manga.bilibili.com", urlsplit(url).path)
-
-    deadline = monotonic() + 96
-    hud = page.locator(".info-hud")
-    slider = page.locator("input.range-input")
-    try:
-        for attempt in range(2):
-            try:
-                response = page.goto(url, wait_until="domcontentloaded", timeout=12000)
-                if response is not None and response.status in (401, 403):
-                    return failed("CAPTURE_NOT_PUBLIC", "哔哩章节未开放匿名访问")
-                hud.locator(".current-page").wait_for(state="attached", timeout=12000)
-                break
-            except BrowserError as exc:
-                retryable = isinstance(exc, BrowserTimeout) or any(code in str(exc) for code in (
-                    "ERR_SSL_BAD_RECORD_MAC", "ERR_CONNECTION_", "ERR_TIMED_OUT",
-                ))
-                if not retryable:
-                    return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "未能打开哔哩公开阅读页")
-                if attempt == 1:
-                    return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "哔哩章节未提供可确认的页数，可能未公开或加载失败")
-        match = re.search(r"(\d+)\s*P\b", hud.inner_text(timeout=3000))
-    except (BrowserTimeout, ValueError):
-        return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "哔哩章节未提供可确认的页数，可能未公开或加载失败")
-    if not same_chapter():
-        return failed("CAPTURE_NOT_PUBLIC", "哔哩章节未公开或已跳转")
-    expected = int(match.group(1)) if match else 0
-    if not 1 <= expected <= 300:
-        return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "无法确认哔哩章节的完整页数")
-    if progress:
-        progress("manga", json.dumps({"event": "capture-ready",
-                                      "expected_pages": expected}, ensure_ascii=False))
-
-    # 隐藏绘制在漫画页上方的阅读控件，保持浏览器自身渲染流程。
-    page.add_style_tag(content="""
-        .bullet-screen, .info-hud, .floating-button, .toolbar { visibility: hidden !important }
-    """)
-    artifacts: dict[int, dict[str, Any]] = {}
-    seen: set[bytes] = set()
-
-    def screenshot(canvas: Any) -> tuple[bytes, bytes] | None:
-        try:
-            data = canvas.screenshot(timeout=1200, animations="disabled")
-        except BrowserTimeout:
-            return None
-        with Image.open(BytesIO(data)) as image:
-            stddev = ImageStat.Stat(image.convert("L").resize((48, 48))).stddev[0]
-        digest = sha256(data).digest()
-        return (data, digest) if stddev >= 12 and digest not in seen else None
-
-    def save(ordinal: int, data: bytes, digest: bytes) -> None:
-        name = f"page-{ordinal}.png"
-        (run_dir / f"{name}.tmp").write_bytes(data)
-        os.replace(run_dir / f"{name}.tmp", run_dir / name)
-        artifacts[ordinal] = {"path": name, "ordinal": ordinal}
-        seen.add(digest)
-        if progress:
-            progress("manga", json.dumps({"event": "page-ready", "ordinal": ordinal,
-                                          "path": name}, ensure_ascii=False))
-
-    def incomplete() -> dict[str, Any]:
-        first_missing = next(i for i in range(1, expected + 1) if i not in artifacts)
-        return failed("CAPTURE_INCOMPLETE",
-                      f"哔哩章节采集不完整：已确认 {len(artifacts)}/{expected} 页，首个缺页是第 {first_missing} 页")
-
-    def complete() -> dict[str, Any]:
-        return {"status": "SUCCEEDED", "expected_pages": expected,
-                "artifacts": [artifacts[i] for i in range(1, expected + 1)]}
-
-    # 条漫阅读器以独立容器保留原始页序，并以 image-loaded 标记渲染完成。
-    items = page.locator(".image-item:has(.image-container canvas)")
-    if items.count():
-        try:
-            items.nth(expected - 1).wait_for(state="attached", timeout=3000)
-        except BrowserTimeout:
-            return incomplete()
-        if items.count() != expected:
-            return incomplete()
-        for i in range(expected):
-            if not same_chapter():
-                return failed("CAPTURE_NOT_PUBLIC", "阅读器已离开所请求的哔哩章节")
-            wait_ms = int(min(CANVAS_SPREAD_WAIT_SECONDS, deadline - monotonic()) * 1000)
-            if wait_ms < 1:
-                return incomplete()
-            item = items.nth(i)
-            try:
-                item.scroll_into_view_if_needed(timeout=min(wait_ms, 2000))
-                item.and_(page.locator(".image-loaded")).wait_for(state="attached", timeout=wait_ms)
-                shot = screenshot(item.locator("canvas"))
-            except BrowserTimeout:
-                return incomplete()
-            if shot is None:
-                return incomplete()
-            save(i + 1, *shot)
-        return complete()
-
-    try:
-        spread_count = int(slider.get_attribute("max", timeout=3000) or 0)
-    except (BrowserTimeout, ValueError):
-        return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "无法确认哔哩章节页位")
-    if not 1 <= spread_count <= expected:
-        return failed("CAPTURE_PAGE_COUNT_UNKNOWN", "无法确认哔哩章节页位")
-
-    def seek_spread(spread: int) -> None:
-        slider.evaluate("""(input, spread) => {
-            input.value = spread;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-        }""", str(spread), timeout=2000)
-
-    # 先走完整章记录原站页位，再回到缺页的页组触发原站重试。
-    # 暂存已确认的页，只有 1..expected 全部出现才交付清单。
-    positions: dict[int, tuple[int, ...]] = {}
-
-    def collect_spread(spread: int, first_page: int, wait_seconds: float) -> tuple[int, ...]:
-        if not same_chapter():
-            return ()
-        if slider.input_value(timeout=2000) == str(spread) and spread in positions and spread_count > 1:
-            seek_spread(spread - 1 if spread > 1 else 2)
-            page.wait_for_timeout(300)
-        seek_spread(spread)
-        spread_deadline = min(deadline, monotonic() + wait_seconds)
-        previous: dict[int, bytes] = {}
-        ordinals = positions.get(spread, ())
-        while monotonic() < spread_deadline and same_chapter():
-            page.wait_for_timeout(350)
-            first, second = hud.evaluate("""node => {
-                const primary = node.querySelector('.current-page');
-                const secondary = node.querySelector('.next-page');
-                return [Number(primary?.textContent), Number(secondary?.textContent)];
-            }""", timeout=2000)
-            if first != first_page or (second and (second != first + 1 or second > expected)):
-                continue
-            actual = (first, second) if second else (first,)
-            if ordinals and actual != ordinals:
-                continue
-            ordinals = actual
-            selectors = (".view-container:not(.secondary-image) .image-container canvas", ".secondary-image canvas")
-            current: dict[int, bytes] = {}
-            for ordinal, selector in zip(ordinals, selectors):
-                if ordinal in artifacts:
-                    continue
-                shot = screenshot(page.locator(selector))
-                if shot is None or not same_chapter():
-                    continue
-                data, digest = shot
-                if digest in current.values():
-                    continue
-                current[ordinal] = digest
-                if previous.get(ordinal) == digest:
-                    save(ordinal, data, digest)
-            if all(ordinal in artifacts for ordinal in ordinals):
-                break
-            previous = current
-        return ordinals
-
-    first_page = 1
-    for spread in range(1, spread_count + 1):
-        if first_page > expected or monotonic() >= deadline:
-            break
-        ordinals = collect_spread(spread, first_page, min(6, CANVAS_SPREAD_WAIT_SECONDS))
-        if not ordinals:
-            break
-        positions[spread] = ordinals
-        first_page = ordinals[-1] + 1
-
-    for _ in range(2):
-        if not same_chapter():
-            return failed("CAPTURE_NOT_PUBLIC", "阅读器已离开所请求的哔哩章节")
-        pending = [(spread, ordinals) for spread, ordinals in positions.items()
-                   if any(ordinal not in artifacts for ordinal in ordinals)]
-        if not pending or monotonic() >= deadline:
-            break
-        for spread, ordinals in pending:
-            if monotonic() >= deadline or not same_chapter():
-                break
-            collect_spread(spread, ordinals[0], min(12, CANVAS_SPREAD_WAIT_SECONDS))
-    if not same_chapter():
-        return failed("CAPTURE_NOT_PUBLIC", "阅读器已离开所请求的哔哩章节")
-    return complete() if len(artifacts) == expected else incomplete()
-
-
 @contextmanager
 def _bilibili_browser(playwright: Any, run_dir: Any, proxy: str | None):
-    """用原站支持的普通 Chromium 渲染，调试连接只负责翻页和截图。"""
+    """用原站支持的普通 Chromium（真实 profile）渲染哔哩页面，经 CDP 连接操作页面。"""
     import shutil
     import signal
     import socket
@@ -586,13 +385,9 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
     url = str(params.get("url") or "").strip()
     cookie = str(params.get("cookie") or "").strip()
     storage_state = str(params.get("storage_state") or "").strip() or None
-    if mode not in ("detail", "chapter", "search", "chapter-canvas", "bilibili-detail"):
+    if mode not in ("detail", "chapter", "search", "bilibili-detail"):
         return {"status": "FAILED", "error_code": "BAD_MODE", "message": f"未知 mode：{mode}"}
-    if mode == "chapter-canvas":
-        if not re.fullmatch(r"https://manga\.bilibili\.com/mc[0-9]{1,12}/[0-9]{1,12}", url):
-            return {"status": "FAILED", "error_code": "BAD_URL",
-                    "message": "canvas 模式仅允许哔哩漫画站内 URL"}
-    elif mode == "bilibili-detail":
+    if mode == "bilibili-detail":
         if not re.fullmatch(r"https://manga\.bilibili\.com/detail/mc[0-9]{1,12}", url):
             return {"status": "FAILED", "error_code": "BAD_URL", "message": "仅允许哔哩漫画详情 URL"}
     elif not (url.startswith("https://www.mangacopy.com/")
@@ -608,11 +403,9 @@ def run(spec: dict[str, Any], run_dir: Any, progress: Callable[..., None]) -> di
     progress("manga", f"启动浏览器（{mode}）")
     with sync_playwright() as p:
         proxy = os.environ.get("MANGASHELF_BROWSER_PROXY")
-        if mode in ("chapter-canvas", "bilibili-detail"):
+        if mode == "bilibili-detail":
             with _bilibili_browser(p, run_dir, proxy) as page:
-                if mode == "bilibili-detail":
-                    return _resolve_bilibili_detail(page, url)
-                return _resolve_chapter_canvas(page, url, run_dir, progress)
+                return _resolve_bilibili_detail(page, url)
         launch_args = [
             "--no-sandbox",
             "--disable-dev-shm-usage",
