@@ -3,7 +3,6 @@ import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import LoginPage from './pages/Login'
 import Home from './pages/Home'
-import Library from './pages/Library'
 import AnimeIndex from './pages/AnimeIndex'
 import Schedule from './pages/Schedule'
 import CatalogDetail from './pages/CatalogDetail'
@@ -90,7 +89,6 @@ export default function App() {
         <Route path="/schedule" element={me ? <Schedule /> : <Navigate to="/login" />} />
         <Route path="/catalog/:id" element={me ? <CatalogDetail /> : <Navigate to="/login" />} />
         <Route path="/history" element={me ? <History /> : <Navigate to="/login" />} />
-        <Route path="/library" element={me ? <Library /> : <Navigate to="/login" />} />
         <Route path="/works/:id" element={me ? <WorkDetail /> : <Navigate to="/login" />} />
         <Route path="/read/:revisionId" element={me ? <Reader /> : <Navigate to="/login" />} />
         <Route path="/watch/:animationId" element={me ? <Watch /> : <Navigate to="/login" />} />
@@ -132,7 +130,6 @@ function Footer() {
         <div className="footer-col">
           <h3>账号服务</h3>
           <NavLink to="/settings">设置与令牌</NavLink>
-          <NavLink to="/library">旧版书库</NavLink>
         </div>
       </div>
     </footer>

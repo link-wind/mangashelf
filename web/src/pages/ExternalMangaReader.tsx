@@ -150,8 +150,7 @@ export default function ExternalMangaReader() {
   }, [])
 
   const startChapter = useCallback(async (id: string, sourceId: string, signal: { cancelled: boolean }) => {
-    const path = sourceId === 'mangadex' ? '/api/v1/external-manga' : `/api/v1/manga-sources/${sourceId}`
-    return api.get<Pages>(`${path}/chapter/${id}/pages`).then(pages => {
+    return api.get<Pages>(`/api/v1/manga-sources/${sourceId}/chapter/${id}/pages`).then(pages => {
       if (!signal.cancelled) setResolved({ key: `${sourceId}:${id}`, pages })
     }).catch(e => {
       if (!signal.cancelled) setError(e instanceof Error ? e.message : '章节加载失败')
@@ -195,23 +194,17 @@ export default function ExternalMangaReader() {
     if (!mangaId) return
     void (async () => {
       try {
-        if (source === 'mangadex') {
-          const raw = await api.get<{ manga: { title: string }; chapters: Chapter[] }>(
-            `/api/v1/external-manga/${mangaId}?lang=${lang}`)
-          if (!cancelled) setDetail(raw)
-        } else {
-          const raw = await api.get<{ item: { title: string };
-            chapters: { id: string; label: string; title: string; lang: string;
-                        pages: number; external: boolean }[] }>(
-            `/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${lang}`)
-          if (!cancelled) setDetail({
-            manga: { title: raw.item.title },
-            chapters: (raw.chapters ?? []).map(c => ({
-              id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
-              pages: c.pages, external: c.external,
-            })),
-          })
-        }
+        const raw = await api.get<{ item: { title: string };
+          chapters: { id: string; label: string; title: string; lang: string;
+                      pages: number; external: boolean }[] }>(
+          `/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${lang}`)
+        if (!cancelled) setDetail({
+          manga: { title: raw.item.title },
+          chapters: (raw.chapters ?? []).map(c => ({
+            id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
+            pages: c.pages, external: c.external,
+          })),
+        })
       } catch { /* 章节导航不可用不影响阅读 */ }
     })()
     return () => { cancelled = true }

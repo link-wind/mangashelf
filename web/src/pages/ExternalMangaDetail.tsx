@@ -5,7 +5,7 @@ import { proxyImage } from '../externalManga'
 
 interface ExtManga {
   id: string; title: string; altTitle: string; description: string
-  coverUrl: string | null; status: string; year: string; tags: string[]; langs: string[]
+  coverUrl: string | null; status: string; year: string; tags: string[]
 }
 interface ExtChapter {
   id: string; chapter: string; title: string; lang: string
@@ -22,17 +22,8 @@ const LANGS = [
   { key: 'all', label: '全部' },
 ]
 
-/** MangaDex 旧端点响应形状 → 统一 Detail。 */
-function normalizeMangadex(raw: {
-  manga: { id: string; title: string; altTitle: string; description: string
-           coverUrl: string | null; status: string; year: string; tags: string[]; langs: string[] }
-  chapters: ExtChapter[]
-}): Detail {
-  return raw
-}
-
-/** 规则源（/manga-sources/{s}/manga/{id}）响应形状 → 统一 Detail。 */
-function normalizeRuleSource(raw: {
+/** 统一源响应（/manga-sources/{s}/manga/{id}）→ 内部 Detail。 */
+function normalizeSource(raw: {
   item: { source: string; id: string; title: string; altTitle: string
           coverUrl: string | null; year: string | null }
   description: string; status: string; year: string | null
@@ -44,7 +35,7 @@ function normalizeRuleSource(raw: {
       id: raw.item.id, title: raw.item.title, altTitle: raw.item.altTitle ?? '',
       description: raw.description ?? '', coverUrl: raw.item.coverUrl,
       status: raw.status ?? '', year: raw.year ?? raw.item.year ?? '',
-      tags: raw.tags ?? [], langs: ['中文'],
+      tags: raw.tags ?? [],
     },
     chapters: (raw.chapters ?? []).map(c => ({
       id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
@@ -55,7 +46,7 @@ function normalizeRuleSource(raw: {
 
 /**
  * 外部漫画详情（M21/M23）：大封面 + 信息 + 章节格。
- * 按源分发端点：MangaDex 走既有聚合端点，规则源走 /manga-sources/{source}。
+ * 详情统一走 /manga-sources/{source}（含 MangaDex）。
  */
 export default function ExternalMangaDetail() {
   const { mangaId } = useParams()
@@ -82,13 +73,8 @@ export default function ExternalMangaDetail() {
     if (!mangaId) return
     setLoading(true); setError('')
     try {
-      if (source === 'mangadex') {
-        setDetail(normalizeMangadex(
-          await api.get<Detail>(`/api/v1/external-manga/${mangaId}?lang=${language}`)))
-      } else {
-        setDetail(normalizeRuleSource(
-          await api.get(`/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${language}`)))
-      }
+      setDetail(normalizeSource(
+        await api.get(`/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${language}`)))
     } catch (e) {
       setError(e instanceof Error ? e.message : '详情请求失败')
     } finally { setLoading(false) }
@@ -171,7 +157,7 @@ export default function ExternalMangaDetail() {
             {manga.year && <span className="chip">{manga.year}</span>}
             {manga.status && <span className="chip">{manga.status}</span>}
             {(manga.tags ?? []).slice(0, 4).map(t => <span key={t} className="chip ghost">{t}</span>)}
-            <span className="chip ghost">{sourceNames[source] ?? (source === 'mangadex' ? 'MangaDex' : source)}</span>
+            <span className="chip ghost">{sourceNames[source] ?? source}</span>
           </div>
           <p className={'manga-desc' + (expanded ? ' expanded' : '')}>{manga.description || '（暂无简介）'}</p>
           {manga.description && manga.description.length > 120 && (
