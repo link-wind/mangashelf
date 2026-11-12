@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio">
+  <diagram name="MangaShelf 分布式目标方案">
+    <mxGraphModel dx="1420" dy="1100" grid="1" gridSize="10" page="1" pageWidth="1420" pageHeight="1100" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="MangaShelf · 分布式目标方案" style="text;html=1;align=left;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#14324b;" vertex="1" parent="1">
+          <mxGeometry x="40" y="25" width="1000" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" value="一个工程，API 与 Worker 分别扩容；数据库保存业务事实，Redis 承担缓存与流量控制。" style="text;html=1;align=left;verticalAlign=middle;fontSize=17;fontColor=#586b7a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1300" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" value="浏览器 / 客户端" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#94a3b8;fontSize=20;fontColor=#14324b;" vertex="1" parent="1">
+          <mxGeometry x="40" y="170" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" value="负载均衡 / TLS&#xa;静态前端 · SSE 转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0dc;strokeColor=#d79b00;fontSize=19;fontColor=#14324b;" vertex="1" parent="1">
+          <mxGeometry x="340" y="170" width="250" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" value="API × N&#xa;鉴权 · 阅读清单 · 进度 · SSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2ff;strokeColor=#3a87bd;fontSize=19;fontColor=#14324b;" vertex="1" parent="1">
+          <mxGeometry x="700" y="170" width="300" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="7" value="外部漫画 / 动画源&#xa;公开 HTTP 接口" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#8e969e;fontSize=18;fontColor=#14324b;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="170" width="240" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" value="共享数据层" style="swimlane;startSize=45;horizontal=1;html=1;rounded=1;fillColor=#f5faf7;swimlaneFillColor=#ffffff;strokeColor=#9ab9a5;fontSize=20;fontStyle=1;fontColor=#234d37;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="900" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" value="Redis&#xa;&#xa;元数据缓存&#xa;全局限流 / 回源合并&#xa;Pub/Sub 仅作唤醒" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff1ef;strokeColor=#d8827c;fontSize=18;fontColor=#14324b;" vertex="1" parent="8">
+          <mxGeometry x="30" y="80" width="250" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" value="PostgreSQL&#xa;&#xa;作品 · 收藏 · 阅读进度&#xa;Session · jobs / outbox&#xa;租约 · job_events" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=15;fillColor=#e6f3e8;strokeColor=#74a782;fontSize=18;fontColor=#14324b;" vertex="1" parent="8">
+          <mxGeometry x="325" y="80" width="250" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="11" value="共享 S3 对象存储&#xa;&#xa;页图 · 视频 · 正式产物&#xa;私有桶 + 短期授权&#xa;本地仅保留临时缓存" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=15;fillColor=#e6f3e8;strokeColor=#74a782;fontSize=18;fontColor=#14324b;" vertex="1" parent="8">
+          <mxGeometry x="620" y="80" width="250" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="12" value="业务写入以数据库事务为边界；共享缓存可重建；节点本地目录不保存唯一有效数据。" style="text;html=1;align=center;verticalAlign=middle;fontSize=16;fontColor=#586b7a;whiteSpace=wrap;" vertex="1" parent="8">
+          <mxGeometry x="25" y="275" width="850" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="13" value="异步任务执行层" style="swimlane;startSize=45;horizontal=1;html=1;rounded=1;fillColor=#f8f5fc;swimlaneFillColor=#ffffff;strokeColor=#b0a2c1;fontSize=20;fontStyle=1;fontColor=#4a3561;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="420" width="340" height="610" as="geometry"/>
+        </mxCell>
+        <mxCell id="14" value="派发 / 定时调度&#xa;数据库领取与去重&#xa;发布确认后完成派发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eee6f5;strokeColor=#9673a6;fontSize=18;fontColor=#14324b;" vertex="1" parent="13">
+          <mxGeometry x="30" y="70" width="280" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="15" value="RabbitMQ&#xa;解析 / 媒体 / 索引队列&#xa;消息只携带任务引用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5d6;strokeColor=#d6b656;fontSize=18;fontColor=#14324b;" vertex="1" parent="13">
+          <mxGeometry x="30" y="250" width="280" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="16" value="Worker 池 × N&#xa;浏览器 / 媒体 / OCR&#xa;按队列配置并发与资源&#xa;结果受 lease_token 约束" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eee6f5;strokeColor=#9673a6;fontSize=18;fontColor=#14324b;" vertex="1" parent="13">
+          <mxGeometry x="30" y="430" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="17" value="授权后的媒体请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;strokeColor=#74a782;fontSize=15;exitX=0.5;exitY=1;entryX=0.12;entryY=0;" edge="1" source="4" target="8" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#64748b;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="4" target="5" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="19" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#3a87bd;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="5" target="6" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="20" value="按源限流" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#94a3b8;fontSize=15;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="6" target="7" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="21" value="业务读写 / 共享会话 / 缓存" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#3a87bd;strokeWidth=2;fontSize=16;exitX=0.35;exitY=1;entryX=0.85;entryY=0;" edge="1" source="6" target="8" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="22" value="outbox" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#9673a6;fontSize=14;exitX=1;exitY=0.35;entryX=0;entryY=0.5;" edge="1" source="8" target="14" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="23" value="publisher confirm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#b99b3d;fontSize=14;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="14" target="15" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="24" value="领取 / 执行 / ACK" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#9673a6;fontSize=14;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="15" target="16" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="25" value="租约校验 · 数据与产物提交" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#74a782;strokeWidth=2;fontSize=16;exitX=0;exitY=0.5;entryX=0.8;entryY=1;" edge="1" source="16" target="8" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="760" y="920"/>
+              <mxPoint x="760" y="810"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" value="规划草案 · 尚未实现&#xa;先验证 2 API + 2 Worker；数据库、Redis、消息队列的高可用按阶段独立建设。" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=17;fontColor=#586b7a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="970" width="900" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
