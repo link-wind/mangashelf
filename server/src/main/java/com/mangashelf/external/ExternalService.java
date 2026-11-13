@@ -194,11 +194,10 @@ public class ExternalService {
         catalog.requireVisibleWork(user, workId);
         List<ExternalEpisode> eps = externals.listEpisodes(workId);
         if (eps.isEmpty()) return null;
-        var progress = externals.recentProgress(user.id(), 100).stream()
-                .filter(p -> p.workId().equals(workId)).findFirst();
-        int ordinal = progress.map(ExternalRepository.ProgressRow::ordinal)
+        var progress = externals.latestProgressForWork(user.id(), workId);
+        int ordinal = progress.map(ExternalRepository.ProgressHint::ordinal)
                 .orElse(eps.get(0).ordinal());
-        String line = progress.map(ExternalRepository.ProgressRow::lineName).orElse(null);
+        String line = progress.map(ExternalRepository.ProgressHint::lineName).orElse(null);
         ExternalEpisode chosen = eps.stream()
                 .filter(e -> e.ordinal() == ordinal)
                 .filter(e -> line == null || line.equals(e.lineName()))
@@ -208,33 +207,60 @@ public class ExternalService {
         return new PlayTarget(chosen.id(), chosen.ordinal(), chosen.lineName());
     }
 
-    // ── 观看进度（M10）──
+    // ── 观看进度（M10；按集统一路由目录/作品进度表）──
 
-    public ExternalRepository.WatchSnapshot saveProgress(CurrentUser user, UUID workId, int ordinal,
-                                                         UUID episodeId, long positionMs,
-                                                         Long durationMs, Integer expectedVersion) {
-        catalog.requireVisibleWork(user, workId);
+    public record EpisodeProgress(UUID episodeId, String targetKind, UUID targetId, int ordinal,
+                                  long positionMs, Long durationMs, int version,
+                                  java.time.Instant updatedAt) {}
+
+    /** 单条进度；无记录时返回版本 0 快照（客户端可直接作为首次写入的 expectedVersion）。 */
+    public EpisodeProgress progress(CurrentUser user, UUID episodeId) {
+        ExternalRepository.EpisodeTarget target = requireTarget(user, episodeId);
+        var stored = target.catalogItemId() != null
+                ? externals.findCatalogProgress(user.id(), target.catalogItemId(), target.ordinal())
+                : externals.findWorkProgress(user.id(), target.workId(), target.ordinal());
+        return view(episodeId, target, stored.orElse(
+                new ExternalRepository.StoredProgress(0L, null, 0, null)));
+    }
+
+    public EpisodeProgress saveProgress(CurrentUser user, UUID episodeId, long positionMs,
+                                        Long durationMs, Integer expectedVersion) {
         if (expectedVersion == null) {
             throw new ApiException(400, "PROGRESS_INVALID", "缺少 expectedVersion（首次写入传 0）。");
         }
+        ExternalRepository.EpisodeTarget target = requireTarget(user, episodeId);
         long position = Math.max(0, positionMs);
-        var version = externals.upsertProgress(user.id(), workId, ordinal, episodeId,
-                position, durationMs, expectedVersion);
+        var version = target.catalogItemId() != null
+                ? externals.upsertCatalogProgress(user.id(), target.catalogItemId(), target.ordinal(),
+                        episodeId, position, durationMs, expectedVersion)
+                : externals.upsertWorkProgress(user.id(), target.workId(), target.ordinal(),
+                        episodeId, position, durationMs, expectedVersion);
         if (version.isEmpty()) {
             throw new ApiException(409, "PROGRESS_CONFLICT", "进度已被其他设备更新，请刷新。",
-                    java.util.Map.of("current", progress(user, workId, ordinal)));
+                    java.util.Map.of("current", progress(user, episodeId)));
         }
-        return progress(user, workId, ordinal);
+        return progress(user, episodeId);
     }
 
-    /** 单条进度；无记录时返回版本 0 快照（客户端可直接作为首次写入的 expectedVersion）。 */
-    public ExternalRepository.WatchSnapshot progress(CurrentUser user, UUID workId, int ordinal) {
-        return externals.findProgress(user.id(), workId, ordinal)
-                .orElse(new ExternalRepository.WatchSnapshot(workId, ordinal, null, 0L, null, 0, null));
+    /** 目录条目优先：物化后剧集仍保留 catalog_item_id，进度键因此稳定。 */
+    private ExternalRepository.EpisodeTarget requireTarget(CurrentUser user, UUID episodeId) {
+        ExternalRepository.EpisodeTarget target = externals.episodeTarget(episodeId)
+                .orElseThrow(() -> new ApiException(404, "EPISODE_NOT_FOUND", "剧集不存在。"));
+        if (target.catalogItemId() == null) {
+            if (target.workId() == null) {
+                throw new ApiException(409, "EPISODE_UNBOUND", "剧集未绑定作品或目录条目。");
+            }
+            catalog.requireVisibleWork(user, target.workId());
+        }
+        return target;
     }
 
-    public List<ExternalRepository.ProgressRow> recentProgress(CurrentUser user, int limit) {
-        return externals.recentProgress(user.id(), Math.min(Math.max(limit, 1), 100));
+    private static EpisodeProgress view(UUID episodeId, ExternalRepository.EpisodeTarget target,
+                                        ExternalRepository.StoredProgress stored) {
+        boolean catalog = target.catalogItemId() != null;
+        return new EpisodeProgress(episodeId, catalog ? "catalog" : "work",
+                catalog ? target.catalogItemId() : target.workId(), target.ordinal(),
+                stored.positionMs(), stored.durationMs(), stored.version(), stored.updatedAt());
     }
 
     // ── 播放解析（M7 design.md D1/D4）──

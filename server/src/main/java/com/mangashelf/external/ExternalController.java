@@ -195,37 +195,7 @@ public class ExternalController {
                 request.episodeId(), request.timeMs(), request.content(), request.color());
     }
 
-    // ── 观看进度与历史（M10）──
-
-    public record ProgressRequest(@NotNull UUID workId, int ordinal, UUID episodeId,
-                                  long positionMs, Long durationMs, Integer expectedVersion) {}
-
-    @PutMapping("/external-progress")
-    public ExternalRepository.WatchSnapshot saveProgress(@AuthUser CurrentUser user,
-                                                         @Valid @RequestBody ProgressRequest request) {
-        return externals.saveProgress(user, request.workId(), request.ordinal(), request.episodeId(),
-                request.positionMs(), request.durationMs(), request.expectedVersion());
-    }
-
-    /** 单条进度：无记录返回版本 0 快照，播放器据此携带 expectedVersion。 */
-    @GetMapping("/me/external-progress")
-    public ExternalRepository.WatchSnapshot progress(@AuthUser CurrentUser user,
-                                                     @RequestParam UUID workId,
-                                                     @RequestParam int ordinal) {
-        return externals.progress(user, workId, ordinal);
-    }
-
-    @GetMapping("/me/continue-watching")
-    public List<ExternalRepository.ProgressRow> continueWatching(@AuthUser CurrentUser user,
-                                                                 @RequestParam(defaultValue = "6") int limit) {
-        return externals.recentProgress(user, limit);
-    }
-
-    @GetMapping("/me/watch-history")
-    public List<ExternalRepository.ProgressRow> watchHistory(@AuthUser CurrentUser user,
-                                                             @RequestParam(defaultValue = "50") int limit) {
-        return externals.recentProgress(user, limit);
-    }
+    // ── 观看进度与历史（M10；历史与续看已迁移到 /api/v1/me/history 与 /me/continue）──
 
     // ── Bangumi 元数据（M9）──
 

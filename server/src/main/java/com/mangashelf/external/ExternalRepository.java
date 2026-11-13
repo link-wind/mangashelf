@@ -119,7 +119,7 @@ public class ExternalRepository {
                 episodeMapper, catalogItemId);
     }
 
-    /** 入书库：把该目录条目的浏览态剧集收编到作品下。 */
+    /** 入书库：把该目录条目的浏览态剧集收编到作品下（两者互斥，由 CHECK 约束保证）。 */
     public int adoptEpisodes(UUID catalogItemId, UUID workId) {
         return jdbc.update("""
                 UPDATE external_episodes SET work_id = ?, catalog_item_id = NULL
@@ -160,75 +160,107 @@ public class ExternalRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    // ── 外部集观看进度（M10）──
+    // ── 外部集观看进度（M10；separate-favorites-and-history 起按集统一路由）──
 
-    public record WatchSnapshot(UUID workId, int ordinal, UUID episodeId, long positionMs,
-                                Long durationMs, int version, Instant updatedAt) {}
+    /** 剧集归属：目录条目优先（物化后仍保留 catalog_item_id，进度键稳定）。 */
+    public record EpisodeTarget(UUID workId, UUID catalogItemId, int ordinal) {}
+
+    /**
+     * 剧集归属：优先剧集自身的目录关联；物化后的剧集（catalog_item_id 已清空）
+     * 通过所属作品反查目录条目，使导入前后进度键一致。
+     */
+    public Optional<EpisodeTarget> episodeTarget(UUID episodeId) {
+        return jdbc.query("""
+                SELECT e.work_id, COALESCE(e.catalog_item_id, c.id) AS catalog_item_id, e.ordinal
+                  FROM external_episodes e
+                  LEFT JOIN external_catalog_items c ON c.work_id = e.work_id
+                 WHERE e.id = ?
+                """, (rs, i) -> new EpisodeTarget(rs.getObject("work_id", UUID.class),
+                rs.getObject("catalog_item_id", UUID.class), rs.getInt("ordinal")),
+                episodeId).stream().findFirst();
+    }
+
+    public record StoredProgress(long positionMs, Long durationMs, int version, Instant updatedAt) {}
 
     /** 版本条件写入：返回新版本；空表示版本不匹配或并发已创建（调用方按冲突处理）。 */
-    public Optional<Integer> upsertProgress(UUID userId, UUID workId, int ordinal, UUID episodeId,
-                                            long positionMs, Long durationMs, int expectedVersion) {
-        List<Integer> versions;
-        if (expectedVersion == 0) {
-            versions = jdbc.query("""
-                    INSERT INTO external_watch_progress
-                        (user_id, work_id, ordinal, episode_id, position_ms, duration_ms, version)
-                    VALUES (?, ?, ?, ?, ?, ?, 1)
-                    ON CONFLICT (user_id, work_id, ordinal) DO NOTHING
-                    RETURNING version
-                    """, (rs, i) -> rs.getInt(1), userId, workId, ordinal, episodeId,
-                    positionMs, durationMs);
-        } else {
-            versions = jdbc.query("""
-                    UPDATE external_watch_progress
-                       SET episode_id = ?, position_ms = ?, duration_ms = ?,
-                           version = version + 1, updated_at = now()
-                     WHERE user_id = ? AND work_id = ? AND ordinal = ? AND version = ?
-                    RETURNING version
-                    """, (rs, i) -> rs.getInt(1), episodeId, positionMs, durationMs,
-                    userId, workId, ordinal, expectedVersion);
-        }
+    public Optional<Integer> upsertWorkProgress(UUID userId, UUID workId, int ordinal, UUID episodeId,
+                                                long positionMs, Long durationMs, int expectedVersion) {
+        return upsertProgress(
+                "INSERT INTO external_watch_progress (user_id, work_id, ordinal, episode_id, position_ms, duration_ms, version) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (user_id, work_id, ordinal) DO NOTHING RETURNING version",
+                java.util.Arrays.asList(userId, workId, ordinal, episodeId, positionMs, durationMs),
+                "UPDATE external_watch_progress SET episode_id = ?, position_ms = ?, duration_ms = ?, "
+                        + "version = version + 1, updated_at = now() "
+                        + "WHERE user_id = ? AND work_id = ? AND ordinal = ? AND version = ? RETURNING version",
+                java.util.Arrays.asList(episodeId, positionMs, durationMs, userId, workId, ordinal, expectedVersion),
+                expectedVersion);
+    }
+
+    public Optional<Integer> upsertCatalogProgress(UUID userId, UUID itemId, int ordinal, UUID episodeId,
+                                                   long positionMs, Long durationMs, int expectedVersion) {
+        return upsertProgress(
+                "INSERT INTO catalog_watch_progress (user_id, catalog_item_id, ordinal, episode_id, position_ms, duration_ms, version) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (user_id, catalog_item_id, ordinal) DO NOTHING RETURNING version",
+                java.util.Arrays.asList(userId, itemId, ordinal, episodeId, positionMs, durationMs),
+                "UPDATE catalog_watch_progress SET episode_id = ?, position_ms = ?, duration_ms = ?, "
+                        + "version = version + 1, updated_at = now() "
+                        + "WHERE user_id = ? AND catalog_item_id = ? AND ordinal = ? AND version = ? RETURNING version",
+                java.util.Arrays.asList(episodeId, positionMs, durationMs, userId, itemId, ordinal, expectedVersion),
+                expectedVersion);
+    }
+
+    private Optional<Integer> upsertProgress(String insertSql, List<Object> insertArgs,
+                                             String updateSql, List<Object> updateArgs,
+                                             int expectedVersion) {
+        List<Integer> versions = expectedVersion == 0
+                ? jdbc.query(insertSql, (rs, i) -> rs.getInt(1), insertArgs.toArray())
+                : jdbc.query(updateSql, (rs, i) -> rs.getInt(1), updateArgs.toArray());
         return versions.stream().findFirst();
     }
 
-    public Optional<WatchSnapshot> findProgress(UUID userId, UUID workId, int ordinal) {
+    public Optional<StoredProgress> findWorkProgress(UUID userId, UUID workId, int ordinal) {
         return jdbc.query("""
-                SELECT work_id, ordinal, episode_id, position_ms, duration_ms, version, updated_at
+                SELECT position_ms, duration_ms, version, updated_at
                   FROM external_watch_progress
                  WHERE user_id = ? AND work_id = ? AND ordinal = ?
-                """, (rs, i) -> new WatchSnapshot(
-                        rs.getObject("work_id", UUID.class), rs.getInt("ordinal"),
-                        rs.getObject("episode_id", UUID.class), rs.getLong("position_ms"),
+                """, (rs, i) -> new StoredProgress(rs.getLong("position_ms"),
                         rs.getObject("duration_ms", Long.class), rs.getInt("version"),
                         rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
                 userId, workId, ordinal).stream().findFirst();
     }
 
-    public record ProgressRow(UUID workId, String workTitle, int ordinal, String episodeTitle,
-                              UUID episodeId, String lineName, String coverUrl,
-                              long positionMs, Long durationMs, int version, Instant updatedAt) {}
-
-    public List<ProgressRow> recentProgress(UUID userId, int limit) {
+    public Optional<StoredProgress> findCatalogProgress(UUID userId, UUID itemId, int ordinal) {
         return jdbc.query("""
-                SELECT p.work_id, w.title AS work_title, p.ordinal, e.title AS episode_title,
-                       p.episode_id, e.line_name,
-                       (SELECT c.cover_url FROM external_catalog_items c
-                         WHERE c.work_id = p.work_id AND c.cover_url <> '' LIMIT 1) AS cover_url,
-                       p.position_ms, p.duration_ms, p.version, p.updated_at
-                FROM external_watch_progress p
-                JOIN works w ON w.id = p.work_id
-                LEFT JOIN external_episodes e ON e.id = p.episode_id
-                WHERE p.user_id = ?
-                ORDER BY p.updated_at DESC
-                LIMIT ?
-                """, (rs, i) -> new ProgressRow(
-                        rs.getObject("work_id", UUID.class), rs.getString("work_title"),
-                        rs.getInt("ordinal"), rs.getString("episode_title"),
-                        rs.getObject("episode_id", UUID.class), rs.getString("line_name"),
-                        rs.getString("cover_url"), rs.getLong("position_ms"),
+                SELECT position_ms, duration_ms, version, updated_at
+                  FROM catalog_watch_progress
+                 WHERE user_id = ? AND catalog_item_id = ? AND ordinal = ?
+                """, (rs, i) -> new StoredProgress(rs.getLong("position_ms"),
                         rs.getObject("duration_ms", Long.class), rs.getInt("version"),
                         rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
-                userId, limit);
+                userId, itemId, ordinal).stream().findFirst();
+    }
+
+    public record ProgressHint(int ordinal, String lineName) {}
+
+    /** 作品最近观看位置：同时考虑作品进度与目录进度（物化后目录剧集仍走目录表）。 */
+    public Optional<ProgressHint> latestProgressForWork(UUID userId, UUID workId) {
+        return jdbc.query("""
+                SELECT x.ordinal, x.line_name
+                  FROM (
+                        SELECT p.ordinal, e.line_name, p.updated_at
+                          FROM external_watch_progress p
+                          LEFT JOIN external_episodes e ON e.id = p.episode_id
+                         WHERE p.user_id = ? AND p.work_id = ?
+                        UNION ALL
+                        SELECT cp.ordinal, e.line_name, cp.updated_at
+                          FROM catalog_watch_progress cp
+                          JOIN external_episodes e ON e.id = cp.episode_id
+                         WHERE cp.user_id = ? AND e.work_id = ?
+                       ) x
+                 ORDER BY x.updated_at DESC
+                 LIMIT 1
+                """, (rs, i) -> new ProgressHint(rs.getInt("ordinal"), rs.getString("line_name")),
+                userId, workId, userId, workId).stream().findFirst();
     }
 
     public boolean deleteEpisode(UUID id, UUID userId) {
