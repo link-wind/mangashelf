@@ -14,10 +14,15 @@ public record MangaShelfProperties(
         Jobs jobs,
         Processing processing,
         Embedding embedding,
-        Bangumi bangumi) {
+        Bangumi bangumi,
+        Redis redis) {
 
     /** Bangumi 元数据源（M9）：api.bgm.tv 官方接口；proxy 供网络受限环境选配。 */
     public record Bangumi(boolean enabled, String proxy) {
+    }
+
+    /** 共享缓存（redis-shared-cache-and-storage）：可开关；故障时降级为无缓存。 */
+    public record Redis(boolean enabled, String address, int commandTimeoutMs, int connectTimeoutMs) {
     }
 
     public record Embedding(boolean enabled, String modelPath, String tokenizerPath) {

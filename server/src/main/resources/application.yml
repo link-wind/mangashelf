@@ -66,6 +66,12 @@ mangashelf:
     path-style: true
     presign-ttl-seconds: ${MANGASHELF_PRESIGN_TTL_SECONDS:600}
 
+  redis:
+    enabled: ${MANGASHELF_REDIS_ENABLED:false}
+    address: ${MANGASHELF_REDIS_ADDRESS:localhost:6379}
+    command-timeout-ms: 1000
+    connect-timeout-ms: 500
+
   jobs:
     lease-seconds: ${MANGASHELF_JOB_LEASE_SECONDS:120}
     heartbeat-seconds: 30
