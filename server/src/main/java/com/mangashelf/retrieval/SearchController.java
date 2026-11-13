@@ -57,6 +57,7 @@ public class SearchController {
     }
 
     public record SearchRequest(@NotBlank @Size(max = 100) String q,
+                                String mode,
                                 Boolean withAnimation,
                                 Integer limit) {
     }
@@ -65,7 +66,7 @@ public class SearchController {
     public SearchService.SearchResult search(@AuthUser CurrentUser user,
                                              @Valid @RequestBody SearchRequest request) {
         TokenScopes.require(Scopes.SEARCH_READ);
-        return search.search(user, request.q(),
+        return search.search(user, request.q(), SearchService.Mode.parse(request.mode()),
                 Boolean.TRUE.equals(request.withAnimation()),
                 request.limit() == null || request.limit() <= 0 ? 10 : request.limit());
     }

@@ -43,20 +43,41 @@ public class SearchService {
                             String snippet, boolean hasAnimation) {
     }
 
-    public record SearchResult(String q, boolean semanticEnabled, List<SearchHit> hits) {
+    public record SearchResult(String q, String mode, boolean semanticEnabled, List<SearchHit> hits) {
+    }
+
+    /** 搜索模式（DESIGN 15.3 / distributed-evolution 4.3）：标题默认不运行模型。 */
+    public enum Mode {
+        TITLE, SEMANTIC;
+
+        /** 解析请求参数；未指定按标题模式（旧客户端行为）。 */
+        public static Mode parse(String raw) {
+            if (raw == null || raw.isBlank()) return TITLE;
+            return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "title" -> TITLE;
+                case "semantic" -> SEMANTIC;
+                default -> throw new com.mangashelf.config.ApiException(
+                        400, "INVALID_ARGUMENT", "未知搜索模式：" + raw + "（可选 title/semantic）");
+            };
+        }
     }
 
     public boolean semanticEnabled() {
         return embeddingModelProvider.getIfAvailable() != null;
     }
 
-    public SearchResult search(CurrentUser viewer, String q, boolean hasAnimation, int limit) {
+    public SearchResult search(CurrentUser viewer, String q, Mode mode, boolean hasAnimation, int limit) {
         int effectiveLimit = Math.min(limit, MAX_LIMIT);
-        // 两路召回（语义在 V6 后加入第三路）
+        // 语义模式要求模型可用；标题模式完全不触碰模型。
+        EmbeddingModel embedding = embeddingModelProvider.getIfAvailable();
+        if (mode == Mode.SEMANTIC && embedding == null) {
+            throw new com.mangashelf.config.ApiException(503, "SEMANTIC_UNAVAILABLE",
+                    "语义检索未配置 Embedding 模型；请使用标题检索。");
+        }
+        // 字面与标题两路召回；语义分支仅在显式语义模式下加入。
         List<RetrievalRepository.PageHit> chunkHits = retrievals.searchChunks(viewer.id(), q, effectiveLimit);
         List<RetrievalRepository.PageHit> semanticHits = List.of();
-        EmbeddingModel embedding = embeddingModelProvider.getIfAvailable();
-        if (embedding != null) {
+        if (mode == Mode.SEMANTIC) {
             float[] vec = embedding.embed("query: " + q);
             semanticHits = retrievals.searchChunksSemantic(viewer.id(), vectorString(vec), effectiveLimit);
         }
@@ -112,7 +133,7 @@ public class SearchService {
                         work.description(), animated));
             }
         }
-        return new SearchResult(q, semanticEnabled(), hits);
+        return new SearchResult(q, mode.name().toLowerCase(java.util.Locale.ROOT), semanticEnabled(), hits);
     }
 
     /** 作品行"有动画"：存在 PUBLISHED 动画的来源引用该作品的章节（实时判定，DESIGN 15.3）。 */
