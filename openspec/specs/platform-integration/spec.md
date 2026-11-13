@@ -58,3 +58,20 @@ scope 不足 MUST 返回 403 且不执行操作。Token 能力与用户自身权
 
 - **WHEN** 草稿经上传、验证并发布后客户端查询同键状态
 - **THEN** 回执含 revisionStatus=PUBLISHED 与 watch_url，站内可观看
+
+### Requirement: 多实例部署形态
+
+compose MUST 提供双 API 副本的部署定义（显式服务或等价机制），两个实例 MUST 共享
+数据库、Redis、对象存储与页图缓存卷，入口 MUST 通过 upstream 配置多个 API 上游，
+实例 MUST 用可区分的平台标识（MANGASHELF_PLATFORM_ID）便于日志排查。
+单实例部署 MUST NOT 因新增定义而改变默认行为。
+
+#### Scenario: 入口转发到两副本
+
+- **WHEN** 启用多实例入口配置
+- **THEN** 请求被转发到任一健康 API 副本；摘除一个副本后其余副本继续服务
+
+#### Scenario: 页图缓存共享卷
+
+- **WHEN** 两个 API 实例同时挂载哔哩缓存卷
+- **THEN** 任一实例下载的页图对另一实例可读（同一路径与键）
