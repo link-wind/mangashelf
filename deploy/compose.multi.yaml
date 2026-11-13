@@ -1,0 +1,51 @@
+# 多实例覆盖层（multi-instance-deployment）：在 full 栈之上增加第二个 API 副本。
+# 用法：
+#   docker compose -f compose.yaml --profile full,multi up -d --build
+# 验证完成后回退单实例：
+#   docker compose -f compose.yaml --profile full up -d
+#
+# 两个 API 共享数据库、Redis、对象存储与哔哩页图缓存卷；
+# 入口 upstream 启用 api-2 见 deploy/nginx/nginx.conf（取消注释后重建 web）。
+services:
+  api-2:
+    profiles: ["multi"]
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      MANGASHELF_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-mangashelf}
+      MANGASHELF_DB_USER: ${POSTGRES_USER:-mangashelf}
+      MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
+      MANGASHELF_RABBITMQ_ADDRESSES: rabbitmq:5672
+      MANGASHELF_S3_ENDPOINT: http://storage:9000
+      MANGASHELF_S3_BUCKET: ${S3_BUCKET:-mangashelf}
+      MANGASHELF_BROWSER_PROXY: ${MANGASHELF_BROWSER_PROXY:-}
+      MANGASHELF_COPYMANGA_PROXY: ${MANGASHELF_COPYMANGA_PROXY:-}
+      MANGASHELF_BILIBILI_PROXY: ${MANGASHELF_BILIBILI_PROXY:-}
+      MANGASHELF_BILIBILI_CACHE_ROOT: /opt/data/bilibili-http-cache
+      MANGASHELF_BILIBILI_CACHE_MAX_BYTES: ${MANGASHELF_BILIBILI_CACHE_MAX_BYTES:-536870912}
+      MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS: ${MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS:-1800}
+      MANGASHELF_BILIBILI_INDEX_TTL_SECONDS: ${MANGASHELF_BILIBILI_INDEX_TTL_SECONDS:-600}
+      MANGASHELF_BILIBILI_IMAGE_TTL_SECONDS: ${MANGASHELF_BILIBILI_IMAGE_TTL_SECONDS:-604800}
+      MANGASHELF_PLATFORM_ID: ${MANGASHELF_PLATFORM_ID_2:-mangashelf-api-2}
+      MANGASHELF_ADMIN_PASSWORD: ${MANGASHELF_ADMIN_PASSWORD:-}
+      MANGASHELF_REDIS_ENABLED: ${MANGASHELF_REDIS_ENABLED:-true}
+      MANGASHELF_REDIS_ADDRESS: redis:6379
+      MANGASHELF_DB_MIGRATE: "false"
+      MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
+      MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
+    volumes:
+      - ./server/models:/opt/models:ro
+      - bilibili-http-cache:/opt/data/bilibili-http-cache
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${MANGASHELF_API_PORT_2:-8081}:8080"
+    restart: unless-stopped
