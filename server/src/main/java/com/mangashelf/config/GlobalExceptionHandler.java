@@ -39,6 +39,15 @@ public class GlobalExceptionHandler {
                 .body(new ApiError("INVALID_ARGUMENT", "请求参数不合法。", currentRequestId(), details));
     }
 
+    /** 缺少必填查询参数等请求绑定失败返回 400，不落入通用 500。 */
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> handleMissingParameter(
+            org.springframework.web.bind.MissingServletRequestParameterException e) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("INVALID_ARGUMENT", "请求参数不合法。", currentRequestId(),
+                        Map.of("field", e.getParameterName(), "reason", "缺少必填参数")));
+    }
+
     /** 未匹配路由（含已退役端点）返回 404，不落入通用 500。 */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException e) {

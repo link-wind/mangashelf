@@ -21,40 +21,6 @@ public class LibraryService {
         this.catalog = catalog;
     }
 
-    public record ShelfItem(UUID workId, String title, String workStatus, String visibility,
-                            java.time.Instant entryCreatedAt, UUID lastChapterId,
-                            Integer lastPageOrdinal, java.time.Instant lastReadAt) {
-    }
-
-    public record ShelfView(List<ShelfItem> items, List<ContinueRow> continueReading) {
-    }
-
-    public record ContinueRow(UUID chapterId, UUID revisionId, int pageOrdinal,
-                              UUID workId, String workTitle) {
-    }
-
-    /** 重复加入返回既有条目，不重复创建（library-progress 规格）。 */
-    public boolean addToShelf(CurrentUser user, UUID workId) {
-        catalog.requireVisibleWork(user, workId);
-        return library.addEntry(user.id(), workId);
-    }
-
-    public void removeFromShelf(CurrentUser user, UUID workId) {
-        library.removeEntry(user.id(), workId);
-    }
-
-    public ShelfView shelf(CurrentUser user) {
-        List<ShelfItem> items = library.listShelf(user.id()).stream()
-                .map(e -> new ShelfItem(e.workId(), e.title(), e.workStatus(), e.visibility(),
-                        e.entryCreatedAt(), e.lastChapterId(), e.lastPageOrdinal(), e.lastReadAt()))
-                .toList();
-        List<ContinueRow> continueReading = library.listRecentProgress(user.id(), 5).stream()
-                .map(r -> new ContinueRow(r.chapterId(), r.revisionId(), r.pageOrdinal(),
-                        r.workId(), r.workTitle()))
-                .toList();
-        return new ShelfView(items, continueReading);
-    }
-
     public record ProgressSnapshot(UUID chapterId, UUID revisionId, int pageOrdinal, int version) {
     }
 

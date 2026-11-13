@@ -19,51 +19,6 @@ public class LibraryRepository {
         this.jdbc = jdbc;
     }
 
-    // ── 收藏 ──
-
-    public boolean addEntry(UUID userId, UUID workId) {
-        return jdbc.update("""
-                INSERT INTO library_entries (user_id, work_id) VALUES (?, ?)
-                ON CONFLICT (user_id, work_id) DO NOTHING
-                """, userId, workId) > 0;
-    }
-
-    public int removeEntry(UUID userId, UUID workId) {
-        return jdbc.update("DELETE FROM library_entries WHERE user_id = ? AND work_id = ?",
-                userId, workId);
-    }
-
-    public record ShelfEntry(UUID workId, String title, String workStatus, String visibility,
-                             Instant entryCreatedAt, UUID lastChapterId, Integer lastPageOrdinal,
-                             Instant lastReadAt) {
-    }
-
-    public List<ShelfEntry> listShelf(UUID userId) {
-        String sql = """
-                SELECT w.id AS work_id, w.title, w.status AS work_status, w.visibility,
-                       l.created_at AS entry_created_at,
-                       p.chapter_id AS last_chapter_id, p.page_ordinal AS last_page_ordinal,
-                       p.updated_at AS last_read_at
-                FROM library_entries l
-                JOIN works w ON w.id = l.work_id
-                LEFT JOIN reading_progress p ON p.user_id = l.user_id
-                    AND p.chapter_id IN (SELECT id FROM chapters WHERE work_id = w.id)
-                WHERE l.user_id = ?
-                ORDER BY l.created_at DESC
-                """;
-        return jdbc.query(sql, (rs, i) -> new ShelfEntry(
-                rs.getObject("work_id", UUID.class),
-                rs.getString("title"),
-                rs.getString("work_status"),
-                rs.getString("visibility"),
-                rs.getObject("entry_created_at", java.time.OffsetDateTime.class).toInstant(),
-                rs.getObject("last_chapter_id", UUID.class),
-                rs.getObject("last_page_ordinal") == null ? null : rs.getInt("last_page_ordinal"),
-                rs.getObject("last_read_at") == null ? null
-                        : rs.getObject("last_read_at", java.time.OffsetDateTime.class).toInstant()
-        ), userId);
-    }
-
     // ── 阅读进度（DESIGN 14.3）──
 
     /** 条件更新：版本匹配才覆盖并递增；返回新版本号，空即冲突。 */
@@ -95,29 +50,6 @@ public class LibraryRepository {
                 """, (rs, i) -> new ProgressRow(rs.getObject("chapter_id", UUID.class),
                 rs.getObject("chapter_revision_id", UUID.class), rs.getInt("page_ordinal"),
                 rs.getInt("version")), userId, chapterId).stream().findFirst();
-    }
-
-    public record ContinueRow(UUID chapterId, UUID revisionId, int pageOrdinal, UUID workId,
-                              String workTitle) {
-    }
-
-    /** 最近阅读（我的书架“继续阅读”，DESIGN 4）：按更新时间倒序。 */
-    public List<ContinueRow> listRecentProgress(UUID userId, int limit) {
-        String sql = """
-                SELECT p.chapter_id, p.chapter_revision_id, p.page_ordinal, w.id AS work_id, w.title
-                FROM reading_progress p
-                JOIN chapters c ON c.id = p.chapter_id
-                JOIN works w ON w.id = c.work_id
-                WHERE p.user_id = ?
-                ORDER BY p.updated_at DESC
-                LIMIT ?
-                """;
-        return jdbc.query(sql, (rs, i) -> new ContinueRow(
-                rs.getObject("chapter_id", UUID.class),
-                rs.getObject("chapter_revision_id", UUID.class),
-                rs.getInt("page_ordinal"),
-                rs.getObject("work_id", UUID.class),
-                rs.getString("title")), userId, limit);
     }
 
     public void requireChapterExists(UUID chapterId) {
