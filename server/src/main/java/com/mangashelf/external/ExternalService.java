@@ -210,11 +210,27 @@ public class ExternalService {
 
     // ── 观看进度（M10）──
 
-    public void saveProgress(CurrentUser user, UUID workId, int ordinal, UUID episodeId,
-                             long positionMs, Long durationMs) {
+    public ExternalRepository.WatchSnapshot saveProgress(CurrentUser user, UUID workId, int ordinal,
+                                                         UUID episodeId, long positionMs,
+                                                         Long durationMs, Integer expectedVersion) {
         catalog.requireVisibleWork(user, workId);
-        externals.upsertProgress(user.id(), workId, ordinal, episodeId,
-                Math.max(0, positionMs), durationMs);
+        if (expectedVersion == null) {
+            throw new ApiException(400, "PROGRESS_INVALID", "缺少 expectedVersion（首次写入传 0）。");
+        }
+        long position = Math.max(0, positionMs);
+        var version = externals.upsertProgress(user.id(), workId, ordinal, episodeId,
+                position, durationMs, expectedVersion);
+        if (version.isEmpty()) {
+            throw new ApiException(409, "PROGRESS_CONFLICT", "进度已被其他设备更新，请刷新。",
+                    java.util.Map.of("current", progress(user, workId, ordinal)));
+        }
+        return progress(user, workId, ordinal);
+    }
+
+    /** 单条进度；无记录时返回版本 0 快照（客户端可直接作为首次写入的 expectedVersion）。 */
+    public ExternalRepository.WatchSnapshot progress(CurrentUser user, UUID workId, int ordinal) {
+        return externals.findProgress(user.id(), workId, ordinal)
+                .orElse(new ExternalRepository.WatchSnapshot(workId, ordinal, null, 0L, null, 0, null));
     }
 
     public List<ExternalRepository.ProgressRow> recentProgress(CurrentUser user, int limit) {

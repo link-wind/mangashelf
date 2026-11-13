@@ -198,14 +198,21 @@ public class ExternalController {
     // ── 观看进度与历史（M10）──
 
     public record ProgressRequest(@NotNull UUID workId, int ordinal, UUID episodeId,
-                                  long positionMs, Long durationMs) {}
+                                  long positionMs, Long durationMs, Integer expectedVersion) {}
 
     @PutMapping("/external-progress")
-    public Map<String, Object> saveProgress(@AuthUser CurrentUser user,
-                                            @Valid @RequestBody ProgressRequest request) {
-        externals.saveProgress(user, request.workId(), request.ordinal(), request.episodeId(),
-                request.positionMs(), request.durationMs());
-        return Map.of("saved", true);
+    public ExternalRepository.WatchSnapshot saveProgress(@AuthUser CurrentUser user,
+                                                         @Valid @RequestBody ProgressRequest request) {
+        return externals.saveProgress(user, request.workId(), request.ordinal(), request.episodeId(),
+                request.positionMs(), request.durationMs(), request.expectedVersion());
+    }
+
+    /** 单条进度：无记录返回版本 0 快照，播放器据此携带 expectedVersion。 */
+    @GetMapping("/me/external-progress")
+    public ExternalRepository.WatchSnapshot progress(@AuthUser CurrentUser user,
+                                                     @RequestParam UUID workId,
+                                                     @RequestParam int ordinal) {
+        return externals.progress(user, workId, ordinal);
     }
 
     @GetMapping("/me/continue-watching")

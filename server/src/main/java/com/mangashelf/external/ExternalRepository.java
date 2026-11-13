@@ -162,23 +162,51 @@ public class ExternalRepository {
 
     // ── 外部集观看进度（M10）──
 
-    public void upsertProgress(UUID userId, UUID workId, int ordinal, UUID episodeId,
-                               long positionMs, Long durationMs) {
-        jdbc.update("""
-                INSERT INTO external_watch_progress
-                    (user_id, work_id, ordinal, episode_id, position_ms, duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (user_id, work_id, ordinal) DO UPDATE SET
-                    episode_id = EXCLUDED.episode_id,
-                    position_ms = EXCLUDED.position_ms,
-                    duration_ms = EXCLUDED.duration_ms,
-                    updated_at = now()
-                """, userId, workId, ordinal, episodeId, positionMs, durationMs);
+    public record WatchSnapshot(UUID workId, int ordinal, UUID episodeId, long positionMs,
+                                Long durationMs, int version, Instant updatedAt) {}
+
+    /** 版本条件写入：返回新版本；空表示版本不匹配或并发已创建（调用方按冲突处理）。 */
+    public Optional<Integer> upsertProgress(UUID userId, UUID workId, int ordinal, UUID episodeId,
+                                            long positionMs, Long durationMs, int expectedVersion) {
+        List<Integer> versions;
+        if (expectedVersion == 0) {
+            versions = jdbc.query("""
+                    INSERT INTO external_watch_progress
+                        (user_id, work_id, ordinal, episode_id, position_ms, duration_ms, version)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
+                    ON CONFLICT (user_id, work_id, ordinal) DO NOTHING
+                    RETURNING version
+                    """, (rs, i) -> rs.getInt(1), userId, workId, ordinal, episodeId,
+                    positionMs, durationMs);
+        } else {
+            versions = jdbc.query("""
+                    UPDATE external_watch_progress
+                       SET episode_id = ?, position_ms = ?, duration_ms = ?,
+                           version = version + 1, updated_at = now()
+                     WHERE user_id = ? AND work_id = ? AND ordinal = ? AND version = ?
+                    RETURNING version
+                    """, (rs, i) -> rs.getInt(1), episodeId, positionMs, durationMs,
+                    userId, workId, ordinal, expectedVersion);
+        }
+        return versions.stream().findFirst();
+    }
+
+    public Optional<WatchSnapshot> findProgress(UUID userId, UUID workId, int ordinal) {
+        return jdbc.query("""
+                SELECT work_id, ordinal, episode_id, position_ms, duration_ms, version, updated_at
+                  FROM external_watch_progress
+                 WHERE user_id = ? AND work_id = ? AND ordinal = ?
+                """, (rs, i) -> new WatchSnapshot(
+                        rs.getObject("work_id", UUID.class), rs.getInt("ordinal"),
+                        rs.getObject("episode_id", UUID.class), rs.getLong("position_ms"),
+                        rs.getObject("duration_ms", Long.class), rs.getInt("version"),
+                        rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
+                userId, workId, ordinal).stream().findFirst();
     }
 
     public record ProgressRow(UUID workId, String workTitle, int ordinal, String episodeTitle,
                               UUID episodeId, String lineName, String coverUrl,
-                              long positionMs, Long durationMs, Instant updatedAt) {}
+                              long positionMs, Long durationMs, int version, Instant updatedAt) {}
 
     public List<ProgressRow> recentProgress(UUID userId, int limit) {
         return jdbc.query("""
@@ -186,7 +214,7 @@ public class ExternalRepository {
                        p.episode_id, e.line_name,
                        (SELECT c.cover_url FROM external_catalog_items c
                          WHERE c.work_id = p.work_id AND c.cover_url <> '' LIMIT 1) AS cover_url,
-                       p.position_ms, p.duration_ms, p.updated_at
+                       p.position_ms, p.duration_ms, p.version, p.updated_at
                 FROM external_watch_progress p
                 JOIN works w ON w.id = p.work_id
                 LEFT JOIN external_episodes e ON e.id = p.episode_id
@@ -198,7 +226,7 @@ public class ExternalRepository {
                         rs.getInt("ordinal"), rs.getString("episode_title"),
                         rs.getObject("episode_id", UUID.class), rs.getString("line_name"),
                         rs.getString("cover_url"), rs.getLong("position_ms"),
-                        rs.getObject("duration_ms", Long.class),
+                        rs.getObject("duration_ms", Long.class), rs.getInt("version"),
                         rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
                 userId, limit);
     }
