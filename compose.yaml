@@ -81,6 +81,29 @@ services:
       timeout: 5s
       retries: 30
 
+  # ── 多实例（multi-instance-deployment）：一次性迁移步骤，跑完退出；失败码非零阻止发布 ──
+  migrate:
+    profiles: ["multi"]
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command:
+      [
+        "java", "-jar", "app.jar",
+        "--mangashelf.role=api",
+        "--mangashelf.migrate-only=true",
+        "--mangashelf.db-migrate=true",
+        "--mangashelf.embedding.enabled=false",
+      ]
+    environment:
+      MANGASHELF_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-mangashelf}
+      MANGASHELF_DB_USER: ${POSTGRES_USER:-mangashelf}
+      MANGASHELF_DB_PASSWORD: ${POSTGRES_PASSWORD:-mangashelf}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   # ── 全栈部署（M5）：--profile full 一键起完整栈；日常开发不受影响 ──
   api:
     profiles: ["full"]
@@ -106,6 +129,8 @@ services:
       MANGASHELF_ADMIN_PASSWORD: ${MANGASHELF_ADMIN_PASSWORD:-mangashelf-admin}
       MANGASHELF_REDIS_ENABLED: ${MANGASHELF_REDIS_ENABLED:-true}
       MANGASHELF_REDIS_ADDRESS: redis:6379
+      # 多实例下迁移由 migrate 一次性服务执行（multi-instance-deployment）
+      MANGASHELF_DB_MIGRATE: "false"
       MANGASHELF_EMBEDDING_MODEL_PATH: /opt/models/e5-small-v2.onnx
       MANGASHELF_EMBEDDING_TOKENIZER_PATH: /opt/models/tokenizer.json
     volumes:

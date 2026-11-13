@@ -11,7 +11,7 @@ spring:
     password: ${MANGASHELF_DB_PASSWORD:mangashelf}
 
   flyway:
-    enabled: true
+    enabled: ${MANGASHELF_DB_MIGRATE:true}
 
   rabbitmq:
     addresses: ${MANGASHELF_RABBITMQ_ADDRESSES:localhost:5672}
