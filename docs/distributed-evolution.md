@@ -448,3 +448,5 @@ K3s 小集群可以让三台 server 同时承载业务，但需要为控制平�
 | 4 | Redis 与共享存储 | 2.2、2.3 | 3 |
 | 5 | 多实例部署验证 | 第 5 节验收 + 9.4 步骤 | 1–4 |
 
+**2026-11-13 实施注记**：变更 2 按"先小后大"拆成两批。已建 `unify-progress-conflict-and-search`（搜索模式与筛选修复、四类进度统一版本冲突语义）；剩余 4.4（收藏/历史/续看三分离、浏览态播放进度、时刻表去物化、播放页合并）作为下一个变更 `separate-favorites-and-history`。变更 1 `retire-legacy-implementations` 已完成并提交。
+
