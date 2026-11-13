@@ -42,9 +42,7 @@ public record MangaShelfProperties(
             long leaseSeconds,
             long heartbeatSeconds,
             long dispatchIntervalMs,
-            int maxDispatchAttempts,
-            /** Worker 声明消费的队列（harden-job-lease-and-routing）；空列表不消费任何队列。 */
-            java.util.List<String> consumeQueues) {
+            int maxDispatchAttempts) {
     }
 
     public record Processing(

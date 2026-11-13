@@ -78,8 +78,6 @@ mangashelf:
     dispatch-interval-ms: 500
     recovery-interval-ms: 10000
     max-dispatch-attempts: 5
-    # Worker 声明消费的队列（harden-job-lease-and-routing）；index 默认关闭。
-    consume-queues: ${MANGASHELF_CONSUME_QUEUES:content.resolve,content.process}
 
   bangumi:
     enabled: ${MANGASHELF_BANGUMI_ENABLED:true}

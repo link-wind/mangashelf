@@ -34,7 +34,17 @@
 
 - `AnimationVerifyHandler` 的同类改造（上传出事务 + 租约校验）已在 tasks 列出但本次未执行
   （无真实动画核验样本；模式与 ChapterParseHandler 相同，follow-up 处理）。
-- `content.index` 队列已声明但 consume-queues 默认不含它（index.build 现无产生方）。
+
+## 2026-11-13 修复追记：index.build 消费回归
+
+- **回归**：队列拆分时把 Worker 消费从 process+index 收窄为 resolve+process，且误判
+  "index.build 现无产生方"——实际 `POST /chapter-revisions/{id}/indexes` 会创建该任务，
+  默认部署下索引构建会排队无人消费。
+- **修复尝试与回退**：先按 design 决策 6 实现"consume-queues 配置驱动容器注册"，
+  但 `@Bean` 返回 `List<SimpleMessageListenerContainer>` 的元素不受 Spring 生命周期管理，
+  容器创建后从不启动（真实环境 0 消费者证实）。最终回归三个显式 `@RabbitListener`
+  （resolve/process/index），移除不生效的 consume-queues 配置；按队列拆分 Worker 角色
+  留到有真实部署需求时再做。修复后三队列各 1 消费者（rabbitmqctl 验证）。
 - Worker 镜像以宿主 jar 组装验证（构建期 Maven 网络限制，同前变更）；服务器构建不受影响。
 - 过期 attempt 写入拒绝（STALE_LEASE）通过代码路径与编译验证，未构造真实竞态（需要
   精确的租约过期时序；恢复+幂等组合已覆盖等价语义）。

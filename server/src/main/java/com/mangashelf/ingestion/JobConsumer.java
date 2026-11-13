@@ -1,24 +1,23 @@
 package com.mangashelf.ingestion;
 
-import tools.jackson.databind.ObjectMapper;
+import com.mangashelf.config.RabbitTopologyConfig;
+import com.rabbitmq.client.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-
-import com.mangashelf.config.RabbitTopologyConfig;
-import com.rabbitmq.client.Channel;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
  * Worker 消费者（DESIGN 11.2）：结果与事件入库后确认消息。
- * 消费队列由配置声明（harden-job-lease-and-routing 决策 6），默认
- * content.resolve + content.process；index 默认关闭，按需加入 consume-queues。
+ * 三队列显式监听（content.resolve/process/index）——曾尝试按配置动态注册容器，
+ * 但 List 形式的 @Bean 不受 Spring 生命周期管理导致容器不启动，回归为显式监听；
+ * 按队列拆分 Worker 角色留到有真实部署需求时再做（distributed-evolution 9.7）。
  * 任务执行失败（已提交 FAILED）与重复通知同样确认；未预期异常按"重投无益"记录并确认，
  * 避免无限重投，真实中断恢复由租约恢复扫描补齐。
  */
@@ -46,7 +45,12 @@ public class JobConsumer {
         consume(message, channel);
     }
 
-    private void consume(Message message, Channel channel) throws IOException {
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_INDEX, ackMode = "MANUAL")
+    public void onContentIndexMessage(Message message, Channel channel) throws IOException {
+        consume(message, channel);
+    }
+
+    void consume(Message message, Channel channel) throws IOException {
         long tag = message.getMessageProperties().getDeliveryTag();
         try {
             JobMessage msg = objectMapper.readValue(
