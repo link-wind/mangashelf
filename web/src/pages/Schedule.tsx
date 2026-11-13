@@ -20,7 +20,6 @@ const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六'
 export default function Schedule() {
   const navigate = useNavigate()
   const [items, setItems] = useState<CalendarEntry[]>([])
-  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
@@ -32,16 +31,10 @@ export default function Schedule() {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  async function play(it: CalendarEntry) {
+  // 播放直接进入浏览态，不创建作品。
+  function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
-    if (!it.catalogItemId) return
-    setBusy(it.catalogItemId); setError('')
-    try {
-      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
-      navigate(`/works/${res.workId}`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加入书库失败')
-    } finally { setBusy(null) }
+    if (it.catalogItemId) navigate(`/browse/${it.catalogItemId}`)
   }
 
   const byDay = (day: number) => items
@@ -68,7 +61,7 @@ export default function Schedule() {
                 <span className="muted"> {list.length}</span>
               </header>
               {list.map(it => (
-                <ScheduleCard key={it.subjectId} it={it} busy={busy} onPlay={play} />
+                <ScheduleCard key={it.subjectId} it={it} onPlay={play} />
               ))}
               {list.length === 0 && <p className="muted" style={{ fontSize: 12 }}>—</p>}
             </section>
@@ -92,9 +85,8 @@ export default function Schedule() {
                   <div className="row-inline" style={{ marginTop: 8 }}>
                     {it.covered
                       ? <button style={{ fontSize: 12, padding: '4px 10px' }}
-                                disabled={busy === it.catalogItemId}
                                 onClick={() => void play(it)}>
-                          {busy === it.catalogItemId ? '处理中…' : (it.workId ? '打开' : '播放')}
+                          {it.workId ? '打开' : '播放'}
                         </button>
                       : <span className="muted" style={{ fontSize: 12 }}>资源未收录</span>}
                   </div>
@@ -108,10 +100,9 @@ export default function Schedule() {
   )
 }
 
-function ScheduleCard({ it, busy, onPlay }: {
+function ScheduleCard({ it, onPlay }: {
   it: CalendarEntry
-  busy: string | null
-  onPlay: (it: CalendarEntry) => Promise<void>
+  onPlay: (it: CalendarEntry) => void
 }) {
   return (
     <div className="schedule-item">
@@ -122,9 +113,8 @@ function ScheduleCard({ it, busy, onPlay }: {
         <div className="schedule-meta">
           {typeof it.rating === 'number' && it.rating > 0 && <span className="star">★ {it.rating.toFixed(1)}</span>}
           {it.covered
-            ? <button className="mini" disabled={busy === it.catalogItemId}
-                      onClick={() => void onPlay(it)}>
-                {busy === it.catalogItemId ? '…' : (it.workId ? '打开' : '播放')}
+            ? <button className="mini" onClick={() => void onPlay(it)}>
+                {it.workId ? '打开' : '播放'}
               </button>
             : <span className="muted">未收录</span>}
         </div>

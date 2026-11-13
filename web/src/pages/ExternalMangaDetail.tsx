@@ -68,6 +68,7 @@ export default function ExternalMangaDetail() {
   const [switchLoading, setSwitchLoading] = useState(false)
   const [switchError, setSwitchError] = useState('')
   const [sourceNames, setSourceNames] = useState<Record<string, string>>({})
+  const [favorited, setFavorited] = useState(false)
 
   const load = useCallback(async (language: string) => {
     if (!mangaId) return
@@ -81,6 +82,30 @@ export default function ExternalMangaDetail() {
   }, [mangaId, source])
 
   useEffect(() => { void load(lang) }, [lang, load])
+
+  useEffect(() => {
+    if (!mangaId) return
+    void api.get<{ source: string | null; mangaId: string | null }[]>('/api/v1/me/favorites?type=manga')
+      .then(list => setFavorited(list.some(f => f.source === source && f.mangaId === mangaId)))
+      .catch(() => { /* 收藏状态不可用不影响详情 */ })
+  }, [source, mangaId])
+
+  async function toggleFavorite() {
+    if (!mangaId) return
+    const base = `/api/v1/me/favorites/manga?source=${encodeURIComponent(source)}`
+      + `&mangaId=${encodeURIComponent(mangaId)}`
+    try {
+      if (favorited) {
+        await api.delete(base)
+        setFavorited(false)
+      } else {
+        await api.put(`${base}&title=${encodeURIComponent(detail?.manga.title ?? '')}`)
+        setFavorited(true)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '收藏操作失败')
+    }
+  }
 
   useEffect(() => {
     void api.get<SourceInfo[]>('/api/v1/manga-sources')
@@ -173,6 +198,9 @@ export default function ExternalMangaDetail() {
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
               : <span className="muted">暂无可读章节</span>}
+            <button className="btn ghost pill" onClick={() => void toggleFavorite()}>
+              {favorited ? '已收藏' : '收藏'}
+            </button>
             {officialLink}
             <Link className="btn ghost pill" to={officialBiliUrl ? '/manga' : '/manga-ext'}>
               {officialBiliUrl ? '返回漫画首页' : '返回搜索'}

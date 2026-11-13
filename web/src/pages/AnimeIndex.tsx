@@ -63,14 +63,17 @@ export default function AnimeIndex() {
     void load(null, activeQuery, id, true)
   }
 
-  async function materialize(item: CatalogItem, thenPlay: boolean) {
+  // 播放直接进入浏览态，不创建作品；收藏是独立操作。
+  function play(item: CatalogItem) {
+    navigate(`/browse/${item.id}`)
+  }
+
+  async function favorite(item: CatalogItem) {
     setBusyItem(item.id); setError('')
     try {
-      const res = await api.post<{ workId: string; created: boolean }>(`/api/v1/catalog-items/${item.id}/materialize`, {})
-      if (thenPlay) navigate(`/works/${res.workId}`)
-      else { navigate(`/works/${res.workId}`) }
+      await api.put(`/api/v1/me/favorites/catalog/${item.id}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加入书库失败')
+      setError(e instanceof Error ? e.message : '收藏失败')
     } finally { setBusyItem(null) }
   }
 
@@ -79,7 +82,7 @@ export default function AnimeIndex() {
       <div className="watch-title"><h1>番剧索引</h1></div>
       <div className="watch-meta">
         <span>本季新番来自 Bangumi 日历 · 资源目录共 {total} 部</span>
-        <Link to="/library">我的书库 →</Link>
+        <Link to="/shelf">我的收藏 →</Link>
       </div>
 
       <div style={{ marginBottom: 30 }}>
@@ -129,14 +132,11 @@ export default function AnimeIndex() {
                   ? <Link className="btn ghost" style={{ fontSize: 12, padding: '4px 10px' }}
                           to={`/works/${it.workId}`}>打开</Link>
                   : <>
-                      <button style={{ fontSize: 12, padding: '4px 10px' }}
-                              disabled={busyItem === it.id}
-                              onClick={() => void materialize(it, false)}>
-                        {busyItem === it.id ? '处理中…' : '加入书库'}
-                      </button>
                       <button className="ghost" style={{ fontSize: 12, padding: '4px 10px' }}
                               disabled={busyItem === it.id}
-                              onClick={() => void materialize(it, true)}>播放</button>
+                              onClick={() => void favorite(it)}>收藏</button>
+                      <button style={{ fontSize: 12, padding: '4px 10px' }}
+                              onClick={() => play(it)}>播放</button>
                     </>
                 }
               </div>

@@ -13,17 +13,26 @@ interface CatalogItem {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
   workId: string | null; bangumiSubjectId: number | null
 }
-interface ProgressRow {
-  workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
-  episodeId: string | null; lineName: string | null; coverUrl: string | null
-  positionMs: number; durationMs: number | null; updatedAt: string
+interface ContinueRow {
+  type: 'work-read' | 'manga-read' | 'animation-watch' | 'external-watch'
+  title: string
+  coverUrl: string | null
+  workId: string | null
+  catalogItemId: string | null
+  chapterId: string | null
+  revisionId: string | null
+  pageOrdinal: number | null
+  episodeId: string | null
+  ordinal: number | null
+  positionMs: number | null
+  durationMs: number | null
 }
 interface MangaCard {
   id: string; title: string; description: string; visibility: string
   chapterCount: number; latestOrdinal: number | null; coverUrl: string | null; updatedAt: string
 }
 interface MangaContinue {
-  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; workTitle: string
+  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; title: string
 }
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
@@ -43,7 +52,7 @@ const CATEGORIES = [
 export default function Home() {
   const [calendar, setCalendar] = useState<CalendarEntry[]>([])
   const [updates, setUpdates] = useState<CatalogItem[]>([])
-  const [continueList, setContinueList] = useState<ProgressRow[]>([])
+  const [continueList, setContinueList] = useState<ContinueRow[]>([])
   const [works, setWorks] = useState<WorkCard[]>([])
   const [manga, setManga] = useState<MangaCard[]>([])
   const [mangaContinue, setMangaContinue] = useState<MangaContinue[]>([])
@@ -52,20 +61,24 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       try {
-        const [cal, cat, prog, page, mg, lib] = await Promise.all([
+        const [cal, cat, cont, page, mg] = await Promise.all([
           api.get<CalendarEntry[]>('/api/v1/calendar'),
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
-          api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=6'),
+          api.get<ContinueRow[]>('/api/v1/me/continue?limit=12'),
           api.get<{ items: WorkCard[] }>('/api/v1/works?limit=12'),
           api.get<{ items: MangaCard[] }>('/api/v1/manga?limit=12'),
-          api.get<{ continueReading: MangaContinue[] }>('/api/v1/me/library'),
         ])
         setCalendar(cal)
         setUpdates(cat.items)
-        setContinueList(prog)
+        setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 6))
         setWorks(page.items)
         setManga(mg.items)
-        setMangaContinue(lib.continueReading.slice(0, 6))
+        setMangaContinue(cont.filter(r => r.type === 'work-read' && r.chapterId && r.revisionId)
+          .slice(0, 6)
+          .map(r => ({
+            chapterId: r.chapterId as string, revisionId: r.revisionId as string,
+            pageOrdinal: r.pageOrdinal ?? 1, workId: r.workId as string, title: r.title,
+          })))
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       }
@@ -104,20 +117,22 @@ export default function Home() {
           </div>
           <div className="hscroll">
             {continueList.map(r => (
-              <Link key={`${r.workId}-${r.ordinal}`}
-                    to={r.episodeId ? `/works/${r.workId}/external/${r.episodeId}` : `/works/${r.workId}`}
+              <Link key={`${r.workId ?? r.catalogItemId}-${r.episodeId}`}
+                    to={r.workId
+                      ? `/works/${r.workId}/external/${r.episodeId}`
+                      : `/browse/${r.catalogItemId}/${r.episodeId}`}
                     className="work-card">
                 <div className="cover">
                   {r.coverUrl
-                    ? <img src={r.coverUrl} alt={r.workTitle} loading="lazy" decoding="async"
+                    ? <img src={r.coverUrl} alt={r.title} loading="lazy" decoding="async"
                            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    : <span className="cover-initial">{r.workTitle.slice(0, 1)}</span>}
-                  <span className="badge-anim">{r.durationMs
+                    : <span className="cover-initial">{r.title.slice(0, 1)}</span>}
+                  <span className="badge-anim">{r.durationMs && r.positionMs
                     ? Math.min(99, Math.round(r.positionMs / r.durationMs * 100)) + '%'
                     : '继续'}</span>
                 </div>
                 <div className="work-card-body">
-                  <div className="work-card-title clamp">{r.workTitle}</div>
+                  <div className="work-card-title clamp">{r.title}</div>
                   <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
                 </div>
               </Link>
@@ -139,11 +154,11 @@ export default function Home() {
                       to={`/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal}`}
                       className="work-card">
                   <div className="cover">
-                    <span className="cover-initial">{r.workTitle.slice(0, 1)}</span>
+                    <span className="cover-initial">{r.title.slice(0, 1)}</span>
                     <span className="badge-anim">读到 {r.pageOrdinal} 页</span>
                   </div>
                   <div className="work-card-body">
-                    <div className="work-card-title clamp">{r.workTitle}</div>
+                    <div className="work-card-title clamp">{r.title}</div>
                     <div className="work-card-meta"><span>继续阅读</span></div>
                   </div>
                 </Link>
@@ -268,27 +283,18 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
     return () => clearInterval(t)
   }, [items.length])
 
-  async function play(it: CalendarEntry) {
+  // 播放直接进入浏览态，不创建作品（separate-favorites-and-history）。
+  function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
     if (!it.catalogItemId) { navigate('/anime'); return }
-    setBusy(it.catalogItemId)
-    try {
-      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
-      navigate(`/works/${res.workId}`)
-    } catch { /* 保留在当前页 */ } finally { setBusy(null) }
+    navigate(`/browse/${it.catalogItemId}`)
   }
 
   async function subscribe(it: CalendarEntry) {
     if (!it.catalogItemId) return
     setBusy(it.catalogItemId)
     try {
-      let workId = it.workId
-      if (!workId) {
-        const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
-        workId = res.workId
-      }
-      await api.put(`/api/v1/me/library/${workId}`)
-      navigate(`/works/${workId}`)
+      await api.put(`/api/v1/me/favorites/catalog/${it.catalogItemId}`)
     } catch { /* 保留在当前页 */ } finally { setBusy(null) }
   }
 

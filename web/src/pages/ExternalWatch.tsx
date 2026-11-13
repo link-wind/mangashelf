@@ -1,33 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import Player, { type DanmakuItem } from '../components/Player'
+import { useEpisodePlayback, type PlaybackStatus } from '../useEpisodePlayback'
 
 interface BoundEpisode {
   id: string; sourceId: string; sourceName: string; title: string
   episodeUrl: string; ordinal: number; lineName: string; lineRank: number
   episodeType: 'MAIN' | 'EXTRA'
 }
-interface ResolveStatus {
-  jobId: string | null; jobState: string
-  playUrl: string | null; playKind: string | null
-  resolvedAt: string | null; errorCode: string | null; errorMessage: string | null
-}
-interface ProgressRow {
-  workId: string; ordinal: number; episodeId: string | null
-  positionMs: number; durationMs: number | null; version: number; updatedAt: string | null
-}
-
-const RESOLVE_POLL_MS = 2000
-const RESOLVE_MAX_MS = 90_000
 
 /** 外部集观看页：多线路 + 正片/特典 + 服务端进度 + 自定义播放器与弹幕（M10–M13）。 */
 export default function ExternalWatch() {
   const { workId, episodeId } = useParams()
   const navigate = useNavigate()
   const [episodes, setEpisodes] = useState<BoundEpisode[]>([])
-  const [status, setStatus] = useState<ResolveStatus | null>(null)
-  const [savedProgress, setSavedProgress] = useState<ProgressRow | null>(null)
   const [lineName, setLineName] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [loadError, setLoadError] = useState('')
@@ -36,13 +23,8 @@ export default function ExternalWatch() {
   const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(
     () => localStorage.getItem('ms-danmaku') !== 'off')
   const [sending, setSending] = useState(false)
-  const [progressNotice, setProgressNotice] = useState('')
-  // 进度版本（unify-progress-conflict-and-search）：单飞行写入 + 最新位置合并。
-  const versionRef = useRef(0)
-  const versionOrdinalRef = useRef(-1)
-  const pendingRef = useRef<{ id: string; ordinal: number; positionMs: number } | null>(null)
-  const savingRef = useRef(false)
-  const lastConflictRef = useRef(0)
+  const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
+    useEpisodePlayback(episodeId)
   const current = episodes.find(e => e.id === episodeId) ?? null
 
   useEffect(() => {
@@ -60,98 +42,18 @@ export default function ExternalWatch() {
     })()
   }, [workId])
 
-  // 单集进度：拿到版本供写入携带；无记录时服务端返回版本 0。
-  useEffect(() => {
-    if (!workId || !current) { setSavedProgress(null); versionRef.current = 0; versionOrdinalRef.current = -1; return }
-    let cancelled = false
-    pendingRef.current = null
-    versionOrdinalRef.current = current.ordinal
-    void api.get<ProgressRow>(`/api/v1/me/external-progress?workId=${workId}&ordinal=${current.ordinal}`)
-      .then(row => { if (!cancelled) { setSavedProgress(row); versionRef.current = row.version } })
-      .catch(() => { if (!cancelled) { setSavedProgress(null); versionRef.current = 0 } })
-    return () => { cancelled = true }
-  }, [workId, current?.ordinal])
-
-  const notifyConflict = useCallback(() => {
-    const now = Date.now()
-    if (now - lastConflictRef.current < 30_000) return
-    lastConflictRef.current = now
-    setProgressNotice('其他设备已更新进度，已对齐版本继续保存')
-    window.setTimeout(() => setProgressNotice(''), 4000)
-  }, [])
-
-  const flushProgress = useCallback(() => {
-    if (savingRef.current) return
-    savingRef.current = true
-    void (async () => {
-      try {
-        while (pendingRef.current) {
-          const next = pendingRef.current
-          pendingRef.current = null
-          try {
-            const res = await api.put<{ version: number }>('/api/v1/external-progress', {
-              workId, ordinal: next.ordinal, episodeId: next.id,
-              positionMs: next.positionMs, durationMs: null,
-              expectedVersion: versionRef.current,
-            })
-            if (versionOrdinalRef.current === next.ordinal) versionRef.current = res.version
-          } catch (e) {
-            if (e instanceof ApiError && e.code === 'PROGRESS_CONFLICT') {
-              const cur = (e.details?.current ?? {}) as { version?: number }
-              if (typeof cur.version === 'number' && versionOrdinalRef.current === next.ordinal) {
-                versionRef.current = cur.version
-              }
-              notifyConflict()
-            }
-          }
-        }
-      } finally { savingRef.current = false }
-    })()
-  }, [workId, notifyConflict])
-
   useEffect(() => {
     if (current) setLineName(current.lineName)
   }, [current?.id])
 
-  // 换集：清解析状态、拉弹幕
+  // 换集拉弹幕（解析与进度由共享 hook 处理）
   useEffect(() => {
-    setStatus(null)
-    if (!episodeId) return
-    void resolveAndPlay(episodeId)
     if (workId && current) {
       void api.get<DanmakuItem[]>(`/api/v1/danmaku?workId=${workId}&ordinal=${current.ordinal}`)
         .then(setDanmakuItems)
         .catch(() => setDanmakuItems([]))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [episodeId, current?.ordinal])
-
-  const resolveAndPlay = useCallback(async (id: string) => {
-    try {
-      let st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`)
-      if (!st.playUrl) {
-        await api.post<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`, {})
-        const startedAt = Date.now()
-        for (;;) {
-          if (Date.now() - startedAt > RESOLVE_MAX_MS) {
-            st = { jobId: null, jobState: 'FAILED', playUrl: null, playKind: null, resolvedAt: null,
-                   errorCode: 'RESOLVE_TIMEOUT', errorMessage: '解析超时，请稍后重试' }
-            break
-          }
-          st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`)
-          if (st.playUrl || st.jobState === 'FAILED' || st.errorCode) break
-          await new Promise(r => setTimeout(r, RESOLVE_POLL_MS))
-        }
-      }
-      setStatus(prev => (episodeId === id ? st : prev))
-    } catch (e) {
-      setStatus({
-        jobId: null, jobState: 'FAILED', playUrl: null, playKind: null, resolvedAt: null,
-        errorCode: 'RESOLVE_ERROR',
-        errorMessage: e instanceof ApiError ? e.message : '解析请求失败',
-      })
-    }
-  }, [episodeId])
+  }, [workId, current?.ordinal])
 
   function toggleDanmaku() {
     setDanmakuEnabled(v => {
@@ -198,10 +100,6 @@ export default function ExternalWatch() {
   if (loadError) return <main className="watch-page"><p className="error">{loadError}</p></main>
   if (!current) return <main className="watch-page page-center">加载中…</main>
 
-  const resolving = !status || (!status.playUrl && !status.errorCode
-    && (status.jobState === 'QUEUED' || status.jobState === 'RUNNING' || status.jobState === 'NONE'))
-  const failed = !!status?.errorCode
-
   return (
     <main className="watch-page">
       <div className="watch-title">
@@ -213,20 +111,16 @@ export default function ExternalWatch() {
         <Link to={`/works/${workId}`}>← 返回作品</Link>
       </div>
 
-      {progressNotice && <p className="muted" role="status" style={{ margin: '6px 0 10px' }}>{progressNotice}</p>}
+      {notice && <p className="muted" role="status" style={{ margin: '6px 0 10px' }}>{notice}</p>}
       <div className="watch-layout">
         <div>
           <Player
             src={status?.playUrl ?? null}
             kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
-            resumeMs={savedProgress?.positionMs ?? 0}
-            onProgress={(ms) => {
-              if (!workId || !current) return
-              pendingRef.current = { id: current.id, ordinal: current.ordinal, positionMs: ms }
-              flushProgress()
-            }}
+            resumeMs={resumeMs}
+            onProgress={saveProgress}
             onEnded={() => next && goto(next.id)}
-            onFatal={() => void resolveAndPlay(current.id)}
+            onFatal={() => void resolve(current.id)}
             danmaku={{
               items: danmakuItems,
               enabled: danmakuEnabled,
@@ -247,7 +141,7 @@ export default function ExternalWatch() {
                 <div>
                   <div className="big">解析失败</div>
                   <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
-                  <button style={{ marginTop: 12 }} onClick={() => void resolveAndPlay(current.id)}>重试解析</button>
+                  <button style={{ marginTop: 12 }} onClick={() => void resolve(current.id)}>重试解析</button>
                 </div>
               </div>
             ) : undefined}
@@ -255,7 +149,7 @@ export default function ExternalWatch() {
           <div className="watch-actions">
             <button className="ghost" disabled={!prev} onClick={() => prev && goto(prev.id)}>← 上一集</button>
             <button className="ghost" disabled={!next} onClick={() => next && goto(next.id)}>下一集 →</button>
-            <button className="ghost" onClick={() => void resolveAndPlay(current.id)}>重新解析</button>
+            <button className="ghost" onClick={() => void resolve(current.id)}>重新解析</button>
             <a className="btn ghost" href={current.episodeUrl} target="_blank" rel="noopener noreferrer">跳转原站</a>
             {status?.playKind && <span className="muted">流类型 {status.playKind === 'hls' ? 'HLS' : 'MP4'}</span>}
           </div>
@@ -305,7 +199,7 @@ export default function ExternalWatch() {
   )
 }
 
-function resolveText(st: ResolveStatus | null): string {
+function resolveText(st: PlaybackStatus | null): string {
   if (!st) return '待解析'
   if (st.playUrl) return '已就绪'
   if (st.errorCode) return `失败（${st.errorMessage ?? st.errorCode}）`

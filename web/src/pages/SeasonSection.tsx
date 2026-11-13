@@ -23,7 +23,6 @@ export default function SeasonSection({ layout = 'grid', limit }: {
 }) {
   const navigate = useNavigate()
   const [items, setItems] = useState<CalendarEntry[]>([])
-  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
@@ -35,16 +34,9 @@ export default function SeasonSection({ layout = 'grid', limit }: {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  async function play(it: CalendarEntry) {
+  function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
-    if (!it.catalogItemId) return
-    setBusy(it.catalogItemId); setError('')
-    try {
-      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${it.catalogItemId}/materialize`, {})
-      navigate(`/works/${res.workId}`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加入书库失败')
-    } finally { setBusy(null) }
+    if (it.catalogItemId) navigate(`/browse/${it.catalogItemId}`)
   }
 
   const shown = limit ? items.slice(0, limit) : items
@@ -85,9 +77,8 @@ export default function SeasonSection({ layout = 'grid', limit }: {
               <div className="row-inline" style={{ marginTop: 8 }}>
                 {it.covered
                   ? <button style={{ fontSize: 12, padding: '4px 10px' }}
-                            disabled={busy === it.catalogItemId}
-                            onClick={() => void play(it)}>
-                      {busy === it.catalogItemId ? '处理中…' : (it.workId ? '打开' : '播放')}
+                            onClick={() => play(it)}>
+                      {it.workId ? '打开' : '播放'}
                     </button>
                   : <span className="muted" style={{ fontSize: 12 }}>资源未收录</span>}
               </div>

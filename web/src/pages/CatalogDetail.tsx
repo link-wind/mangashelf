@@ -17,13 +17,14 @@ interface CatalogDetail {
 
 const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
-/** 目录条目详情（M11）：封面/Bangumi 简介/线路概览 + 加入书库或播放。 */
+/** 目录条目详情（M11）：播放不创建作品；收藏是独立操作，导入仅用于编辑或发布。 */
 export default function CatalogDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [detail, setDetail] = useState<CatalogDetail | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [favorited, setFavorited] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -35,6 +36,28 @@ export default function CatalogDetail() {
   }, [id])
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    if (!id) return
+    void api.get<{ catalogItemId: string | null }[]>('/api/v1/me/favorites?type=catalog')
+      .then(list => setFavorited(list.some(f => f.catalogItemId === id)))
+      .catch(() => { /* 收藏状态不可用不影响详情 */ })
+  }, [id])
+
+  async function toggleFavorite() {
+    if (!id) return
+    try {
+      if (favorited) {
+        await api.delete(`/api/v1/me/favorites/catalog/${id}`)
+        setFavorited(false)
+      } else {
+        await api.put(`/api/v1/me/favorites/catalog/${id}`)
+        setFavorited(true)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '收藏操作失败')
+    }
+  }
+
   async function materialize() {
     if (!id) return
     setBusy(true)
@@ -42,7 +65,7 @@ export default function CatalogDetail() {
       const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${id}/materialize`, {})
       navigate(`/works/${res.workId}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加入书库失败')
+      setError(e instanceof Error ? e.message : '导入失败')
     } finally { setBusy(false) }
   }
 
@@ -73,14 +96,17 @@ export default function CatalogDetail() {
           )}
           {detail.summary && <p className="detail-summary">{detail.summary}</p>}
           <div className="row-inline" style={{ marginTop: 14 }}>
-            {item.workId
-              ? <Link className="btn" to={`/works/${item.workId}`}>打开作品</Link>
-              : <>
-                  <Link className="btn" to={`/browse/${item.id}`}>立即播放</Link>
-                  <button className="ghost" disabled={busy} onClick={() => void materialize()}>
-                    {busy ? '处理中…' : '加入书库'}
-                  </button>
-                </>}
+            <Link className="btn" to={`/browse/${item.id}`}>立即播放</Link>
+            <button className="ghost" onClick={() => void toggleFavorite()}>
+              {favorited ? '已收藏' : '收藏'}
+            </button>
+            {item.workId && <Link className="btn ghost" to={`/works/${item.workId}`}>打开作品</Link>}
+            {!item.workId && (
+              <button className="ghost" disabled={busy} onClick={() => void materialize()}
+                      title="仅用于编辑或发布：创建作品并收编剧集">
+                {busy ? '处理中…' : '导入为我的作品'}
+              </button>
+            )}
             <Link className="btn ghost" to="/anime">返回索引</Link>
           </div>
         </div>

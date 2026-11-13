@@ -36,7 +36,7 @@ export default function MangaDetailPage() {
   async function addToShelf() {
     if (!id) return
     try {
-      await api.put(`/api/v1/me/library/${id}`)
+      await api.put(`/api/v1/me/favorites/work/${id}`)
       setNotice('已加入收藏')
       setTimeout(() => setNotice(''), 2500)
     } catch (e) {

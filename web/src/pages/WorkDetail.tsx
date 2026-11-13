@@ -65,7 +65,7 @@ export default function WorkDetail() {
 
   async function addToShelf() {
     try {
-      await api.put(`/api/v1/me/library/${id}`)
+      await api.put(`/api/v1/me/favorites/work/${id}`)
       setError('')
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '操作失败')

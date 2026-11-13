@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import Player from '../components/Player'
+import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BrowseEpisode {
   id: string; title: string; ordinal: number; lineName: string
@@ -12,28 +13,21 @@ interface Item {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number; workId: string | null
 }
 interface BrowseEpisodes { item: Item; lines: BrowseLine[] }
-interface ResolveStatus {
-  jobId: string | null; jobState: string
-  playUrl: string | null; playKind: string | null
-  errorCode: string | null; errorMessage: string | null
-}
-
-const RESOLVE_POLL_MS = 2000
-const RESOLVE_MAX_MS = 90_000
 
 /**
- * 浏览态播放（M20）：直接播目录条目的剧集，不创建作品。
- * 只有点「加入书库」才物化（把剧集收编到作品下）。
+ * 浏览态播放（M20）：直接播目录条目的剧集，不创建作品；
+ * 进度按目录条目 + 集号保存（separate-favorites-and-history）。
  */
 export default function BrowseWatch() {
   const { itemId, episodeId } = useParams()
   const navigate = useNavigate()
   const [data, setData] = useState<BrowseEpisodes | null>(null)
-  const [status, setStatus] = useState<ResolveStatus | null>(null)
   const [line, setLine] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [favorited, setFavorited] = useState(false)
+  const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
+    useEpisodePlayback(episodeId)
 
   useEffect(() => {
     void (async () => {
@@ -44,6 +38,13 @@ export default function BrowseWatch() {
         setError(e instanceof ApiError ? e.message : '加载剧集失败')
       }
     })()
+  }, [itemId])
+
+  useEffect(() => {
+    if (!itemId) return
+    void api.get<{ catalogItemId: string | null }[]>('/api/v1/me/favorites?type=catalog')
+      .then(list => setFavorited(list.some(f => f.catalogItemId === itemId)))
+      .catch(() => { /* 收藏状态不可用不影响播放 */ })
   }, [itemId])
 
   // 无集号时跳到第一集
@@ -63,45 +64,19 @@ export default function BrowseWatch() {
     if (current) setLine(current.lineName)
   }, [current?.id])
 
-  const resolve = useCallback(async (id: string) => {
-    setStatus(null)
-    try {
-      let st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`)
-      if (!st.playUrl) {
-        await api.post(`/api/v1/external-episodes/${id}/resolve`, {})
-        const started = Date.now()
-        for (;;) {
-          if (Date.now() - started > RESOLVE_MAX_MS) {
-            st = { jobId: null, jobState: 'FAILED', playUrl: null, playKind: null,
-                   errorCode: 'RESOLVE_TIMEOUT', errorMessage: '解析超时，请稍后重试' }
-            break
-          }
-          st = await api.get<ResolveStatus>(`/api/v1/external-episodes/${id}/resolve`)
-          if (st.playUrl || st.jobState === 'FAILED' || st.errorCode) break
-          await new Promise(r => setTimeout(r, RESOLVE_POLL_MS))
-        }
-      }
-      setStatus(st)
-    } catch (e) {
-      setStatus({ jobId: null, jobState: 'FAILED', playUrl: null, playKind: null,
-                  errorCode: 'RESOLVE_ERROR',
-                  errorMessage: e instanceof ApiError ? e.message : '解析请求失败' })
-    }
-  }, [])
-
-  useEffect(() => {
-    if (episodeId) void resolve(episodeId)
-  }, [episodeId, resolve])
-
-  async function addToLibrary() {
+  async function toggleFavorite() {
     if (!itemId) return
-    setBusy(true)
     try {
-      const res = await api.post<{ workId: string }>(`/api/v1/catalog-items/${itemId}/materialize`, {})
-      navigate(`/works/${res.workId}/external/${episodeId}`, { replace: true })
+      if (favorited) {
+        await api.delete(`/api/v1/me/favorites/catalog/${itemId}`)
+        setFavorited(false)
+      } else {
+        await api.put(`/api/v1/me/favorites/catalog/${itemId}`)
+        setFavorited(true)
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '加入书库失败')
-    } finally { setBusy(false) }
+      setError(e instanceof ApiError ? e.message : '收藏操作失败')
+    }
   }
 
   const lines = data?.lines ?? []
@@ -118,10 +93,6 @@ export default function BrowseWatch() {
   if (!data) return <main className="watch-page page-center">加载中…</main>
   if (!current) return <main className="watch-page page-center">正在准备剧集…</main>
 
-  const resolving = !status || (!status.playUrl && !status.errorCode
-    && (status.jobState === 'QUEUED' || status.jobState === 'RUNNING' || status.jobState === 'NONE'))
-  const failed = !!status?.errorCode
-
   return (
     <main className="watch-page">
       <div className="watch-title">
@@ -129,15 +100,18 @@ export default function BrowseWatch() {
         <span className="ep-name">第 {current.ordinal} 话 {current.title}</span>
       </div>
       <div className="watch-meta">
-        <span>浏览模式（未加入书库）· 共 {episodes.length} 集 · 线路 {line}</span>
+        <span>浏览模式（{favorited ? '已收藏' : '未收藏'}）· 共 {episodes.length} 集 · 线路 {line}</span>
         <Link to={`/catalog/${itemId}`}>作品详情</Link>
       </div>
+      {notice && <p className="muted" role="status" style={{ margin: '6px 0 0' }}>{notice}</p>}
 
       <div className="watch-layout">
         <div>
           <Player
             src={status?.playUrl ?? null}
             kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
+            resumeMs={resumeMs}
+            onProgress={saveProgress}
             onEnded={() => next && goto(next.id)}
             onFatal={() => void resolve(current.id)}
             overlay={resolving ? (
@@ -162,8 +136,8 @@ export default function BrowseWatch() {
             <button className="ghost" disabled={!prev} onClick={() => prev && goto(prev.id)}>← 上一集</button>
             <button className="ghost" disabled={!next} onClick={() => next && goto(next.id)}>下一集 →</button>
             <button className="ghost" onClick={() => void resolve(current.id)}>重新解析</button>
-            <button className="pill" disabled={busy} onClick={() => void addToLibrary()}>
-              {busy ? '处理中…' : '加入书库'}
+            <button className="pill" onClick={() => void toggleFavorite()}>
+              {favorited ? '取消收藏' : '收藏'}
             </button>
           </div>
         </div>
@@ -201,10 +175,10 @@ export default function BrowseWatch() {
           <div className="card">
             <h3>播放信息</h3>
             <ul className="info-list">
-              <li><span className="k">模式</span><span>浏览（不占书库）</span></li>
+              <li><span className="k">模式</span><span>浏览（{favorited ? '已收藏' : '未收藏'}，不占作品）</span></li>
               <li><span className="k">线路</span><span>{line}</span></li>
               <li><span className="k">解析状态</span><span>{status?.playUrl ? '已就绪' : failed ? '失败' : '解析中…'}</span></li>
-              <li><span className="k">进度</span><span>本地保存</span></li>
+              <li><span className="k">进度</span><span>服务端保存</span></li>
             </ul>
           </div>
         </aside>
