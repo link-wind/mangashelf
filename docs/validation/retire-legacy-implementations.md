@@ -28,5 +28,6 @@
 - 腾讯动漫源在无 Clash 代理的裸实例上返回 `SOURCE_UNAVAILABLE`（上游解码依赖代理环境）；该源代码本变更未触碰，属环境限制。
 - 包子漫画为浏览器型源，搜索依赖 Python 解析任务，裸实例上部分请求失败；同理与本章变更无关。
 - 浏览器端合成点击（Playwright locator click）在该 IAB 环境对部分 React 按钮未触发处理器，改用坐标/DOM evaluate 点击完成验证；应用代码问题可能性低（页面内 fetch、导航、渲染均正常），未深究。
-- Docker 镜像（api/worker/web）重建仍在后台进行，验证以本地 jar + vite dev 完成；部署前需确认镜像构建成功。
+- Docker 镜像（api/worker/web）已于 2026-11-13 02:42–02:48 重建成功并用新 `mangashelf-api:latest` 容器复验：登录 200、两个 410 桩、旧端点 404、MangaDex 统一接口 200、综合榜 8 行 0 错误。构建期两个本机网络问题需知悉：(1) buildkit 拉基础镜像直连 IPv6 超时，需先 `docker pull`；(2) 容器出站经 Clash 访问 Maven Central 返回 403，api/worker 镜像本次用宿主已构建 jar 组装运行层（`./mvnw package` 产物，源码一致），服务器构建网络正常时可直接源码构建。
+- `server/Dockerfile`、`server/Dockerfile.worker` 的 Maven 构建层新增 `ENV MAVEN_CONFIG=`：maven 3.9 镜像自带 `MAVEN_CONFIG=/root/.m2`，会被 mvnw 3.3.x 当作生命周期参数导致构建失败（上游镜像变更引起，与本变更代码无关）。
 - 本机 8080 端口有一个 4 天前构建的 dev 实例（PID 50296）仍在运行，其对 `POST /api/v1/auth/register|login` 返回 500 `INTERNAL_ERROR`（与 compose 旧镜像同接口行为不一致），疑似陈旧构建与当前库结构不兼容，建议重启或停用。
