@@ -2,6 +2,8 @@
 # 注意：venv 不得跨基底复制（symlink 悬空 + glibc 差异），Python 环境直接装在与
 # Java 相同的 ubuntu noble 层；requirements 不变时依赖层走构建缓存。
 FROM maven:3-eclipse-temurin-25 AS build
+# 同 server/Dockerfile：镜像自带 MAVEN_CONFIG=/root/.m2 会污染 mvnw 参数。
+ENV MAVEN_CONFIG=
 WORKDIR /src
 COPY server/pom.xml server/mvnw ./
 COPY server/.mvn .mvn

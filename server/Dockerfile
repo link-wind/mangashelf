@@ -1,6 +1,9 @@
 # API 镜像：Maven 构建层 + temurin 25 运行层。
 # 也可在 CI 中先构建 jar 后复用运行层；当前默认允许服务器直接从源码构建。
 FROM maven:3-eclipse-temurin-25 AS build
+# maven 3.9 镜像自带 ENV MAVEN_CONFIG=/root/.m2；mvnw 3.3.x 会原样
+# 拼进 java 命令行，Maven 将其当成生命周期参数而失败。构建层清空。
+ENV MAVEN_CONFIG=
 WORKDIR /src
 COPY server/pom.xml server/mvnw ./
 COPY server/.mvn .mvn
