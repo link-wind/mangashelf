@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import Player, { type DanmakuItem } from '../components/Player'
@@ -14,9 +14,8 @@ interface ResolveStatus {
   resolvedAt: string | null; errorCode: string | null; errorMessage: string | null
 }
 interface ProgressRow {
-  workId: string; workTitle: string; ordinal: number; episodeTitle: string | null
-  episodeId: string | null; lineName: string | null; coverUrl: string | null
-  positionMs: number; durationMs: number | null; updatedAt: string
+  workId: string; ordinal: number; episodeId: string | null
+  positionMs: number; durationMs: number | null; version: number; updatedAt: string | null
 }
 
 const RESOLVE_POLL_MS = 2000
@@ -37,6 +36,13 @@ export default function ExternalWatch() {
   const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(
     () => localStorage.getItem('ms-danmaku') !== 'off')
   const [sending, setSending] = useState(false)
+  const [progressNotice, setProgressNotice] = useState('')
+  // 进度版本（unify-progress-conflict-and-search）：单飞行写入 + 最新位置合并。
+  const versionRef = useRef(0)
+  const versionOrdinalRef = useRef(-1)
+  const pendingRef = useRef<{ id: string; ordinal: number; positionMs: number } | null>(null)
+  const savingRef = useRef(false)
+  const lastConflictRef = useRef(0)
   const current = episodes.find(e => e.id === episodeId) ?? null
 
   useEffect(() => {
@@ -48,13 +54,60 @@ export default function ExternalWatch() {
         void api.get<{ work: { title: string } }>(`/api/v1/works/${workId}`)
           .then(v => setWorkTitle(v.work.title))
           .catch(() => { /* 标题失败不影响播放 */ })
-        const rows = await api.get<ProgressRow[]>('/api/v1/me/continue-watching?limit=100')
-        setSavedProgress(rows.find(r => r.workId === workId) ?? null)
       } catch (e) {
         setLoadError(e instanceof ApiError ? e.message : '加载选集失败')
       }
     })()
   }, [workId])
+
+  // 单集进度：拿到版本供写入携带；无记录时服务端返回版本 0。
+  useEffect(() => {
+    if (!workId || !current) { setSavedProgress(null); versionRef.current = 0; versionOrdinalRef.current = -1; return }
+    let cancelled = false
+    pendingRef.current = null
+    versionOrdinalRef.current = current.ordinal
+    void api.get<ProgressRow>(`/api/v1/me/external-progress?workId=${workId}&ordinal=${current.ordinal}`)
+      .then(row => { if (!cancelled) { setSavedProgress(row); versionRef.current = row.version } })
+      .catch(() => { if (!cancelled) { setSavedProgress(null); versionRef.current = 0 } })
+    return () => { cancelled = true }
+  }, [workId, current?.ordinal])
+
+  const notifyConflict = useCallback(() => {
+    const now = Date.now()
+    if (now - lastConflictRef.current < 30_000) return
+    lastConflictRef.current = now
+    setProgressNotice('其他设备已更新进度，已对齐版本继续保存')
+    window.setTimeout(() => setProgressNotice(''), 4000)
+  }, [])
+
+  const flushProgress = useCallback(() => {
+    if (savingRef.current) return
+    savingRef.current = true
+    void (async () => {
+      try {
+        while (pendingRef.current) {
+          const next = pendingRef.current
+          pendingRef.current = null
+          try {
+            const res = await api.put<{ version: number }>('/api/v1/external-progress', {
+              workId, ordinal: next.ordinal, episodeId: next.id,
+              positionMs: next.positionMs, durationMs: null,
+              expectedVersion: versionRef.current,
+            })
+            if (versionOrdinalRef.current === next.ordinal) versionRef.current = res.version
+          } catch (e) {
+            if (e instanceof ApiError && e.code === 'PROGRESS_CONFLICT') {
+              const cur = (e.details?.current ?? {}) as { version?: number }
+              if (typeof cur.version === 'number' && versionOrdinalRef.current === next.ordinal) {
+                versionRef.current = cur.version
+              }
+              notifyConflict()
+            }
+          }
+        }
+      } finally { savingRef.current = false }
+    })()
+  }, [workId, notifyConflict])
 
   useEffect(() => {
     if (current) setLineName(current.lineName)
@@ -160,18 +213,17 @@ export default function ExternalWatch() {
         <Link to={`/works/${workId}`}>← 返回作品</Link>
       </div>
 
+      {progressNotice && <p className="muted" role="status" style={{ margin: '6px 0 10px' }}>{progressNotice}</p>}
       <div className="watch-layout">
         <div>
           <Player
             src={status?.playUrl ?? null}
             kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
-            resumeMs={savedProgress?.ordinal === current.ordinal ? savedProgress.positionMs : 0}
+            resumeMs={savedProgress?.positionMs ?? 0}
             onProgress={(ms) => {
-              if (!workId) return
-              void api.put('/api/v1/external-progress', {
-                workId, ordinal: current.ordinal, episodeId: current.id,
-                positionMs: ms, durationMs: null,
-              }).catch(() => {})
+              if (!workId || !current) return
+              pendingRef.current = { id: current.id, ordinal: current.ordinal, positionMs: ms }
+              flushProgress()
             }}
             onEnded={() => next && goto(next.id)}
             onFatal={() => void resolveAndPlay(current.id)}

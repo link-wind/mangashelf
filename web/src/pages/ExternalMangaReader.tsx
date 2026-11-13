@@ -18,7 +18,7 @@ interface Chapter {
   id: string; chapter: string; title: string; lang: string; pages: number; external: boolean
 }
 interface Detail { manga: { title: string }; chapters: Chapter[] }
-interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number }
+interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number; version: number }
 
 type Dir = 'ltr' | 'rtl'
 type PageMode = 'single' | 'double' | 'double-cover'
@@ -125,6 +125,12 @@ export default function ExternalMangaReader() {
   const gestureRef = useRef<{ x: number; y: number; t: number } | null>(null)
   const lastSaveRef = useRef(0)
   const lastSavedPageRef = useRef(0)
+  // 进度版本（unify-progress-conflict-and-search）：单飞行写入 + 最新位置合并。
+  const versionRef = useRef(0)
+  const pendingSaveRef = useRef<{ page: number; total: number } | null>(null)
+  const savingRef = useRef(false)
+  const lastConflictAtRef = useRef(0)
+  const [progressNotice, setProgressNotice] = useState('')
   const pendingScroll = useRef<number | null>(null)
   const layoutAnchor = useRef<{ ordinal: number; top: number } | null>(null)
   const pageRef = useRef(1)
@@ -217,12 +223,46 @@ export default function ExternalMangaReader() {
   const nextCh = chapterIdx >= 0 && chapterIdx < readable.length - 1 ? readable[chapterIdx + 1] : null
   const comicTitle = title || detail?.manga.title || '外部漫画'
 
-  const saveProgress = useCallback((p: number, total: number) => {
+  const notifyConflict = useCallback(() => {
+    const now = Date.now()
+    if (now - lastConflictAtRef.current < 30_000) return
+    lastConflictAtRef.current = now
+    setProgressNotice('其他设备已更新进度，已对齐版本继续保存')
+    window.setTimeout(() => setProgressNotice(''), 4000)
+  }, [])
+
+  const sendProgress = useCallback(async (next: { page: number; total: number }) => {
     if (!mangaId) return
-    void api.put('/api/v1/me/manga-progress', {
-      source, mangaId, chapterId, page: p, totalPages: total, title: comicTitle,
-    }).catch(() => { /* 上报失败不打断 */ })
-  }, [mangaId, chapterId, comicTitle, source])
+    try {
+      const res = await api.put<{ version: number }>('/api/v1/me/manga-progress', {
+        source, mangaId, chapterId, page: next.page, totalPages: next.total,
+        title: comicTitle, expectedVersion: versionRef.current,
+      })
+      versionRef.current = res.version
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'PROGRESS_CONFLICT') {
+        const current = (e.details?.current ?? {}) as { version?: number }
+        if (typeof current.version === 'number') versionRef.current = current.version
+        notifyConflict()
+      }
+      // 其余错误不打断阅读；下一位置继续尝试。
+    }
+  }, [mangaId, chapterId, comicTitle, source, notifyConflict])
+
+  const saveProgress = useCallback((p: number, total: number) => {
+    pendingSaveRef.current = { page: p, total }
+    if (savingRef.current) return
+    savingRef.current = true
+    void (async () => {
+      try {
+        while (pendingSaveRef.current) {
+          const next = pendingSaveRef.current
+          pendingSaveRef.current = null
+          await sendProgress(next)
+        }
+      } finally { savingRef.current = false }
+    })()
+  }, [sendProgress])
 
   const resolve = useCallback(async (id: string) => {
     setResolving(true)
@@ -308,6 +348,7 @@ export default function ExternalMangaReader() {
     const resume = (rows: ProgressRow[]) => {
       if (cancelled) return
       const row = rows.find(r => r.source === source && r.mangaId === mangaId && r.chapterId === chapterId)
+      versionRef.current = row?.version ?? 0
       const stored = Number(localStorage.getItem(`ms-ext-manga:${chapterId}`) ?? '1')
       const p = Math.max(1, Math.min(data.pages.length, row?.page ?? (stored || 1)))
       setPage(p)
@@ -533,6 +574,13 @@ export default function ExternalMangaReader() {
 
   return (
     <div className={'reader-full' + (uiVisible ? ' show-ui' : '')} onClick={pokeUi}>
+      {progressNotice && (
+        <div role="status" style={{
+          position: 'fixed', top: 64, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(20,20,24,.92)', color: '#fff', padding: '6px 12px',
+          borderRadius: 6, fontSize: 13, zIndex: 20,
+        }}>{progressNotice}</div>
+      )}
       <header className="rf-top">
         <Link to={backTo} className="rf-icon" aria-label="返回">←</Link>
         <div className="rf-title">

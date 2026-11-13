@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 
 interface CatalogHit {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
@@ -26,7 +26,8 @@ export default function Search() {
   const [q, setQ] = useState(params.get('q') ?? '')
   const [hits, setHits] = useState<Hit[]>([])
   const [catalog, setCatalog] = useState<CatalogHit[]>([])
-  const [semanticEnabled, setSemanticEnabled] = useState(true)
+  const [semanticEnabled, setSemanticEnabled] = useState(false)
+  const [semantic, setSemantic] = useState(false)
   const [hasAnimation, setHasAnimation] = useState(false)
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState('')
@@ -35,16 +36,22 @@ export default function Search() {
     if (!query.trim()) { setHits([]); setSearched(false); return }
     try {
       const res = await api.post<{ semanticEnabled: boolean; hits: Hit[] }>('/api/v1/search', {
-        q: query, hasAnimation, limit: 15,
+        q: query, mode: semantic ? 'semantic' : 'title', withAnimation: hasAnimation, limit: 15,
       })
       setHits(res.hits)
       setSemanticEnabled(res.semanticEnabled)
       setSearched(true)
       setError('')
     } catch (e) {
+      // 语义模式不可用是显式失败：说明原因并回到标题检索，不静默降级。
+      if (e instanceof ApiError && e.code === 'SEMANTIC_UNAVAILABLE') {
+        setSemantic(false)
+        setError(e.message)
+        return
+      }
       setError(e instanceof Error ? e.message : '搜索失败')
     }
-  }, [hasAnimation])
+  }, [hasAnimation, semantic])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -59,7 +66,7 @@ export default function Search() {
       }
     }, 350)
     return () => clearTimeout(t)
-  }, [q, hasAnimation, run])
+  }, [q, hasAnimation, semantic, run])
 
   return (
     <main className="page">
@@ -71,6 +78,12 @@ export default function Search() {
           <input type="checkbox" checked={hasAnimation} onChange={e => setHasAnimation(e.target.checked)} />
           只看有动画的
         </label>
+        {semanticEnabled && (
+          <label className="scope-item">
+            <input type="checkbox" checked={semantic} onChange={e => setSemantic(e.target.checked)} />
+            语义检索（较慢）
+          </label>
+        )}
       </div>
       {!semanticEnabled && <p className="muted">语义检索未启用（本地嵌入模型缺失），字面检索可用。</p>}
       {error && <p className="error">{error}</p>}
