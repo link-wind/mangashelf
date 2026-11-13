@@ -80,6 +80,10 @@ public class ChapterParseHandler implements JobHandler {
 
         // 重跑语义（恢复扫描/显式重试）：清理旧页面后重新解析
         catalog.markRevisionStatus(revision.id(), ChapterRevision.STATUS_PROCESSING, null, null);
+        if (!catalog.requireLeasedRevision(revision.id(), ctx.leaseToken())) {
+            // 租约已过期（被新 attempt 取代或恢复中）：本次执行不产生任何业务写入
+            return JobResult.failure("STALE_LEASE", "任务租约已失效，结果被丢弃");
+        }
 
         if (ctx.cancelled()) {
             return new JobResult(Job.STATUS_CANCELLED, "cancelled", null, "CANCELLED", "任务已被所有者取消");
@@ -126,22 +130,36 @@ public class ChapterParseHandler implements JobHandler {
         }
 
         ctx.progress().emit("publish", "校验并上传页面产物");
+        // 上传在事务外执行（design 决策 4）：对象独立存在于存储，失败不留下半个 DB 事务。
         StringBuilder manifest = new StringBuilder().append(pages.size()).append('\n');
-        tx.executeWithoutResult(status -> {
+        List<CatalogRepository.PageRow> pageRows = new java.util.ArrayList<>();
+        for (JsonNode page : pages) {
+            pageRows.add(uploadPage(ctx, revision.id(), page, manifest));
+        }
+        // 短事务校验租约后原子切换引用：0 行说明租约已被新 attempt 取代，业务行不落库。
+        String manifestSha = sha256Hex(manifest.toString());
+        int switched = tx.execute(status -> {
+            if (!catalog.requireLeasedRevision(revision.id(), ctx.leaseToken())) return 0;
             catalog.deletePages(revision.id());
-            for (JsonNode page : pages) {
-                uploadPage(ctx, revision.id(), page, manifest);
+            for (CatalogRepository.PageRow row : pageRows) {
+                catalog.insertPage(row.id(), revision.id(), row.ordinal(), row.imageAssetId(),
+                        row.thumbnailAssetId(), row.width(), row.height());
             }
-            String manifestSha = sha256Hex(manifest.toString());
             catalog.setRevisionPageCount(revision.id(), pages.size(), manifestSha);
             catalog.markRevisionStatus(revision.id(), ChapterRevision.STATUS_READY, null, null);
+            return 1;
         });
+        if (switched == 0) {
+            return JobResult.failure("STALE_LEASE", "任务租约已失效，页面清单未提交");
+        }
         ctx.progress().emit("publish", "页面清单已提交");
         log.info("job {} parsed {} pages for revision {}", job.id(), pages.size(), revision.id());
         return JobResult.success("parsed");
     }
 
-    private void uploadPage(JobContext ctx, UUID revisionId, JsonNode page, StringBuilder manifest) {
+    /** 校验并上传页面产物（事务外）；返回待落库的页面行，引用切换在短事务内完成。 */
+    private CatalogRepository.PageRow uploadPage(JobContext ctx, UUID revisionId, JsonNode page,
+                                                 StringBuilder manifest) {
         int ordinal = page.path("ordinal").asInt(-1);
         if (ordinal <= 0) {
             throw new IllegalArgumentException("页序不合法");
@@ -153,11 +171,11 @@ public class ChapterParseHandler implements JobHandler {
                 : null;
 
         JsonNode reader = page.path("reader");
-        catalog.insertPage(pageId, revisionId, ordinal, imageAsset, thumbAsset,
-                reader.path("width").asInt(), reader.path("height").asInt());
         manifest.append(ordinal).append(':')
                 .append(reader.path("sha256").asText()).append(':')
                 .append(page.path("thumbnail").path("sha256").asText()).append('\n');
+        return new CatalogRepository.PageRow(pageId, ordinal, imageAsset, thumbAsset,
+                reader.path("width").asInt(), reader.path("height").asInt());
     }
 
     /** 校验（路径越界/类型/摘要/大小）后上传单个产物并登记 VERIFIED 资产。 */

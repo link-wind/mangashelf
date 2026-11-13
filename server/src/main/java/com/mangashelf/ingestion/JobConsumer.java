@@ -13,11 +13,14 @@ import com.rabbitmq.client.Channel;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Worker 消费者（DESIGN 11.2）：结果与事件入库后确认消息。
+ * 消费队列由配置声明（harden-job-lease-and-routing 决策 6），默认
+ * content.resolve + content.process；index 默认关闭，按需加入 consume-queues。
  * 任务执行失败（已提交 FAILED）与重复通知同样确认；未预期异常按"重投无益"记录并确认，
- * 避免无限重投，真实中断恢复由 M1 的租约恢复扫描补齐（M0 已知边界）。
+ * 避免无限重投，真实中断恢复由租约恢复扫描补齐。
  */
 @Component
 @Profile("worker")
@@ -33,13 +36,13 @@ public class JobConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_PROCESS, ackMode = "MANUAL")
-    public void onContentProcessMessage(Message message, Channel channel) throws IOException {
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_RESOLVE, ackMode = "MANUAL")
+    public void onContentResolveMessage(Message message, Channel channel) throws IOException {
         consume(message, channel);
     }
 
-    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_INDEX, ackMode = "MANUAL")
-    public void onContentIndexMessage(Message message, Channel channel) throws IOException {
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_PROCESS, ackMode = "MANUAL")
+    public void onContentProcessMessage(Message message, Channel channel) throws IOException {
         consume(message, channel);
     }
 

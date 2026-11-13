@@ -198,6 +198,18 @@ public class CatalogRepository {
                 """, status, errorCode, errorMessage, id);
     }
 
+    /**
+     * 带租约校验的业务写入（harden-job-lease-and-routing 决策 4）：
+     * 以"该修订上的 RUNNING 任务且令牌匹配"为条件；0 行即租约失效，调用方不得继续写业务行。
+     */
+    public boolean requireLeasedRevision(UUID revisionId, UUID leaseToken) {
+        Integer n = jdbc.queryForObject("""
+                SELECT count(*) FROM jobs
+                 WHERE chapter_revision_id = ? AND status = 'RUNNING' AND lease_token = ?
+                """, Integer.class, revisionId, leaseToken);
+        return n != null && n > 0;
+    }
+
     /** 页序确认：edit_version 条件更新，0 行即冲突（DESIGN 14.3 同款乐观锁语义）。 */
     public boolean confirmPageOrder(UUID revisionId, int expectedEditVersion) {
         return jdbc.update("""
@@ -219,6 +231,11 @@ public class CatalogRepository {
 
     public void deletePages(UUID revisionId) {
         jdbc.update("DELETE FROM pages WHERE chapter_revision_id = ?", revisionId);
+    }
+
+    /** 解析产物待落库行（harden-job-lease-and-routing）：上传阶段收集，短事务内切换引用。 */
+    public record PageRow(UUID id, int ordinal, UUID imageAssetId, UUID thumbnailAssetId,
+                          int width, int height) {
     }
 
     public List<Page> listPages(UUID revisionId, int afterOrdinal, int limit) {
