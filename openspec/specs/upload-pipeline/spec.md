@@ -76,3 +76,26 @@ CBZ 解析 MUST 拒绝超出条目数、单文件与总量上限、包含目录�
 
 - **WHEN** 租约已过期并被新 attempt 取代的旧 Worker 提交结果
 - **THEN** 提交被拒绝，任务保持新 attempt 的执行路径
+
+### Requirement: 按任务类型路由与 Worker 消费范围
+
+派发 MUST 按 job kind 路由：浏览器解析类（external.resolve、manga.plan）到
+`content.resolve`，文件处理类（chapter.parse、media.verify 等）到 `content.process`，
+索引类（index.build）到 `content.index`。Worker MUST 按配置声明消费队列；
+API 角色 MUST NOT 执行浏览器解析任务。浏览器型数据源在无 Worker 消费解析队列时
+MUST 显式提示解析不可用。
+
+#### Scenario: 解析任务进入独立队列
+
+- **WHEN** 提交一个 external.resolve 任务
+- **THEN** 消息路由到 content.resolve 队列，由配置了该队列的 Worker 领取
+
+#### Scenario: API 不执行浏览器解析
+
+- **WHEN** API 角色的执行器轮询任务
+- **THEN** 跳过浏览器解析类 kind，任务留在队列中等待 Worker
+
+#### Scenario: 浏览器源在纯 API 部署下显式失败
+
+- **WHEN** 部署仅含 API 而无 Worker 消费解析队列时，用户打开浏览器型数据源章节
+- **THEN** 返回明确的"解析不可用"错误，不无限等待
