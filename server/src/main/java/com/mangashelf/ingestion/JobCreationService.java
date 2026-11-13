@@ -32,14 +32,14 @@ public class JobCreationService {
             UUID jobId = jobs.insertOrExisting(kind, ownerId, uploadSessionId, chapterRevisionId,
                     animationRevisionId, indexGenerationId, externalEpisodeId,
                     syncSourceId, paramsJson, dedupKey);
-            outbox.insert(jobId, jobs.nextDispatchNo(jobId), payloadOf(jobId));
+            outbox.insert(jobId, jobs.nextDispatchNo(jobId), payloadOf(jobId, kind));
             return jobId;
         });
     }
 
-    private String payloadOf(UUID jobId) {
+    private String payloadOf(UUID jobId, String kind) {
         try {
-            return objectMapper.writeValueAsString(new JobMessage(JobMessage.SCHEMA_VERSION, jobId, 1));
+            return objectMapper.writeValueAsString(new JobMessage(JobMessage.SCHEMA_VERSION, jobId, 1, kind));
         } catch (Exception e) {
             throw new IllegalStateException("payload serialization failed", e);
         }

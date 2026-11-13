@@ -14,14 +14,16 @@ import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 任务通知拓扑（DESIGN 11.1）：初期仅 content.process 队列，媒体处理与模型／索引
- * 并发分开在 M4 增加 content.index。拓扑声明幂等，API 与 Worker 均可执行。
+ * 任务通知拓扑（DESIGN 11.1）：按任务类型拆分队列（harden-job-lease-and-routing）——
+ * content.resolve（浏览器解析）、content.process（文件处理）、content.index（索引）。
+ * 拓扑声明幂等，API 与 Worker 均可执行。
  */
 @Configuration
 public class RabbitTopologyConfig {
 
     public static final String JOBS_EXCHANGE = "mangashelf.jobs";
     public static final String QUEUE_CONTENT_PROCESS = "content.process";
+    public static final String QUEUE_CONTENT_RESOLVE = "content.resolve";
     public static final String QUEUE_CONTENT_INDEX = "content.index";
 
     @Bean
@@ -37,6 +39,16 @@ public class RabbitTopologyConfig {
     @Bean
     public Binding contentProcessBinding(DirectExchange jobsExchange, Queue contentProcessQueue) {
         return BindingBuilder.bind(contentProcessQueue).to(jobsExchange).with(QUEUE_CONTENT_PROCESS);
+    }
+
+    @Bean
+    public Queue contentResolveQueue() {
+        return QueueBuilder.durable(QUEUE_CONTENT_RESOLVE).build();
+    }
+
+    @Bean
+    public Binding contentResolveBinding(DirectExchange jobsExchange, Queue contentResolveQueue) {
+        return BindingBuilder.bind(contentResolveQueue).to(jobsExchange).with(QUEUE_CONTENT_RESOLVE);
     }
 
     @Bean
