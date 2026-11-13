@@ -89,14 +89,14 @@ public class JobRepository {
      * 恢复扫描（DESIGN 11.3）：过期租约任务在事务内判断 attempt 上限并重新入队；
      * 返回需要重派发的任务 id 列表。超限任务由调用方置 FAILED。
      */
-    public List<UUID> claimExpiredLeases(int batch) {
+    public List<ExpiredLease> claimExpiredLeases(int batch) {
         List<ExpiredLease> expired = jdbc.query("""
-                SELECT id, attempt, max_attempt FROM jobs
+                SELECT id, kind, attempt, max_attempt FROM jobs
                 WHERE status = 'RUNNING' AND lease_until < now() AND cancel_requested = false
                 ORDER BY lease_until
                 LIMIT ?
                 """, (rs, i) -> new ExpiredLease(rs.getObject("id", UUID.class),
-                rs.getInt("attempt"), rs.getInt("max_attempt")), batch);
+                rs.getString("kind"), rs.getInt("attempt"), rs.getInt("max_attempt")), batch);
         return expired.stream()
                 .map(e -> {
                     if (e.attempt() >= e.maxAttempt()) {
@@ -114,13 +114,13 @@ public class JobRepository {
                                        heartbeat_at = NULL, updated_at = now()
                                 WHERE id = ? AND status = 'RUNNING' AND lease_until < now()
                                 """, e.id());
-                    return updated > 0 ? e.id() : null;
+                    return updated > 0 ? e : null;
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
     }
 
-    public record ExpiredLease(UUID id, int attempt, int maxAttempt) {
+    public record ExpiredLease(UUID id, String kind, int attempt, int maxAttempt) {
     }
 
     /** 重派发：追加 outbox 记录（dispatch_no 递增，DESIGN 11.3 恢复派发）。 */
@@ -137,14 +137,19 @@ public class JobRepository {
 
     /**
      * 条件更新取得租约（DESIGN 11.2）：仅 QUEUED 可被领取；重复通知读到终态或有效租约时不执行。
+     * excludeBrowserKinds 为真时（API 角色）跳过浏览器解析类任务——它们必须由 Worker 执行
+     * （harden-job-lease-and-routing 决策 6）。
      */
-    public ClaimResult tryClaim(UUID jobId, long leaseSeconds) {
+    public ClaimResult tryClaim(UUID jobId, long leaseSeconds, boolean excludeBrowserKinds) {
         UUID token = UUID.randomUUID();
+        String browserFilter = excludeBrowserKinds
+                ? " AND kind NOT IN ('external.resolve', 'manga.plan')" : "";
         List<Job> claimed = jdbc.query("""
                 UPDATE jobs SET status = 'RUNNING', attempt = attempt + 1,
                        lease_token = ?, lease_until = now() + make_interval(secs => ?),
                        heartbeat_at = now(), updated_at = now()
                 WHERE id = ? AND status = 'QUEUED'
+                """ + browserFilter + """
                 RETURNING *
                 """, mapper, token, leaseSeconds, jobId);
         if (!claimed.isEmpty()) {
@@ -182,11 +187,19 @@ public class JobRepository {
                 """, status, stage, progress, errorCode, errorMessage, jobId, leaseToken) > 0;
     }
 
+    /**
+     * 事件序号由数据库串行分配（V25 序列表）：并发追加同一任务时各拿到不同序号，
+     * 不再用 MAX(sequence)+1 撞 (job_id, sequence) 主键。两条语句须在同一事务内执行
+     * （调用点已大多在事务中；事务外调用点由 JobExecutor 的小事务包装）。
+     */
     public void appendEvent(UUID jobId, String type, String stage, String message) {
-        jdbc.update("""
-                INSERT INTO job_events (job_id, sequence, type, stage, message)
-                SELECT ?, COALESCE(MAX(sequence), 0) + 1, ?, ?, ? FROM job_events WHERE job_id = ?
-                """, jobId, type, stage, message, jobId);
+        Integer seq = jdbc.query("""
+                INSERT INTO job_event_sequences (job_id, next_seq) VALUES (?, 2)
+                ON CONFLICT (job_id) DO UPDATE SET next_seq = job_event_sequences.next_seq + 1
+                RETURNING CASE WHEN next_seq = 2 THEN 1 ELSE next_seq - 1 END AS allocated
+                """, (rs, i) -> rs.getInt("allocated"), jobId).stream().findFirst().orElseThrow();
+        jdbc.update("INSERT INTO job_events (job_id, sequence, type, stage, message) VALUES (?, ?, ?, ?, ?)",
+                jobId, seq, type, stage, message);
     }
 
     public List<JobEvent> listEvents(UUID jobId) {

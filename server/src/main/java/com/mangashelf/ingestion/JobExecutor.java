@@ -42,7 +42,7 @@ public class JobExecutor {
     }
 
     public void execute(JobMessage msg) {
-        JobRepository.ClaimResult claim = jobs.tryClaim(msg.jobId(), props.jobs().leaseSeconds());
+        JobRepository.ClaimResult claim = jobs.tryClaim(msg.jobId(), props.jobs().leaseSeconds(), false);
         switch (claim.outcome()) {
             case CLAIMED -> runClaimed(claim);
             case FINISHED -> log.debug("job {} already finished, duplicate notification", msg.jobId());
@@ -74,7 +74,8 @@ public class JobExecutor {
                     .resolve(job.id().toString())
                     .resolve("attempt-" + attempt);
             JobContext ctx = new JobContext(job, attempt, token, workDir,
-                    (stage, message) -> jobs.appendEvent(job.id(), "progress", stage, message),
+                    (stage, message) -> tx.executeWithoutResult(status ->
+                            jobs.appendEvent(job.id(), "progress", stage, message)),
                     () -> jobs.isCancelRequested(job.id()));
             // 取消在阶段边界生效（DESIGN 11.4）：领取后立即检查取消标志
             if (ctx.cancelled()) {
@@ -100,8 +101,8 @@ public class JobExecutor {
                 log.warn("job {} result commit rejected (stale lease), discarding", job.id());
                 return;
             }
-            jobs.appendEvent(job.id(), "result", result.stage(),
-                    Job.STATUS_SUCCEEDED.equals(result.status()) ? "任务完成" : "任务失败：" + result.errorMessage());
+            tx.executeWithoutResult(txStatus -> jobs.appendEvent(job.id(), "result", result.stage(),
+                    Job.STATUS_SUCCEEDED.equals(result.status()) ? "任务完成" : "任务失败：" + result.errorMessage()));
         });
     }
 
@@ -111,7 +112,8 @@ public class JobExecutor {
                 boolean committed = jobs.commitResult(jobId, token, Job.STATUS_FAILED, errorCode, null,
                         errorCode, message);
                 if (committed) {
-                    jobs.appendEvent(jobId, "result", errorCode, "任务失败：" + message);
+                    tx.executeWithoutResult(txStatus ->
+                            jobs.appendEvent(jobId, "result", errorCode, "任务失败：" + message));
                 }
             });
         } catch (Exception e) {
