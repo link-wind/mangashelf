@@ -134,7 +134,11 @@ class BilibiliReaderServiceTest {
 
     private BilibiliReaderService reader(SampleClient client) throws Exception {
         return new BilibiliReaderService(client, mapper, root, 1800, 600, 604800,
-                BilibiliHttpClient.MAX_IMAGE_BYTES);
+                BilibiliHttpClient.MAX_IMAGE_BYTES,
+                new org.springframework.beans.factory.ObjectProvider<>() {
+                    public com.mangashelf.config.SharedCacheHelper getIfAvailable() { return null; }
+                    public com.mangashelf.config.SharedCacheHelper getObject() { return null; }
+                });
     }
 
     private static String version(MangaSource.Pages pages) {

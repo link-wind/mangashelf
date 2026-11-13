@@ -44,6 +44,7 @@ public class BilibiliReaderService {
     private final long indexTtlMillis;
     private final long imageTtlMillis;
     private final long maxBytes;
+    private final com.mangashelf.config.SharedCacheHelper shared;
     private final Object[] locks = new Object[64];
     private final Semaphore downloads = new Semaphore(4, true);
     private final Object maintenance = new Object();
@@ -60,7 +61,8 @@ public class BilibiliReaderService {
             @Value("${mangashelf.bilibili.detail-ttl-seconds:1800}") long detailTtlSeconds,
             @Value("${mangashelf.bilibili.index-ttl-seconds:600}") long indexTtlSeconds,
             @Value("${mangashelf.bilibili.image-ttl-seconds:604800}") long imageTtlSeconds,
-            @Value("${mangashelf.bilibili.cache-max-bytes:536870912}") long maxBytes) throws IOException {
+            @Value("${mangashelf.bilibili.cache-max-bytes:536870912}") long maxBytes,
+            org.springframework.beans.factory.ObjectProvider<com.mangashelf.config.SharedCacheHelper> shared) throws IOException {
         if (detailTtlSeconds < 1 || indexTtlSeconds < 1 || imageTtlSeconds < 1
                 || maxBytes < BilibiliHttpClient.MAX_IMAGE_BYTES) {
             throw new IllegalArgumentException("哔哩缓存期限须为正数，容量不得小于单页下载上限");
@@ -73,6 +75,7 @@ public class BilibiliReaderService {
         this.indexTtlMillis = Duration.ofSeconds(indexTtlSeconds).toMillis();
         this.imageTtlMillis = Duration.ofSeconds(imageTtlSeconds).toMillis();
         this.maxBytes = maxBytes;
+        this.shared = shared.getIfAvailable();
         for (int index = 0; index < locks.length; index++) locks[index] = new Object();
         Files.createDirectories(metadataRoot);
         Files.createDirectories(pagesRoot);
@@ -82,14 +85,50 @@ public class BilibiliReaderService {
     public MangaSource.Detail detail(String mangaId) {
         requireMangaId(mangaId);
         Path path = metadataRoot.resolve("detail-" + mangaId + ".json");
+        String redisKey = "ms:v1:bilibili:detail:" + mangaId;
         synchronized (lock("detail|" + mangaId)) {
             StoredDetail cached = read(path, StoredDetail.class);
             if (cached != null && cached.expiresAt() > now()) {
                 if (cached.detail() == null || cached.detail().chapters() == null) throw invalidCache();
                 return cached.detail();
             }
+            // Redis 二级缓存（redis-shared-cache-and-storage）：跨实例共享，避免多实例重复回源
+            if (shared != null) {
+                var redisHit = shared.get(redisKey);
+                if (redisHit.isPresent()) {
+                    MangaSource.Detail shared_ = shared.decodePublic(redisHit.get(), MangaSource.Detail.class);
+                    if (shared_ != null && shared_.chapters() != null) {
+                        write(path, new StoredDetail(now() + detailTtlMillis, shared_));
+                        return shared_;
+                    }
+                }
+            }
+            // 跨实例回源合并（redis-shared-cache-and-storage 决策 4）：抢到锁的回源，
+            // 未抢到的短暂等待后重读缓存，锁超时则各自回源（锁持有者失败不阻塞他人）。
+            var lockToken = shared == null ? java.util.Optional.<String>empty()
+                    : shared.tryLock("ms:v1:lock:bilibili:detail:" + mangaId, java.time.Duration.ofSeconds(30));
+            if (lockToken.isEmpty() && shared != null) {
+                for (int wait = 0; wait < 5; wait++) {
+                    try { Thread.sleep(400); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt(); break;
+                    }
+                    var second = shared.get(redisKey);
+                    if (second.isPresent()) {
+                        MangaSource.Detail shared_ = shared.decodePublic(second.get(), MangaSource.Detail.class);
+                        if (shared_ != null && shared_.chapters() != null) {
+                            write(path, new StoredDetail(now() + detailTtlMillis, shared_));
+                            return shared_;
+                        }
+                    }
+                }
+            }
             MangaSource.Detail detail = normalizeDetail(mangaId, upstream.detail(mangaId));
             write(path, new StoredDetail(now() + detailTtlMillis, detail));
+            if (shared != null) {
+                shared.putJson(redisKey, shared.encodePublic(detail),
+                        java.time.Duration.ofMillis(detailTtlMillis));
+                lockToken.ifPresent(t -> shared.unlock("ms:v1:lock:bilibili:detail:" + mangaId, t));
+            }
             return detail;
         }
     }
@@ -170,12 +209,42 @@ public class BilibiliReaderService {
             throw new ApiException(403, "BILIBILI_CHAPTER_LOCKED", "该章节需要登录、购买或解锁，请前往哔哩原站");
         }
         Path path = metadataRoot.resolve("index-" + chapterId + ".json");
+        String redisKey = "ms:v1:bilibili:index:" + chapterId;
         synchronized (lock("index|" + chapterId)) {
             StoredIndex cached = read(path, StoredIndex.class);
             if (cached != null && cached.expiresAt() > now()) {
                 if (cached.version() == null || !cached.version().matches("[a-f0-9]{64}")
                         || cached.images() == null || cached.images().isEmpty()) throw invalidCache();
                 return cached;
+            }
+            if (shared != null) {
+                var redisHit = shared.get(redisKey);
+                if (redisHit.isPresent()) {
+                    StoredIndex sharedIndex = shared.decodePublic(redisHit.get(), StoredIndex.class);
+                    if (sharedIndex != null && sharedIndex.images() != null
+                            && !sharedIndex.images().isEmpty()) {
+                        write(path, sharedIndex);
+                        return sharedIndex;
+                    }
+                }
+            }
+            var lockToken = shared == null ? java.util.Optional.<String>empty()
+                    : shared.tryLock("ms:v1:lock:bilibili:index:" + chapterId, java.time.Duration.ofSeconds(30));
+            if (lockToken.isEmpty() && shared != null) {
+                for (int wait = 0; wait < 5; wait++) {
+                    try { Thread.sleep(400); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt(); break;
+                    }
+                    var second = shared.get(redisKey);
+                    if (second.isPresent()) {
+                        StoredIndex sharedIndex = shared.decodePublic(second.get(), StoredIndex.class);
+                        if (sharedIndex != null && sharedIndex.images() != null
+                                && !sharedIndex.images().isEmpty()) {
+                            write(path, sharedIndex);
+                            return sharedIndex;
+                        }
+                    }
+                }
             }
             JsonNode data = upstream.index(chapter.episodeId());
             JsonNode images = data.path("images");
@@ -201,6 +270,11 @@ public class BilibiliReaderService {
                     + "|" + mapper.writeValueAsString(pages));
             StoredIndex result = new StoredIndex(now() + indexTtlMillis, version, List.copyOf(pages));
             write(path, result);
+            if (shared != null) {
+                shared.putJson(redisKey, shared.encodePublic(result),
+                        java.time.Duration.ofMillis(indexTtlMillis));
+                lockToken.ifPresent(t -> shared.unlock("ms:v1:lock:bilibili:index:" + chapterId, t));
+            }
             return result;
         }
     }

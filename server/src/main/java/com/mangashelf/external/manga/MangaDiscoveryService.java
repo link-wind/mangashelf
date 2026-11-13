@@ -62,10 +62,13 @@ public class MangaDiscoveryService {
     private final MangaSectionsService sectionsService;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final com.mangashelf.config.SharedCacheHelper shared;
 
-    public MangaDiscoveryService(MangaSourceRegistry registry, MangaSectionsService sectionsService) {
+    public MangaDiscoveryService(MangaSourceRegistry registry, MangaSectionsService sectionsService,
+                                 org.springframework.beans.factory.ObjectProvider<com.mangashelf.config.SharedCacheHelper> shared) {
         this.registry = registry;
         this.sectionsService = sectionsService;
+        this.shared = shared.getIfAvailable();
     }
 
     public Result discover(int limit) throws Exception {
@@ -74,6 +77,17 @@ public class MangaDiscoveryService {
         CacheEntry hit = cache.get(key);
         if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
             return hit.result();
+        }
+        if (shared != null) {
+            var redisHit = shared.get("ms:v1:discovery:" + size);
+            if (redisHit.isPresent()) {
+                var stored = shared.decodePublic(redisHit.get(), StoredResult.class);
+                if (stored != null && stored.rows() != null) {
+                    Result result = new Result(stored.rows(), stored.errors());
+                    cache.put(key, new CacheEntry(result, System.currentTimeMillis() + TTL_MS));
+                    return result;
+                }
+            }
         }
 
         List<MangaSource> sources = registry.all().stream()
@@ -134,8 +148,20 @@ public class MangaDiscoveryService {
         // 有源失败时短缓存（60s），避免预热/瞬时抖动把错误状态锁 10 分钟
         long ttl = errors.isEmpty() ? TTL_MS : 60_000L;
         cache.put(key, new CacheEntry(result, System.currentTimeMillis() + ttl));
+        if (shared != null && errors.isEmpty()) {
+            try {
+                shared.putJson("ms:v1:discovery:" + size,
+                        shared.encodePublic(new StoredResult(rows, errors)),
+                        java.time.Duration.ofMillis(TTL_MS));
+            } catch (Exception e) {
+                log.warn("discovery cache put failed: {}", e.getMessage());
+            }
+        }
         return result;
     }
+
+    /** Redis 往返载体（redis-shared-cache-and-storage）。 */
+    record StoredResult(List<Row> rows, List<String> errors) {}
 
     /**
      * RRF 融合 + 作品聚簇（M26）：每个榜单按名次计 1/(k+rank)；条目按得分降序

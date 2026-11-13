@@ -25,13 +25,18 @@ import java.util.UUID;
 public class ExternalMangaController {
 
     private final MangaDexClient client;
+    private final com.mangashelf.config.SharedCacheHelper shared;
 
-    /** 上游限流保护：MangaDex 约 5 req/s，这里限制并发并在 429 时退避重试。 */
+    /** 上游限流保护：MangaDex 约 5 req/s，实例内并发闸门 + Redis 分钟计数全局约束。 */
     private static final java.util.concurrent.Semaphore GATE =
             new java.util.concurrent.Semaphore(3, true);
+    /** 全局每分钟上限（≈5 req/s）；Redis 不可用时该层放行。 */
+    private static final long GLOBAL_MINUTE_LIMIT = 300;
 
-    public ExternalMangaController(MangaDexClient client) {
+    public ExternalMangaController(MangaDexClient client,
+            org.springframework.beans.factory.ObjectProvider<com.mangashelf.config.SharedCacheHelper> shared) {
         this.client = client;
+        this.shared = shared.getIfAvailable();
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/captured/{hash}/{ordinal}.png")
@@ -57,6 +62,15 @@ public class ExternalMangaController {
                     .header("Content-Type", "image/jpeg")
                     .header("Cache-Control", "public, max-age=604800")
                     .body(Files.readAllBytes(cached));
+        }
+        // 全局限流（redis-shared-cache-and-storage 决策 3）：跨实例分钟计数；Redis 不可用放行。
+        if (shared != null) {
+            long count = shared.incrMinute("ms:v1:ratelimit:mangadex-img", GLOBAL_MINUTE_LIMIT);
+            if (count >= 0 && count > GLOBAL_MINUTE_LIMIT) {
+                return ResponseEntity.status(429)
+                        .header("Retry-After", "5")
+                        .build();
+            }
         }
         MangaDexClient.Image img;
         try {
