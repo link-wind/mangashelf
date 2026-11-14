@@ -11,6 +11,24 @@ interface SearchItem {
   source: string; id: string; title: string; altTitle: string
   coverUrl: string | null; year: string | null
 }
+interface CatalogEntry {
+  source: string; sourceItemId: string; name: string; altTitle: string
+  coverUrl: string | null; remarks: string | null; tags: string[]
+  episodeCount: number | null
+}
+interface SourceInfo {
+  id: string; name: string; language: string
+  capabilities: string[]; genres: string[]; note: string
+}
+interface SearchItem {
+  source: string; id: string; title: string; altTitle: string
+  coverUrl: string | null; year: string | null
+}
+/** 库内目录条目 → 卡片（对齐原 SearchItem 渲染）。 */
+function toCard(e: CatalogEntry): SearchItem {
+  return { source: e.source, id: e.sourceItemId, title: e.name, altTitle: e.altTitle,
+           coverUrl: e.coverUrl, year: e.episodeCount ? `${e.episodeCount} 集` : null }
+}
 
 /**
  * 漫画索引（mobile-ui-index-and-reader）：参照番剧索引——按源 tab 切换 + 搜索 + 封面网格。
@@ -37,36 +55,37 @@ export default function MangaCatalog() {
       .catch(e => setError(e instanceof Error ? e.message : '源列表加载失败'))
   }, [])
 
-  const load = useCallback(async (src: string, query: string, gen: string) => {
+  // 主路径：读库（manga-catalog-sync）；「实时搜索」按钮走 per-source search 兜底
+  const load = useCallback(async (src: string, query: string, gen: string, live: boolean) => {
     if (!src) return
     setLoading(true); setError(''); setSearched(true)
     try {
-      let rows: SearchItem[]
-      if (gen) {
-        // 题材浏览：走源的题材端点（无题材能力的源不展示 tab，不会进入此分支）
-        const gqs = new URLSearchParams({ limit: '24' })
-        if (query) gqs.set('q', query)
-        rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/genre/${encodeURIComponent(gen)}?${gqs}`)
-      } else {
+      if (live) {
         const qs = new URLSearchParams({ limit: '24' })
         if (query) qs.set('q', query)
-        rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/search?${qs}`)
+        const rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/search?${qs}`)
+        setItems(rows)
+        return
       }
-      setItems(rows)
+      const qs = new URLSearchParams({ source: src, limit: '24' })
+      if (query) qs.set('q', query)
+      if (gen) qs.set('genre', gen)
+      const pageData = await api.get<{ items: CatalogEntry[]; nextCursor: string | null; total: number }>(`/api/v1/manga-catalog?${qs}`)
+      setItems(pageData.items.map(toCard))
     } catch (e) {
       setItems([])
-      setError(e instanceof Error ? e.message : '搜索失败')
+      setError(e instanceof Error ? e.message : '加载失败')
     } finally { setLoading(false) }
   }, [])
 
   useEffect(() => {
-    if (source) { setGenre(''); void load(source, '', '') }
+    if (source) { setGenre(''); void load(source, '', '', false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source])
 
-  function search() {
+  function search(live = false) {
     setActiveQuery(q.trim())
-    void load(source, q.trim(), genre)
+    void load(source, q.trim(), live ? '' : genre, live)
   }
 
   const current = sources.find(s => s.id === source)
@@ -85,7 +104,9 @@ export default function MangaCatalog() {
         <input className="search" placeholder={`在${current?.name ?? '所选源'}搜索标题…`}
                value={q} onChange={e => setQ(e.target.value)}
                onKeyDown={e => { if (e.key === 'Enter') search() }} />
-        <button onClick={search} disabled={loading || !source}>搜索</button>
+        <button onClick={() => search()} disabled={loading || !source}>搜索</button>
+        <button className="ghost" onClick={() => search(true)} disabled={loading || !source}
+                title="库内无结果时实时搜索该源（结果自动入库）">实时搜索</button>
         {sources.map(s => (
           <button key={s.id} className={source === s.id ? 'mini' : 'mini ghost'}
                   onClick={() => { setSource(s.id); setActiveQuery(''); setQ(''); setSearched(false) }}>
@@ -96,10 +117,10 @@ export default function MangaCatalog() {
           <>
             <span className="muted" style={{ fontSize: 12 }}>题材：</span>
             <button className={genre === '' ? 'mini' : 'mini ghost'}
-                    onClick={() => { setGenre(''); void load(source, activeQuery, '') }}>全部</button>
+                    onClick={() => { setGenre(''); void load(source, activeQuery, '', false) }}>全部</button>
             {current?.genres.map(g => (
               <button key={g} className={genre === g ? 'mini' : 'mini ghost'}
-                      onClick={() => { setGenre(g); void load(source, activeQuery, g) }}>{g}</button>
+                      onClick={() => { setGenre(g); void load(source, activeQuery, g, false) }}>{g}</button>
             ))}
           </>
         )}
