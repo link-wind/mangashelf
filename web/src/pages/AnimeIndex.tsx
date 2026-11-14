@@ -36,7 +36,6 @@ export default function AnimeIndex() {
   const navigate = useNavigate()
   const [items, setItems] = useState<CatalogItem[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
-  const [total, setTotal] = useState(0)
   const [q, setQ] = useState('')
   const [activeQuery, setActiveQuery] = useState('')
   const [params] = useSearchParams()
@@ -71,10 +70,9 @@ export default function AnimeIndex() {
       }
       if (st) qs.set('status', st)
       if (gen) qs.set('genre', gen)
-      const page = await api.get<{ items: CatalogItem[]; nextCursor: string | null; total: number }>(`/api/v1/catalog-items?${qs}`)
+      const page = await api.get<{ items: CatalogItem[]; nextCursor: string | null }>(`/api/v1/catalog-items?${qs}`)
       setItems(prev => replace ? page.items : [...prev, ...page.items])
       setCursor(page.nextCursor)
-      setTotal(page.total)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
     } finally { setLoading(false) }
@@ -110,12 +108,6 @@ export default function AnimeIndex() {
 
   return (
     <main className="watch-page">
-      <div className="watch-title"><h1>番剧索引</h1></div>
-      <div className="watch-meta">
-        <span>资源目录共 {total} 部 · 支持分类/状态/题材筛选</span>
-        <Link to="/shelf">我的收藏 →</Link>
-      </div>
-
       <div className="section-head">
         <h2>全部番剧</h2>
         <span className="muted">来自资源站同步 · 收藏/导入在详情页</span>
