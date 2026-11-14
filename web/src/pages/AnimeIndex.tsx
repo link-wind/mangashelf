@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import SeasonSection from './SeasonSection'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
@@ -9,8 +8,10 @@ interface CatalogItem {
   workId: string | null
 }
 
-const CATEGORIES = [
-  { id: undefined as number | undefined, label: '全部' },
+// id 为数字（资源站分类）或 'season'（本季新番视图，anime-index-full-catalog）
+const CATEGORIES: { id: number | 'season' | undefined, label: string }[] = [
+  { id: undefined, label: '全部' },
+  { id: 'season', label: '本季新番' },
   { id: 30, label: '日韩动漫' },
   { id: 29, label: '国产动漫' },
   { id: 31, label: '欧美动漫' },
@@ -40,8 +41,8 @@ export default function AnimeIndex() {
   const [activeQuery, setActiveQuery] = useState('')
   const [params] = useSearchParams()
   const initialCat = params.get('category')
-  const [categoryId, setCategoryId] = useState<number | undefined>(
-    initialCat ? Number(initialCat) : undefined)
+  const [categoryId, setCategoryId] = useState<string | undefined>(
+    initialCat ? (initialCat === 'season' ? 'season' : String(Number(initialCat))) : undefined)
   const [status, setStatus] = useState('')
   const [sort, setSort] = useState('updated')
   const [genre, setGenre] = useState('')
@@ -51,7 +52,7 @@ export default function AnimeIndex() {
   const [error, setError] = useState('')
 
   // 集数排序用偏移分页（无键集游标），其余用游标。
-  const load = useCallback(async (nextCursor: string | null, query: string, cat: number | undefined,
+  const load = useCallback(async (nextCursor: string | null, query: string, cat: string | undefined,
                                   st: string, sot: string, gen: string, pageIdx: number, replace: boolean) => {
     setLoading(true); setError('')
     try {
@@ -63,7 +64,11 @@ export default function AnimeIndex() {
         qs.set('cursor', nextCursor)
       }
       if (query) qs.set('q', query)
-      if (cat !== undefined) qs.set('categoryId', String(cat))
+      if (cat === 'season') {
+        qs.set('season', 'true')
+      } else if (cat !== undefined && cat !== '') {
+        qs.set('categoryId', cat)
+      }
       if (st) qs.set('status', st)
       if (gen) qs.set('genre', gen)
       const page = await api.get<{ items: CatalogItem[]; nextCursor: string | null; total: number }>(`/api/v1/catalog-items?${qs}`)
@@ -75,7 +80,7 @@ export default function AnimeIndex() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { void load(null, '', initialCat ? Number(initialCat) : undefined, status, sort, genre, 0, true) },
+  useEffect(() => { void load(null, '', initialCat ?? undefined, status, sort, genre, 0, true) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [load, initialCat, status, sort])
 
@@ -84,7 +89,7 @@ export default function AnimeIndex() {
     void load(null, q.trim(), categoryId, status, sort, genre, 0, true)
   }
 
-  function pickCategory(id: number | undefined) {
+  function pickCategory(id: string | undefined) {
     setCategoryId(id)
     void load(null, activeQuery, id, status, sort, genre, 0, true)
   }
@@ -107,17 +112,13 @@ export default function AnimeIndex() {
     <main className="watch-page">
       <div className="watch-title"><h1>番剧索引</h1></div>
       <div className="watch-meta">
-        <span>本季新番来自 Bangumi 日历 · 资源目录共 {total} 部</span>
+        <span>资源目录共 {total} 部 · 支持分类/状态/题材筛选</span>
         <Link to="/shelf">我的收藏 →</Link>
       </div>
 
-      <div style={{ marginBottom: 30 }}>
-        <SeasonSection />
-      </div>
-
       <div className="section-head">
-        <h2>资源目录</h2>
-        <span className="muted">加入书库后可在线播放</span>
+        <h2>全部番剧</h2>
+        <span className="muted">来自资源站同步 · 收藏/导入在详情页</span>
       </div>
 
       <div className="row-inline" style={{ marginBottom: 14 }}>
@@ -143,7 +144,7 @@ export default function AnimeIndex() {
         {CATEGORIES.map(c => (
           <button key={c.label}
                   className={categoryId === c.id ? '' : 'ghost'}
-                  onClick={() => pickCategory(c.id)}>{c.label}</button>
+                  onClick={() => pickCategory(c.id === 'season' ? 'season' : c.id === undefined ? undefined : String(c.id))}>{c.label}</button>
         ))}
       </div>
 
