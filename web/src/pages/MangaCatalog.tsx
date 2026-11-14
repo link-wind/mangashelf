@@ -95,7 +95,6 @@ export default function MangaCatalog() {
       <div className="row-between">
         <div>
           <h1>漫画索引</h1>
-          <p className="muted">按数据源检索{current ? ` · ${current.name}` : ''}；本地作品在漫画首页与收藏页。</p>
         </div>
       </div>
       {error && <p className="error">{error}</p>}
