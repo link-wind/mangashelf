@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 漫画数据源统一入口（M17）：元数据（榜单/搜索/详情）与阅读按源能力分发。
@@ -30,12 +31,14 @@ public class MangaSourceController {
     private final MangaSourceRegistry registry;
     private final MangaSectionsService sectionsService;
     private final BilibiliReaderService bilibili;
+    private final MangaCatalogRepository catalog;
 
     public MangaSourceController(MangaSourceRegistry registry, MangaSectionsService sectionsService,
-                                 BilibiliReaderService bilibili) {
+                                 BilibiliReaderService bilibili, MangaCatalogRepository catalog) {
         this.registry = registry;
         this.sectionsService = sectionsService;
         this.bilibili = bilibili;
+        this.catalog = catalog;
     }
 
     @GetMapping
@@ -73,7 +76,18 @@ public class MangaSourceController {
                                                @RequestParam(defaultValue = "24") int limit) {
         MangaSource s = require(source, MangaSource.Capability.SEARCH);
         try {
-            return s.search(q, "all".equals(lang) ? null : lang, limit);
+            List<MangaSource.SearchItem> items = s.search(q, "all".equals(lang) ? null : lang, limit);
+            // 渐进式入库（manga-catalog-sync）：命中条目沉淀到目录，失败不影响搜索响应
+            for (MangaSource.SearchItem item : items) {
+                try {
+                    catalog.upsert(UUID.randomUUID(), item.source(), item.id(), item.title(),
+                            item.altTitle() == null ? "" : item.altTitle(),
+                            item.coverUrl() == null ? "" : item.coverUrl(), "", List.of(), null);
+                } catch (Exception ignore) {
+                    // 入库失败不影响搜索
+                }
+            }
+            return items;
         } catch (Exception e) {
             throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
         }
