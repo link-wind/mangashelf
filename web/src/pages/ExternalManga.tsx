@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { proxyImage } from '../externalManga'
 
 interface ExtManga {
   id: string; title: string; altTitle: string; description: string
@@ -100,7 +99,7 @@ export default function ExternalManga() {
                   onClick={() => navigate(`/manga-ext/${m.id}?source=${source}`)}>
             <div className="cover">
               {m.coverUrl
-                ? <img src={proxyImage(m.coverUrl!)} alt={m.title} loading="lazy" decoding="async" />
+                ? <img src={m.coverUrl ?? ""} alt={m.title} loading="lazy" decoding="async" />
                 : <span className="cover-initial">{m.title.slice(0, 1)}</span>}
               {m.year && <span className="badge-anim">{m.year}</span>}
             </div>

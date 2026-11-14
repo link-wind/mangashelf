@@ -1,24 +1,8 @@
-/** 外部漫画（MangaDex）图片：优先直连 CDN，失败回退本服务代理。 */
-export function extImage(url: string | null | undefined): string {
-  return url ?? ''
-}
+/** 外部漫画封面辅助：各源封面均为可直接访问地址（MangaDex 代理已随源移除）。 */
 
-export function proxyImage(url: string): string {
-  return `/api/v1/external-manga/image?u=${encodeURIComponent(url)}`
-}
-
-/** 用于 onError：首次失败换成代理地址，再失败隐藏。 */
+/** 用于 onError：图片加载失败直接隐藏，不回退代理。 */
 export function onImgError(e: React.SyntheticEvent<HTMLImageElement>) {
-  const img = e.currentTarget
-  const original = img.dataset.original || img.src
-  if (!original) return
-  if (!img.dataset.proxied) {
-    img.dataset.original = original
-    img.dataset.proxied = '1'
-    img.src = proxyImage(original)
-  } else {
-    img.style.display = 'none'
-  }
+  e.currentTarget.style.display = 'none'
 }
 
 /** 封面高清档（M24 hero 背景用）：腾讯 /210→/0（原图），哔哩 @480w→@960w。 */

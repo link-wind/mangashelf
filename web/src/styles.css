@@ -988,3 +988,35 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 .rf-toc-item.active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
 .rf-toc-item.disabled { opacity: .45; cursor: default; }
 .manga-index-bar { margin: 14px 0 20px; }
+
+/* ── 手机悬浮导航（mobile-nav-genre-remove-mangadex）── */
+.nav-fab {
+  display: none;
+  position: fixed; right: 16px; bottom: 18px; z-index: 90;
+  width: 52px; height: 52px; border-radius: 50%;
+  font-size: 22px; line-height: 1;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
+}
+.nav-overlay {
+  position: fixed; inset: 0; z-index: 95;
+  background: rgba(0, 0, 0, .45);
+}
+.nav-mobile-menu {
+  position: absolute; right: 14px; bottom: 82px;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 180px; padding: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0, 0, 0, .3);
+}
+.nav-mobile-menu a, .nav-mobile-menu button {
+  background: none; color: var(--ink); text-align: left;
+  padding: 11px 14px; font-size: 15px; border-radius: var(--radius-sm);
+}
+.nav-mobile-menu a:hover, .nav-mobile-menu button:hover { background: var(--bg-soft); }
+.nav-mobile-menu a.active { color: var(--accent-strong); font-weight: 600; }
+.nav-mobile-sep { height: 1px; background: var(--border); margin: 6px 0; }
+
+@media (max-width: 720px) {
+  .nav > nav, .nav .nav-search, .nav .who, .nav > .spacer { display: none; }
+  .nav-fab { display: block; }
+}

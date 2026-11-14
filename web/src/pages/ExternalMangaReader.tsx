@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
-import { proxyImage } from '../externalManga'
 import ExternalMangaPage from '../components/ExternalMangaPage'
 import { loadPageSizes, savePageSizes, type PageSizes } from '../readerPageSizes'
 
@@ -99,7 +98,7 @@ export default function ExternalMangaReader() {
   const mangaId = params.get('mangaId') ?? ''
   const lang = params.get('lang') ?? 'zh'
   const title = params.get('title') ?? '外部漫画'
-  const source = params.get('source') ?? 'mangadex'
+  const source = params.get('source') ?? 'copymanga'
   const sizeKey = `${source}:${chapterId ?? ''}`
 
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings)
@@ -459,15 +458,7 @@ export default function ExternalMangaReader() {
     const next = spreads[effSpread + 1] ?? []
     const probes = next.map(index => {
       const image = new Image()
-      const original = list[index] ?? ''
-      let proxied = false
-      image.onerror = () => {
-        if (original && !original.startsWith('/') && !proxied) {
-          proxied = true
-          image.src = proxyImage(original)
-        }
-      }
-      image.src = original
+      image.src = list[index] ?? ''
       return image
     })
     return () => { probes.forEach(image => { image.onerror = null; image.src = '' }) }

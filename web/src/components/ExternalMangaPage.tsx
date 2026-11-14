@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { proxyImage } from '../externalManga'
 
 interface Props {
   src: string
@@ -21,7 +20,6 @@ export default function ExternalMangaPage({
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [proxied, setProxied] = useState(false)
   const shouldLoad = active && (paged || nearby)
 
   useEffect(() => {
@@ -49,7 +47,6 @@ export default function ExternalMangaPage({
     setState('loading')
     setError('')
     setImageUrl('')
-    setProxied(false)
     if (!fetchImage) {
       setImageUrl(src)
       return
@@ -93,12 +90,6 @@ export default function ExternalMangaPage({
                setState('ready')
              }}
              onError={() => {
-               const remote = new URL(src, window.location.href).origin !== window.location.origin
-               if (!fetchImage && remote && !proxied) {
-                 setProxied(true)
-                 setImageUrl(proxyImage(src))
-                 return
-               }
                setState('failed')
                setError(fetchImage ? '页图未能解码，请重试' : '图片读取失败，请重试')
              }} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { proxyImage, hdCover } from '../externalManga'
+import { hdCover } from '../externalManga'
 
 interface MangaCard {
   id: string; title: string; description: string; visibility: string
@@ -206,12 +206,12 @@ function MangaDiscovery() {
         <div className="manga-hero-banner">
           {/* 交叉淡入：每张待显示的背景独立成层，key 变化触发淡入动画 */}
           <div className="manga-hero-bg" key={hero.source + hero.id}
-               style={hero.coverUrl ? { backgroundImage: `url(${proxyImage(hdCover(hero.coverUrl))})` } : undefined} />
+               style={hero.coverUrl ? { backgroundImage: `url(${hdCover(hero.coverUrl)})` } : undefined} />
           <div className="manga-hero-shade" />
           <div className="manga-hero-inner">
             <button className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
               {hero.coverUrl
-                ? <img src={proxyImage(hero.coverUrl)} alt={hero.title} />
+                ? <img src={hero.coverUrl ?? ""} alt={hero.title} />
                 : <span className="cover-initial">{hero.title.slice(0, 1)}</span>}
             </button>
             <div className="manga-hero-info">
@@ -244,7 +244,7 @@ function MangaDiscovery() {
                         className={'manga-hero-thumb' + (i === heroIdx ? ' on' : '')}
                         onClick={() => setHeroIdx(i)} title={it.title}>
                   {it.coverUrl
-                    ? <img src={proxyImage(it.coverUrl)} alt="" loading="lazy" />
+                    ? <img src={it.coverUrl ?? ""} alt="" loading="lazy" />
                     : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
                   <span className="manga-hero-thumb-title">{it.title}</span>
                 </button>
@@ -291,7 +291,7 @@ function SectionRow({ section, showRank, onOpen }: {
                     ? `${it.title}（${it.sources!.join('、')}）` : it.title}>
             <div className="mt-cover">
               {it.coverUrl
-                ? <img src={proxyImage(it.coverUrl)} alt={it.title} loading="lazy" decoding="async" />
+                ? <img src={it.coverUrl ?? ""} alt={it.title} loading="lazy" decoding="async" />
                 : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
               {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
               {(it.sourceCount ?? 1) > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}

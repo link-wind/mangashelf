@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { proxyImage, onImgError } from '../externalManga'
+
 
 interface SourceInfo {
   id: string; name: string; language: string
-  capabilities: string[]; note: string
+  capabilities: string[]; genres: string[]; note: string
 }
 interface SearchItem {
   source: string; id: string; title: string; altTitle: string
@@ -24,6 +24,7 @@ export default function MangaCatalog() {
   const [activeQuery, setActiveQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [genre, setGenre] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -36,13 +37,21 @@ export default function MangaCatalog() {
       .catch(e => setError(e instanceof Error ? e.message : '源列表加载失败'))
   }, [])
 
-  const load = useCallback(async (src: string, query: string) => {
+  const load = useCallback(async (src: string, query: string, gen: string) => {
     if (!src) return
     setLoading(true); setError(''); setSearched(true)
     try {
-      const qs = new URLSearchParams({ limit: '24' })
-      if (query) qs.set('q', query)
-      const rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/search?${qs}`)
+      let rows: SearchItem[]
+      if (gen) {
+        // 题材浏览：走源的题材端点（无题材能力的源不展示 tab，不会进入此分支）
+        const gqs = new URLSearchParams({ limit: '24' })
+        if (query) gqs.set('q', query)
+        rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/genre/${encodeURIComponent(gen)}?${gqs}`)
+      } else {
+        const qs = new URLSearchParams({ limit: '24' })
+        if (query) qs.set('q', query)
+        rows = await api.get<SearchItem[]>(`/api/v1/manga-sources/${src}/search?${qs}`)
+      }
       setItems(rows)
     } catch (e) {
       setItems([])
@@ -51,13 +60,13 @@ export default function MangaCatalog() {
   }, [])
 
   useEffect(() => {
-    if (source) void load(source, '')
+    if (source) { setGenre(''); void load(source, '', '') }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source])
 
   function search() {
     setActiveQuery(q.trim())
-    void load(source, q.trim())
+    void load(source, q.trim(), genre)
   }
 
   const current = sources.find(s => s.id === source)
@@ -83,6 +92,17 @@ export default function MangaCatalog() {
             {s.name}
           </button>
         ))}
+        {(current?.genres?.length ?? 0) > 0 && (
+          <>
+            <span className="muted" style={{ fontSize: 12 }}>题材：</span>
+            <button className={genre === '' ? 'mini' : 'mini ghost'}
+                    onClick={() => { setGenre(''); void load(source, activeQuery, '') }}>全部</button>
+            {current?.genres.map(g => (
+              <button key={g} className={genre === g ? 'mini' : 'mini ghost'}
+                      onClick={() => { setGenre(g); void load(source, activeQuery, g) }}>{g}</button>
+            ))}
+          </>
+        )}
       </div>
 
       {!loading && searched && items.length === 0 && !error && (
@@ -97,8 +117,8 @@ export default function MangaCatalog() {
                 className="work-card">
             <div className="cover">
               {r.coverUrl
-                ? <img src={proxyImage(r.coverUrl)} alt={r.title} loading="lazy" decoding="async"
-                       onError={onImgError} />
+                ? <img src={r.coverUrl ?? ''} alt={r.title} loading="lazy" decoding="async"
+                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 : <span className="cover-initial">{r.title.slice(0, 1)}</span>}
               {r.year && <span className="badge-anim">{r.year}</span>}
             </div>

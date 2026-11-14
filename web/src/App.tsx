@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import LoginPage from './pages/Login'
 import Home from './pages/Home'
@@ -25,6 +25,16 @@ import ExternalWatch from './pages/ExternalWatch'
 import BrowseWatch from './pages/BrowseWatch'
 
 /** 明暗主题切换（M12）：存 localStorage，根节点 data-theme 驱动 CSS 变量。 */
+const NAV_ENTRIES = [
+  { to: '/', label: '首页' },
+  { to: '/manga', label: '漫画' },
+  { to: '/manga-index', label: '漫画索引' },
+  { to: '/anime', label: '番剧索引' },
+  { to: '/schedule', label: '新番时刻表' },
+  { to: '/shelf', label: '我的收藏' },
+  { to: '/history', label: '观看历史' },
+]
+
 function toggleTheme() {
   const root = document.documentElement
   const next = root.dataset.theme === 'dark' ? 'light' : 'dark'
@@ -36,6 +46,9 @@ function Nav() {
   const { me, logout } = useAuth()
   const navigate = useNavigate()
   const [kw, setKw] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const location = useLocation()
+  useEffect(() => { setMenuOpen(false) }, [location.pathname])
   if (!me) return null
   function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -43,6 +56,7 @@ function Nav() {
     navigate(q ? `/search?q=${encodeURIComponent(q)}` : '/search')
   }
   return (
+    <>
     <header className="nav">
       <NavLink to="/" className="brand">MangaShelf</NavLink>
       <nav>
@@ -66,6 +80,25 @@ function Nav() {
       <button className="pill mini" style={{ padding: '5px 14px' }}
               onClick={async () => { await logout(); navigate('/login') }}>退出</button>
     </header>
+    {/* 手机端悬浮导航（mobile-nav-genre-remove-mangadex）：≤720px 显示，点击展开全屏菜单；
+        放在 header 外——backdrop-filter 会使 header 成为 fixed 定位的包含块 */}
+    <button className={'nav-fab' + (menuOpen ? ' open' : '')} aria-label="导航菜单"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(v => !v)}>{menuOpen ? '✕' : '☰'}</button>
+    {menuOpen && (
+      <div className="nav-overlay" onClick={() => setMenuOpen(false)}>
+        <nav className="nav-mobile-menu" onClick={e => e.stopPropagation()}>
+          {NAV_ENTRIES.map(e => (
+            <NavLink key={e.to} to={e.to} end={e.to === '/'}>{e.label}</NavLink>
+          ))}
+          <div className="nav-mobile-sep" />
+          <NavLink to="/settings">设置</NavLink>
+          <button onClick={async () => { await logout(); navigate('/login') }}>退出登录</button>
+          <button onClick={toggleTheme}>切换明暗主题</button>
+        </nav>
+      </div>
+    )}
+    </>
   )
 }
 

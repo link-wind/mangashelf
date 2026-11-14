@@ -27,6 +27,8 @@ const SORTS = [
   { value: 'updated', label: '最近更新' },
   { value: 'episodes', label: '集数最多' },
 ]
+// 题材（mobile-nav-genre-remove-mangadex）：与 Bangumi 条目 tags 匹配，服务端过滤
+const GENRES = ['热血', '机甲', '恋爱', '搞笑', '冒险', '科幻', '奇幻', '运动', '悬疑', '治愈', '日常', '古风']
 
 /** 番剧索引（M8 目录层）：资源站全库封面卡 + 分类筛选 + 搜索 + 一键入书库。 */
 export default function AnimeIndex() {
@@ -42,6 +44,7 @@ export default function AnimeIndex() {
     initialCat ? Number(initialCat) : undefined)
   const [status, setStatus] = useState('')
   const [sort, setSort] = useState('updated')
+  const [genre, setGenre] = useState('')
   const [pageIndex, setPageIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [busyItem, setBusyItem] = useState<string | null>(null)
@@ -49,7 +52,7 @@ export default function AnimeIndex() {
 
   // 集数排序用偏移分页（无键集游标），其余用游标。
   const load = useCallback(async (nextCursor: string | null, query: string, cat: number | undefined,
-                                  st: string, sot: string, pageIdx: number, replace: boolean) => {
+                                  st: string, sot: string, gen: string, pageIdx: number, replace: boolean) => {
     setLoading(true); setError('')
     try {
       const qs = new URLSearchParams({ limit: '24' })
@@ -62,6 +65,7 @@ export default function AnimeIndex() {
       if (query) qs.set('q', query)
       if (cat !== undefined) qs.set('categoryId', String(cat))
       if (st) qs.set('status', st)
+      if (gen) qs.set('genre', gen)
       const page = await api.get<{ items: CatalogItem[]; nextCursor: string | null; total: number }>(`/api/v1/catalog-items?${qs}`)
       setItems(prev => replace ? page.items : [...prev, ...page.items])
       setCursor(page.nextCursor)
@@ -71,18 +75,18 @@ export default function AnimeIndex() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { void load(null, '', initialCat ? Number(initialCat) : undefined, status, sort, 0, true) },
+  useEffect(() => { void load(null, '', initialCat ? Number(initialCat) : undefined, status, sort, genre, 0, true) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [load, initialCat, status, sort])
 
   function search() {
     setActiveQuery(q.trim())
-    void load(null, q.trim(), categoryId, status, sort, 0, true)
+    void load(null, q.trim(), categoryId, status, sort, genre, 0, true)
   }
 
   function pickCategory(id: number | undefined) {
     setCategoryId(id)
-    void load(null, activeQuery, id, status, sort, 0, true)
+    void load(null, activeQuery, id, status, sort, genre, 0, true)
   }
 
   // 播放直接进入浏览态，不创建作品；收藏是独立操作。
@@ -121,15 +125,20 @@ export default function AnimeIndex() {
                onChange={e => setQ(e.target.value)}
                onKeyDown={e => e.key === 'Enter' && search()} />
         <button onClick={search} disabled={loading}>搜索</button>
-        {activeQuery && <button className="ghost" onClick={() => { setQ(''); setActiveQuery(''); void load(null, '', categoryId, status, sort, 0, true) }}>清除</button>}
+        {activeQuery && <button className="ghost" onClick={() => { setQ(''); setActiveQuery(''); void load(null, '', categoryId, status, sort, genre, 0, true) }}>清除</button>}
         <span style={{ width: 12 }} />
         <select className="mini" value={status}
-                onChange={e => { setStatus(e.target.value); void load(null, activeQuery, categoryId, e.target.value, sort, 0, true) }}>
+                onChange={e => { setStatus(e.target.value); void load(null, activeQuery, categoryId, e.target.value, sort, genre, 0, true) }}>
           {STATUS.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
         </select>
         <select className="mini" value={sort}
-                onChange={e => { setSort(e.target.value); void load(null, activeQuery, categoryId, status, e.target.value, 0, true) }}>
+                onChange={e => { setSort(e.target.value); void load(null, activeQuery, categoryId, status, e.target.value, genre, 0, true) }}>
           {SORTS.map(so => <option key={so.value} value={so.value}>{so.label}</option>)}
+        </select>
+        <select className="mini" value={genre}
+                onChange={e => { setGenre(e.target.value); void load(null, activeQuery, categoryId, status, sort, e.target.value, 0, true) }}>
+          <option value="">全部题材</option>
+          {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
         {CATEGORIES.map(c => (
           <button key={c.label}
@@ -178,7 +187,7 @@ export default function AnimeIndex() {
       {cursor && (
         <div style={{ marginTop: 20, textAlign: 'center' }}>
           <button className="ghost" disabled={loading}
-                  onClick={() => void load(cursor, activeQuery, categoryId, status, sort,
+                  onClick={() => void load(cursor, activeQuery, categoryId, status, sort, genre,
                     cursor?.startsWith('page:') ? Number(cursor.slice(5)) : 0, false)}>
             {loading ? '加载中…' : '加载更多'}
           </button>

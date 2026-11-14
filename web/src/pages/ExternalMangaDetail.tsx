@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { proxyImage } from '../externalManga'
+
 
 interface ExtManga {
   id: string; title: string; altTitle: string; description: string
@@ -15,12 +15,6 @@ interface Detail { manga: ExtManga; chapters: ExtChapter[] }
 interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number }
 interface SourceInfo { id: string; name: string; language: string; capabilities: string[]; note: string }
 interface SwitchItem { source: string; id: string; title: string; altTitle: string; coverUrl: string | null }
-
-const LANGS = [
-  { key: 'zh', label: '中文' },
-  { key: 'en', label: 'English' },
-  { key: 'all', label: '全部' },
-]
 
 /** 统一源响应（/manga-sources/{s}/manga/{id}）→ 内部 Detail。 */
 function normalizeSource(raw: {
@@ -52,7 +46,7 @@ export default function ExternalMangaDetail() {
   const { mangaId } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const source = params.get('source') ?? 'mangadex'
+  const source = params.get('source') ?? 'copymanga'
   const [detail, setDetail] = useState<Detail | null>(null)
   const [lang, setLang] = useState('zh')
   const [asc, setAsc] = useState(true)
@@ -172,7 +166,7 @@ export default function ExternalMangaDetail() {
       <section className="manga-hero">
         <div className="manga-cover">
           {manga.coverUrl
-            ? <img src={proxyImage(manga.coverUrl)} alt={manga.title} />
+            ? <img src={manga.coverUrl ?? ''} alt={manga.title} />
             : <span className="cover-initial">{manga.title.slice(0, 1)}</span>}
         </div>
         <div className="manga-info">
@@ -229,7 +223,7 @@ export default function ExternalMangaDetail() {
                             onClick={() => navigate(`/manga-ext/${r.id}?source=${r.source}` +
                               `&title=${encodeURIComponent(r.title)}`)}>
                       {r.coverUrl
-                        ? <img src={proxyImage(r.coverUrl)} alt="" loading="lazy" decoding="async" />
+                        ? <img src={r.coverUrl ?? ''} alt="" loading="lazy" decoding="async" />
                         : <span className="switch-cover-fallback">{(r.title || '?').slice(0, 1)}</span>}
                       <span className="switch-item-title clamp">{r.title}</span>
                     </button>
@@ -247,10 +241,6 @@ export default function ExternalMangaDetail() {
             章节 <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>{readable.length} 话</span>
           </h2>
           <div className="row-inline">
-            {source === 'mangadex' && LANGS.map(l => (
-              <button key={l.key} className={lang === l.key ? 'mini' : 'mini ghost'}
-                      onClick={() => setLang(l.key)}>{l.label}</button>
-            ))}
             {officialBiliUrl && chapters.length > readable.length && (
               <button className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
                 {showAllBiliChapters ? `仅站内可读（${readable.length}）` : `显示全部（${chapters.length}）`}
@@ -279,9 +269,7 @@ export default function ExternalMangaDetail() {
           </div>
         ) : !loading && (
           <p className="muted">
-            {source === 'mangadex'
-              ? '该语言下没有 MangaDex 托管章节（部分章节为外链，需在原站阅读）。可切换 English 或「全部」。'
-              : '没有可读章节。'}
+            没有可读章节。
           </p>
         )}
       </section>
