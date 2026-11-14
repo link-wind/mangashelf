@@ -48,7 +48,7 @@ public class ExternalCatalogRepository {
      * sort=episodes 用集数排序 + 偏移分页（键集游标按更新时间，不适用集数序）。
      */
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
-                                          String status, String sort, String genre,
+                                          String status, String sort, String genre, Boolean season,
                                           Instant beforeUpdated, UUID beforeId,
                                           int offset, int limit) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
@@ -65,6 +65,10 @@ public class ExternalCatalogRepository {
         if (categoryId != null) {
             where.append(" AND category_id = ? ");
             args.add(categoryId);
+        }
+        if (Boolean.TRUE.equals(season)) {
+            // 本季新番视图（anime-index-full-catalog）：Bangumi 日历关联的条目
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE in_calendar) ");
         }
         if (q != null && !q.isBlank()) {
             where.append(" AND name ILIKE ? ESCAPE '\\' ");
@@ -99,7 +103,7 @@ public class ExternalCatalogRepository {
                 """.formatted(where), mapper, args.toArray());
     }
 
-    public long count(UUID sourceId, Integer categoryId, String status, String genre) {
+    public long count(UUID sourceId, Integer categoryId, String status, String genre, Boolean season) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
         if (sourceId != null) {
@@ -109,6 +113,9 @@ public class ExternalCatalogRepository {
         if (genre != null && !genre.isBlank()) {
             where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE EXISTS (SELECT 1 FROM unnest(tags) t WHERE t = ?)) ");
             args.add(genre);
+        }
+        if (Boolean.TRUE.equals(season)) {
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE in_calendar) ");
         }
         if (categoryId != null) {
             where.append(" AND category_id = ? ");

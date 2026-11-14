@@ -102,27 +102,27 @@ public class ExternalCatalogService {
 
     public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
                                      Integer categoryId, String status, String sort, String genre,
-                                     Integer page) {
+                                     Boolean season, Integer page) {
         int effectiveLimit = Math.min(Math.max(limit, 1), 60);
         boolean byEpisodes = "episodes".equals(sort);
         if (byEpisodes) {
             // 集数排序：偏移分页（键集游标按更新时间，不适用集数序）
             int effectivePage = Math.max(page == null ? 0 : page, 0);
             List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
-                    genre, null, null, effectivePage * effectiveLimit, effectiveLimit);
+                    genre, season, null, null, effectivePage * effectiveLimit, effectiveLimit);
             String next = items.size() == effectiveLimit
                     ? "page:" + (effectivePage + 1) : null;
             return new CatalogItemPage(items, next,
-                    catalogItems.count(sourceId, categoryId, status, genre));
+                    catalogItems.count(sourceId, categoryId, status, genre, season));
         }
         Cursor c = decodeCursor(cursor);
         List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
-                genre, c.updatedAt, c.id, 0, effectiveLimit);
+                genre, season, c.updatedAt, c.id, 0, effectiveLimit);
         String next = items.size() == effectiveLimit
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
                 : null;
-        return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId, status, genre));
+        return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId, status, genre, season));
     }
 
     // ── 目录条目详情（M11）──
