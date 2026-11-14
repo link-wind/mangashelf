@@ -77,4 +77,16 @@ public interface MangaSource {
     default Pages pages(String chapterId) throws Exception {
         throw new UnsupportedOperationException("pages");
     }
+
+    // ── 题材浏览（mobile-nav-genre-remove-mangadex，可选能力）──
+
+    /** 题材清单（如热血/机甲）；空列表表示源不支持题材浏览。 */
+    default List<String> genres() {
+        return List.of();
+    }
+
+    /** 按题材搜索（GENRE 声明时实现）；与 search 相同返回形态。 */
+    default List<SearchItem> searchByGenre(String genre, String lang, int limit) throws Exception {
+        throw new UnsupportedOperationException("searchByGenre");
+    }
 }

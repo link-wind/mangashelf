@@ -190,6 +190,51 @@ public class CopyMangaBrowserSource implements MangaSource {
         return out;
     }
 
+    /** 题材清单（copymanga 官网主题常集）：与筛选 API 的 theme 参数一一对应。 */
+    private static final List<String> GENRES = List.of(
+            "热血", "恋爱", "搞笑", "冒险", "后宫", "机甲", "科幻", "奇幻",
+            "运动", "悬疑", "社会", "古风", "治愈", "少年", "少女");
+
+    @Override
+    public List<String> genres() {
+        return GENRES;
+    }
+
+    /** 按题材浏览：走 copymanga APP 筛选接口（与章节 HTTP 同域同鉴权头）。 */
+    @Override
+    public List<SearchItem> searchByGenre(String genre, String lang, int limit) throws Exception {
+        String url = "https://api.manga2026.xyz/api/v3/h5/filter/list?theme="
+                + java.net.URLEncoder.encode(genre, java.nio.charset.StandardCharsets.UTF_8)
+                + "&offset=0&limit=" + Math.min(Math.max(limit, 1), 60)
+                + "&group=0&region=0&ordering=-datetime_updated";
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(15))
+                .header("User-Agent", "COPY/3.0.9")
+                .header("Accept", "application/json")
+                .header("version", "3.0.9")
+                .header("versionCode", "83")
+                .header("platform", "3")
+                .header("webp", "1")
+                .GET().build();
+        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new ApiException(502, "SOURCE_UNAVAILABLE", "拷贝漫画题材请求 HTTP " + resp.statusCode());
+        }
+        var mapper = new tools.jackson.databind.json.JsonMapper();
+        JsonNode list = mapper.readTree(resp.body()).path("results").path("list");
+        List<SearchItem> out = new ArrayList<>();
+        for (JsonNode item : list) {
+            if (out.size() >= limit) break;
+            String id = item.path("path_word").asText("");
+            String title = item.path("name").asText("");
+            if (id.isBlank() || title.isBlank()) continue;
+            String cover = item.path("cover").asText("");
+            out.add(new SearchItem("copymanga", id, title, "",
+                    cover.isBlank() ? null : hdCover(cover), null));
+        }
+        return out;
+    }
+
     @Override
     public Detail detail(String mangaId, String lang) throws Exception {
         return httpDetail.detail(mangaId);

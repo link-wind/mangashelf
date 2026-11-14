@@ -109,6 +109,29 @@ public class MangaSourceController {
         }
     }
 
+    /** 题材清单（可选能力；空列表表示源不支持题材浏览）。 */
+    @GetMapping("/{source}/genres")
+    public List<String> genres(@PathVariable String source) {
+        return require(source, MangaSource.Capability.SEARCH).genres();
+    }
+
+    /** 按题材获取作品列表。 */
+    @GetMapping("/{source}/genre/{name}")
+    public List<MangaSource.SearchItem> byGenre(@PathVariable String source,
+                                                @PathVariable String name,
+                                                @RequestParam(defaultValue = "zh") String lang,
+                                                @RequestParam(defaultValue = "24") int limit) {
+        MangaSource s = require(source, MangaSource.Capability.SEARCH);
+        try {
+            return s.searchByGenre(name, "all".equals(lang) ? null : lang,
+                    Math.min(Math.max(limit, 1), 60));
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(502, "SOURCE_UNAVAILABLE", s.name() + " 请求失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/capture/{sessionId}")
     public MangaSource.Pages capture(@PathVariable String sessionId) {
         throw new ApiException(410, "CAPTURE_REPLACED", "章节已改为按需加载，请重新打开章节");
