@@ -60,7 +60,8 @@ public class BangumiService {
     // ── 日历（本季新番）──
 
     public record Subject(long subjectId, String name, String nameCn, String coverUrl,
-                          Double rating, LocalDate airDate, Integer airWeekday, String summary) {}
+                          Double rating, LocalDate airDate, Integer airWeekday, String summary,
+                          List<String> tags) {}
 
     /** 拉取本季日历并 upsert 缓存；返回条数。 */
     public int syncCalendar() throws Exception {
@@ -69,6 +70,11 @@ public class BangumiService {
         for (JsonNode week : weeks) {
             int weekday = week.path("weekday").path("id").asInt();
             for (JsonNode it : week.path("items")) {
+                List<String> tags = new ArrayList<>();
+                it.path("tags").forEach(t -> {
+                    String tag = t.path("name").asText("").trim();
+                    if (!tag.isBlank()) tags.add(tag);
+                });
                 upsertSubject(new Subject(
                         it.path("id").asLong(),
                         it.path("name").asText(""),
@@ -77,7 +83,8 @@ public class BangumiService {
                         it.path("rating").path("score").asDouble(0) == 0 ? null : it.path("rating").path("score").asDouble(),
                         parseDate(it.path("air_date").asText("")),
                         weekday,
-                        it.path("summary").asText("")), true);
+                        it.path("summary").asText(""),
+                        tags), true);
                 n++;
             }
         }
@@ -98,9 +105,14 @@ public class BangumiService {
         }
         List<Subject> out = new ArrayList<>();
         for (JsonNode x : objectMapper.readTree(resp.body()).path("data")) {
+            List<String> tags = new ArrayList<>();
+            x.path("tags").forEach(t -> {
+                String tag = t.path("name").asText("").trim();
+                if (!tag.isBlank()) tags.add(tag);
+            });
             out.add(new Subject(x.path("id").asLong(), x.path("name").asText(""),
                     x.path("name_cn").asText(""), pickImage(x.path("images")), null,
-                    parseDate(x.path("date").asText("")), null, ""));
+                    parseDate(x.path("date").asText("")), null, "", tags));
         }
         return out;
     }
@@ -365,15 +377,17 @@ public class BangumiService {
     private void upsertSubject(Subject s, boolean inCalendar) {
         jdbc.update("""
                 INSERT INTO bangumi_subjects
-                    (subject_id, name, name_cn, cover_url, rating, air_date, air_weekday, summary, in_calendar)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (subject_id, name, name_cn, cover_url, rating, air_date, air_weekday, summary,
+                     in_calendar, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (subject_id) DO UPDATE SET
                     name = EXCLUDED.name, name_cn = EXCLUDED.name_cn, cover_url = EXCLUDED.cover_url,
                     rating = EXCLUDED.rating, air_date = EXCLUDED.air_date,
                     air_weekday = EXCLUDED.air_weekday, summary = EXCLUDED.summary,
-                    in_calendar = EXCLUDED.in_calendar, synced_at = now()
+                    in_calendar = EXCLUDED.in_calendar, tags = EXCLUDED.tags, synced_at = now()
                 """, s.subjectId(), s.name(), s.nameCn(), s.coverUrl(), s.rating(), s.airDate(),
-                s.airWeekday(), s.summary(), inCalendar);
+                s.airWeekday(), s.summary(), inCalendar,
+                s.tags().toArray(new String[0]));
     }
 
     private HttpRequest.Builder requestBuilder(String url) {

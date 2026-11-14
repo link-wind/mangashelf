@@ -174,8 +174,9 @@ public class ExternalController {
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String genre,
             @RequestParam(required = false) Integer page) {
-        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, page);
+        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, page);
     }
 
     // ── 弹幕（M13）──

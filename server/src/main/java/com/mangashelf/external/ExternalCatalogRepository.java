@@ -48,7 +48,7 @@ public class ExternalCatalogRepository {
      * sort=episodes 用集数排序 + 偏移分页（键集游标按更新时间，不适用集数序）。
      */
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
-                                          String status, String sort,
+                                          String status, String sort, String genre,
                                           Instant beforeUpdated, UUID beforeId,
                                           int offset, int limit) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
@@ -56,6 +56,11 @@ public class ExternalCatalogRepository {
         if (sourceId != null) {
             where.append(" AND source_id = ? ");
             args.add(sourceId);
+        }
+        if (genre != null && !genre.isBlank()) {
+            // 经条目关联的 Bangumi 标签过滤（mobile-nav-genre-remove-mangadex）
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE EXISTS (SELECT 1 FROM unnest(tags) t WHERE t = ?)) ");
+            args.add(genre);
         }
         if (categoryId != null) {
             where.append(" AND category_id = ? ");
@@ -94,12 +99,16 @@ public class ExternalCatalogRepository {
                 """.formatted(where), mapper, args.toArray());
     }
 
-    public long count(UUID sourceId, Integer categoryId, String status) {
+    public long count(UUID sourceId, Integer categoryId, String status, String genre) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
         if (sourceId != null) {
             where.append(" AND source_id = ? ");
             args.add(sourceId);
+        }
+        if (genre != null && !genre.isBlank()) {
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE EXISTS (SELECT 1 FROM unnest(tags) t WHERE t = ?)) ");
+            args.add(genre);
         }
         if (categoryId != null) {
             where.append(" AND category_id = ? ");
