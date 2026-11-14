@@ -43,8 +43,14 @@ public class ExternalCatalogRepository {
     }
 
     /** 目录浏览：resource_updated_at 降序（最近更新在前），(updated,id) 游标。 */
+    /**
+     * 目录分页（mobile-ui-index-and-reader）：status 依据 remarks/category_name 过滤，
+     * sort=episodes 用集数排序 + 偏移分页（键集游标按更新时间，不适用集数序）。
+     */
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
-                                          Instant beforeUpdated, UUID beforeId, int limit) {
+                                          String status, String sort,
+                                          Instant beforeUpdated, UUID beforeId,
+                                          int offset, int limit) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
         if (sourceId != null) {
@@ -59,6 +65,23 @@ public class ExternalCatalogRepository {
             where.append(" AND name ILIKE ? ESCAPE '\\' ");
             args.add("%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
         }
+        if (status != null && !status.isBlank()) {
+            switch (status) {
+                case "completed" -> where.append(" AND remarks LIKE '%完结%' AND remarks NOT LIKE '更新至%' ");
+                case "ongoing" -> where.append(" AND remarks LIKE '更新至%' ");
+                case "movie" -> where.append(
+                        " AND (remarks ILIKE '%HD%' OR remarks ILIKE '%剧场版%' OR category_name ILIKE '%剧场%') ");
+                default -> throw new IllegalArgumentException("未知状态筛选：" + status);
+            }
+        }
+        boolean byEpisodes = "episodes".equals(sort);
+        if (byEpisodes) {
+            where.append(" ORDER BY episode_count DESC, id DESC OFFSET ? LIMIT ? ");
+            args.add(offset);
+            args.add(limit);
+            return jdbc.query(
+                    "SELECT * FROM external_catalog_items %s".formatted(where), mapper, args.toArray());
+        }
         where.append(" AND (COALESCE(resource_updated_at, synced_at), id) < (?, ?) ");
         args.add(JdbcTime.t(beforeUpdated));
         args.add(beforeId);
@@ -71,7 +94,7 @@ public class ExternalCatalogRepository {
                 """.formatted(where), mapper, args.toArray());
     }
 
-    public long count(UUID sourceId, Integer categoryId) {
+    public long count(UUID sourceId, Integer categoryId, String status) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
         if (sourceId != null) {
@@ -81,6 +104,15 @@ public class ExternalCatalogRepository {
         if (categoryId != null) {
             where.append(" AND category_id = ? ");
             args.add(categoryId);
+        }
+        if (status != null && !status.isBlank()) {
+            switch (status) {
+                case "completed" -> where.append(" AND remarks LIKE '%完结%' AND remarks NOT LIKE '更新至%' ");
+                case "ongoing" -> where.append(" AND remarks LIKE '更新至%' ");
+                case "movie" -> where.append(
+                        " AND (remarks ILIKE '%HD%' OR remarks ILIKE '%剧场版%' OR category_name ILIKE '%剧场%') ");
+                default -> throw new IllegalArgumentException("未知状态筛选：" + status);
+            }
         }
         return jdbc.queryForObject(
                 "SELECT count(*) FROM external_catalog_items %s".formatted(where), Long.class, args.toArray());

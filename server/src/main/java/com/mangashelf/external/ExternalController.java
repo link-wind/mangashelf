@@ -171,8 +171,11 @@ public class ExternalController {
             @RequestParam(defaultValue = "24") int limit,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) UUID sourceId,
-            @RequestParam(required = false) Integer categoryId) {
-        return catalog.listItems(cursor, limit, q, sourceId, categoryId);
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer page) {
+        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, page);
     }
 
     // ── 弹幕（M13）──

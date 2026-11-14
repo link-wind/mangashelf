@@ -100,16 +100,28 @@ public class ExternalCatalogService {
 
     public record CatalogItemPage(List<ExternalCatalogItem> items, String nextCursor, long total) {}
 
-    public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId, Integer categoryId) {
-        Cursor c = decodeCursor(cursor);
+    public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
+                                     Integer categoryId, String status, String sort, Integer page) {
         int effectiveLimit = Math.min(Math.max(limit, 1), 60);
-        List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q,
-                c.updatedAt, c.id, effectiveLimit);
+        boolean byEpisodes = "episodes".equals(sort);
+        if (byEpisodes) {
+            // 集数排序：偏移分页（键集游标按更新时间，不适用集数序）
+            int effectivePage = Math.max(page == null ? 0 : page, 0);
+            List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
+                    null, null, effectivePage * effectiveLimit, effectiveLimit);
+            String next = items.size() == effectiveLimit
+                    ? "page:" + (effectivePage + 1) : null;
+            return new CatalogItemPage(items, next,
+                    catalogItems.count(sourceId, categoryId, status));
+        }
+        Cursor c = decodeCursor(cursor);
+        List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
+                c.updatedAt, c.id, 0, effectiveLimit);
         String next = items.size() == effectiveLimit
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
                 : null;
-        return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId));
+        return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId, status));
     }
 
     // ── 目录条目详情（M11）──
