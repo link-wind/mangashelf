@@ -34,6 +34,10 @@ interface Adaptation {
   pageEnd: number
 }
 
+interface WorkChapter {
+  id: string; ordinal: number; title: string; currentRevisionId: string | null
+}
+
 /** 阅读器（DESIGN 14.1/14.3/4.1）：固定版本页面窗口 + 进度防覆盖同步 + 续读 + 页级动画入口。 */
 export default function Reader() {
   const { revisionId } = useParams()
@@ -46,8 +50,13 @@ export default function Reader() {
   const [titles, setTitles] = useState<{ work: string; chapter: string }>({ work: '本地漫画', chapter: '' })
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [workId, setWorkId] = useState<string | null>(null)
+  const [chapters, setChapters] = useState<WorkChapter[]>([])
+  const [tocOpen, setTocOpen] = useState(false)
+  const [tocAsc, setTocAsc] = useState(true)
   const cursorRef = useRef<string | null>(null)
   const loadedRef = useRef(false)
+  const wheelLockRef = useRef(0)
 
   // 拉取首页窗口；有续读进度则跳到上次位置
   useEffect(() => {
@@ -103,14 +112,49 @@ export default function Reader() {
   // 作品名与章节名（阅读器顶栏）
   useEffect(() => {
     if (!chapterId) return
-    void api.get<{ work: { title: string }; chapter: { ordinal: number; title: string } }>(
+    void api.get<{ work: { id: string; title: string }; chapter: { ordinal: number; title: string } }>(
       `/api/v1/chapters/${chapterId}`)
-      .then(v => setTitles({
-        work: v.work.title,
-        chapter: `第 ${v.chapter.ordinal} 话 ${v.chapter.title || ''}`.trim(),
-      }))
+      .then(v => {
+        setTitles({
+          work: v.work.title,
+          chapter: `第 ${v.chapter.ordinal} 话 ${v.chapter.title || ''}`.trim(),
+        })
+        setWorkId(v.work.id)
+      })
       .catch(() => { /* 标题失败不影响阅读 */ })
   }, [chapterId])
+
+  // 章节目录（mobile-ui-index-and-reader）：作品可见章节 + 当前修订
+  useEffect(() => {
+    if (!workId) return
+    void api.get<{ chapters: WorkChapter[] }>(`/api/v1/works/${workId}`)
+      .then(v => setChapters(v.chapters))
+      .catch(() => setChapters([]))
+  }, [workId])
+
+  // 键盘与滚轮导航（←→↑↓ 与滚轮）：单页翻页器，方向键语义一致
+  useEffect(() => {
+    const onNavKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (tocOpen) return
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); void go(1) }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); void go(-1) }
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (tocOpen) return
+      e.preventDefault()
+      const now = Date.now()
+      if (now - wheelLockRef.current < 150) return
+      wheelLockRef.current = now
+      void go(e.deltaY > 0 ? 1 : -1)
+    }
+    window.addEventListener('keydown', onNavKey)
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      window.removeEventListener('keydown', onNavKey)
+      window.removeEventListener('wheel', onWheel)
+    }
+  })
 
   // 页级关联动画（DESIGN 4.1：存在已发布动画时显示入口，不自动播放）
   useEffect(() => {
@@ -170,7 +214,35 @@ export default function Reader() {
           <span className="rf-chapter">{titles.chapter} · 第 {current} / {pageCount} 页</span>
         </div>
         {notice && <span className="rf-chapter">{notice}</span>}
+        <button className="rf-icon" aria-label="目录"
+                onClick={() => setTocOpen(v => !v)}>☰</button>
       </header>
+
+      {tocOpen && (
+        <div className="rf-sheet rf-toc" onClick={e => e.stopPropagation()}>
+          <div className="rf-sheet-row">
+            <span>目录（{chapters.length} 话）</span>
+            <button className="mini ghost" onClick={() => setTocAsc(v => !v)}>
+              {tocAsc ? '正序' : '倒序'}
+            </button>
+          </div>
+          <div className="rf-toc-list">
+            {(tocAsc ? chapters : [...chapters].reverse()).map(c => (
+              <button key={c.id}
+                      className={'rf-toc-item' + (c.currentRevisionId ? '' : ' disabled')}
+                      disabled={!c.currentRevisionId}
+                      onClick={() => {
+                        if (!c.currentRevisionId) return
+                        setTocOpen(false)
+                        window.location.href =
+                          `/read/${c.currentRevisionId}?chapter=${c.id}`
+                      }}>
+                第 {c.ordinal} 话 {c.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && <p className="error" style={{ padding: '80px 24px 0' }}>{error}</p>}
 

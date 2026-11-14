@@ -8,6 +8,7 @@ import Schedule from './pages/Schedule'
 import CatalogDetail from './pages/CatalogDetail'
 import History from './pages/History'
 import MangaIndex from './pages/MangaIndex'
+import MangaCatalog from './pages/MangaCatalog'
 import MangaDetailPage from './pages/MangaDetail'
 import ExternalManga from './pages/ExternalManga'
 import ExternalMangaDetail from './pages/ExternalMangaDetail'
@@ -47,6 +48,7 @@ function Nav() {
       <nav>
         <NavLink to="/" end>首页</NavLink>
         <NavLink to="/manga">漫画</NavLink>
+          <NavLink to="/manga-index">漫画索引</NavLink>
         <NavLink to="/anime">番剧索引</NavLink>
         <NavLink to="/schedule">新番时刻表</NavLink>
         <NavLink to="/shelf">我的收藏</NavLink>
@@ -82,6 +84,7 @@ export default function App() {
         <Route path="/" element={me ? <Home /> : <Navigate to="/login" />} />
         <Route path="/anime" element={me ? <AnimeIndex /> : <Navigate to="/login" />} />
         <Route path="/manga" element={me ? <MangaIndex /> : <Navigate to="/login" />} />
+        <Route path="/manga-index" element={me ? <MangaCatalog /> : <Navigate to="/login" />} />
         <Route path="/manga/:id" element={me ? <MangaDetailPage /> : <Navigate to="/login" />} />
         <Route path="/manga-ext" element={me ? <ExternalManga /> : <Navigate to="/login" />} />
         <Route path="/manga-ext/read/:chapterId" element={me ? <ExternalMangaReader /> : <Navigate to="/login" />} />

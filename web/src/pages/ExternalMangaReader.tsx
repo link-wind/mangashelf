@@ -131,6 +131,8 @@ export default function ExternalMangaReader() {
   const savingRef = useRef(false)
   const lastConflictAtRef = useRef(0)
   const [progressNotice, setProgressNotice] = useState('')
+  const [tocOpen, setTocOpen] = useState(false)
+  const [tocAsc, setTocAsc] = useState(true)
   const pendingScroll = useRef<number | null>(null)
   const layoutAnchor = useRef<{ ordinal: number; top: number } | null>(null)
   const pageRef = useRef(1)
@@ -373,6 +375,7 @@ export default function ExternalMangaReader() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') {
         if (settingsOpen) { setSettingsOpen(false); setUiVisible(true) }
+        else if (tocOpen) { setTocOpen(false); setUiVisible(true) }
         else if (!uiVisible) setUiVisible(true)
         else navigate(backTo)
       }
@@ -384,12 +387,14 @@ export default function ExternalMangaReader() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [settingsOpen, uiVisible, navigate, backTo])
+  }, [settingsOpen, tocOpen, uiVisible, navigate, backTo])
+
 
   const list: (string | null)[] = data
     ? (settings.hd ? data.pages : (data.dataSaver.length ? data.dataSaver : data.pages))
     : []
   const total = list.length
+
 
   const spreads = buildSpreads(total, effectiveMode)
   const spreadCount = spreads.length
@@ -528,6 +533,53 @@ export default function ExternalMangaReader() {
   // 翻页动画：key 变化触发重挂载播放淡入
   const animKey = `${effSpread}-${page}-${settings.anim}`
 
+  // 键盘与滚轮导航（mobile-ui-index-and-reader）：↑↓ 逐页（滚动/单页），←→ 与滚轮翻组（双页）。
+  // 方向语义遵循阅读方向设置（RTL 相反）；Esc/F 不受影响。
+  // 闭包经 navRef 取最新值——effect 只注册一次，避免过期状态（page/isRestored）卡死翻页。
+  const navRef = useRef({
+    jumpPage, jumpSpread, effSpread, total,
+    dir: settings.dir, mode: effectiveMode, open: settingsOpen || tocOpen,
+  })
+  navRef.current = {
+    jumpPage, jumpSpread, effSpread, total,
+    dir: settings.dir, mode: effectiveMode, open: settingsOpen || tocOpen,
+  }
+
+  useEffect(() => {
+    // delta>0 = 阅读方向上的「前进」；RTL 在此处统一反转，调用方传原始语义。
+    const flip = (delta: number) => {
+      const nav = navRef.current
+      const step = nav.dir === 'rtl' ? -delta : delta
+      if (nav.mode === 'single') nav.jumpPage(pageRef.current + step)
+      else nav.jumpSpread(nav.effSpread + step)
+    }
+    const onNavKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const nav = navRef.current
+      if (nav.open) return
+      if (e.key === 'ArrowDown') { e.preventDefault(); nav.jumpPage(pageRef.current + 1) }
+      if (e.key === 'ArrowUp') { e.preventDefault(); nav.jumpPage(pageRef.current - 1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); flip(1) }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); flip(-1) }
+    }
+    let lastWheel = 0
+    const onWheel = (e: WheelEvent) => {
+      const nav = navRef.current
+      if (nav.mode === 'single' || nav.open) return
+      e.preventDefault()
+      const now = Date.now()
+      if (now - lastWheel < 150) return
+      lastWheel = now
+      flip(e.deltaY > 0 ? 1 : -1)
+    }
+    window.addEventListener('keydown', onNavKey)
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      window.removeEventListener('keydown', onNavKey)
+      window.removeEventListener('wheel', onWheel)
+    }
+  }, [])
+
   const jumpChapter = (id: string) =>
     navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&source=${source}` +
              `&title=${encodeURIComponent(comicTitle)}`)
@@ -590,6 +642,8 @@ export default function ExternalMangaReader() {
           </span>
           {longStrip && <span className="rf-strip-hint">长条漫 · 滚动</span>}
         </div>
+        <button className="rf-icon" aria-label="目录"
+                onClick={e => { e.stopPropagation(); setTocOpen(v => !v); pokeUi() }}>☰</button>
         <button className="rf-icon" aria-label="设置"
                 onClick={e => { e.stopPropagation(); setSettingsOpen(v => !v); pokeUi() }}>⚙</button>
       </header>
@@ -619,6 +673,28 @@ export default function ExternalMangaReader() {
               <span>第 {pageNo + 1} 页 · 加载中…</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {tocOpen && detail && (
+        <div className="rf-sheet rf-toc" onClick={e => e.stopPropagation()}>
+          <div className="rf-sheet-row">
+            <span>目录（{detail.chapters.length} 话）</span>
+            <button className="mini ghost" onClick={() => setTocAsc(v => !v)}>
+              {tocAsc ? '正序' : '倒序'}
+            </button>
+          </div>
+          <div className="rf-toc-list">
+            {(tocAsc ? detail.chapters : [...detail.chapters].reverse()).map(c => (
+              <button key={c.id}
+                      className={'rf-toc-item' + (c.id === chapterId ? ' active' : '') + (c.external || c.pages === 0 ? ' disabled' : '')}
+                      disabled={c.external || c.pages === 0}
+                      onClick={() => { setTocOpen(false); jumpChapter(c.id) }}>
+                第 {c.chapter || '?'} 话 {c.title}
+                {c.external ? '（外链）' : ''}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

@@ -915,3 +915,76 @@ body.reader-open .nav, body.reader-open .site-footer { display: none; }
 }
 .switch-item:hover img { box-shadow: var(--shadow-hover); }
 .switch-item-title { display: block; margin-top: 5px; font-size: 12px; line-height: 1.3; }
+
+/* ── 移动端适配（mobile-ui-index-and-reader）：≤960/720/480 三档 ── */
+
+/* ≤960：导航收紧、搜索框收缩、网格列数放宽 */
+@media (max-width: 960px) {
+  .nav { gap: 10px; padding: 0 14px; height: auto; min-height: 56px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .nav .brand { font-size: 16px; }
+  .nav nav { flex-wrap: wrap; row-gap: 2px; }
+  .nav nav a { padding: 4px 8px; font-size: 13px; }
+  .search { width: 100%; max-width: 420px; }
+  .page { padding: 16px 14px; }
+  .detail-hero { grid-template-columns: 120px 1fr; gap: 14px; }
+  .watch-title h1 { font-size: 20px; }
+}
+
+/* ≤720：卡片网格 130、筛选栏换行、章节格收紧 */
+@media (max-width: 720px) {
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .work-card-title { font-size: 13px; }
+  .manga-index-bar { gap: 6px; }
+  .manga-index-bar .search { flex: 1 1 100%; max-width: none; }
+  .chapter-grid { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+  .manga-hero { grid-template-columns: 1fr; }
+  .detail-hero { grid-template-columns: 1fr; }
+  .detail-cover { max-width: 160px; }
+  .rf-bottom { padding: 6px 10px; }
+  .rf-text-btn { padding: 6px 8px; font-size: 12px; }
+  .rf-progress { flex: 1; }
+}
+
+/* ≤480：手机。导航单行滚动、正文 12px 起步、阅读器控件紧凑 */
+@media (max-width: 480px) {
+  .nav { padding: 6px 10px; gap: 8px; }
+  .nav nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .nav nav::-webkit-scrollbar { display: none; }
+  .nav nav a { white-space: nowrap; padding: 4px 10px; }
+  .page { padding: 12px 10px; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+  .hscroll .work-card { min-width: 128px; max-width: 128px; }
+  .manga-row { grid-auto-columns: 128px; }
+  .mt-cover { width: 128px; height: 170px; }
+  h1 { font-size: 20px; }
+  .muted { font-size: 12px; }
+
+  /* 阅读器：顶部/底部控件紧凑，目录抽屉全宽 */
+  .rf-top { padding: 6px 10px; }
+  .rf-comic { font-size: 14px; max-width: 40vw; }
+  .rf-chapter { font-size: 12px; max-width: 40vw; }
+  .rf-icon { padding: 6px 10px; }
+  .rf-bottom { padding: 4px 8px; }
+  .rf-page { font-size: 12px; }
+  .rf-sheet { left: 8px; right: 8px; }
+  .rf-toc-list { max-height: 56vh; }
+  .rf-toc-item { padding: 8px 10px; font-size: 13px; }
+  .local-adaptations { left: 10px; right: 10px; }
+  .schedule-grid { grid-template-columns: 1fr; }
+  .row-inline { row-gap: 6px; }
+}
+
+/* 目录抽屉（桌面与移动共用） */
+.rf-toc-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 60vh; overflow-y: auto; margin-top: 8px;
+}
+.rf-toc-item {
+  background: var(--bg-soft); color: var(--ink); text-align: left;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 12px; font-size: 14px; cursor: pointer;
+}
+.rf-toc-item:hover:not(:disabled) { border-color: var(--accent); }
+.rf-toc-item.active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.rf-toc-item.disabled { opacity: .45; cursor: default; }
+.manga-index-bar { margin: 14px 0 20px; }
