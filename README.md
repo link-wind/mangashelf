@@ -126,6 +126,24 @@ export JAVA_HOME="/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
 # sudo ln -sfn /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-25.jdk
 ```
 
+## 可靠性与混合检索实测
+
+- **异步任务可靠性（PostgreSQL + RabbitMQ）**：数据库 `jobs` 为状态唯一事实，RabbitMQ 仅作通知通道，不引入 Kafka/Redis Stream。通过 Transactional Outbox（互斥领取租约 + Publisher Confirm + 指数退避 jitter）、Worker `lease_token` Fencing（含 `ChapterParseHandler` / `AnimationVerifyHandler` 短事务校验）、单条独立事务恢复扫描、白名单 `TransientJobException` 有限重试与 `content.dlq` 毒消息隔离应对崩溃与重投。
+- **零 OCR 站内混合检索（`pg_trgm` + `pgvector`）**：基于站内作品、动画、番剧目录（含 Bangumi 元数据）与漫画目录构建 `search_documents`（V28），所有策略 SQL 前置权限过滤（`is_public = true OR owner_id = :viewerId`）。
+  - 在 200 条向量化站内文档、120 条分级标注查询（40 dev / 80 test 盲测，本地 ONNX `e5-small-v2` 384 维）上实测：
+    - 整串 `pg_trgm` 首轮基线 `Recall@10 = 0.2563` → 优化为 `word_similarity` + 多词拆分后 `A: LEXICAL` 升至 `Recall@10 = 0.9975 / nDCG@10 = 0.9901`（暖缓存 p50/p95 `8.63 / 16.75 ms`）；
+    - `B: VECTOR`（`e5-small-v2`）在英文剧情语义改写上达到 `1.000 / 1.000`，但纯中文受英文分词 `[UNK]` 坍缩影响（总体 `Recall@10 = 0.6875`）；
+    - `C: HYBRID_RRF (k=20)` 总体 `Recall@10 = 0.9908 / MRR@10 = 0.9708 / nDCG@10 = 0.9677`；叠加毫秒级确定性轻量重排 `D: HYBRID_RERANK` 后提升至 `MRR@10 = 0.9906 / nDCG@10 = 0.9882`（`cross_type_topic` 的 `nDCG@10` 由 `0.873` 提至 `0.953`，暖缓存 p50/p95 `19.05 / 29.16 ms`）。
+- **一键复现命令**（需本地 Docker 已有 `pgvector/pgvector:pg18` 与 `rabbitmq:4-management` 镜像，以及 `server/models/e5-small-v2.onnx`）：
+
+```bash
+cd server && ./mvnw test   # 53/53（43 单测 + 8 故障注入 IT + 2 Hybrid Search Benchmark/权限隔离 IT）
+```
+
+详细实测报告与 12 条错例分析见：
+- [异步任务可靠性与故障注入验证](docs/validation/harden-reliable-jobs-and-fault-injection.md)
+- [站内混合检索基线与 Rerank 实测](docs/validation/benchmark-and-optimize-hybrid-search.md)
+
 ## 工程目录
 
 见 [DESIGN.md 第 7 节](docs/DESIGN.md)。目录按里程碑实际需要创建，不预建空骨架。

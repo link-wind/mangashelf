@@ -1,0 +1,1135 @@
+[
+  {
+    "id": "q001",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "赛博朋克：边缘行者 2",
+    "relevance": {
+      "anime-01": 2
+    }
+  },
+  {
+    "id": "q002",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "Yuru Camp",
+    "relevance": {
+      "anime-03": 2
+    }
+  },
+  {
+    "id": "q003",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "大理寺日志",
+    "relevance": {
+      "anime-06": 2
+    }
+  },
+  {
+    "id": "q004",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "One Piece Film Gold",
+    "relevance": {
+      "anime-08": 2
+    }
+  },
+  {
+    "id": "q005",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "DARK MACHINE",
+    "relevance": {
+      "anime-15": 2
+    }
+  },
+  {
+    "id": "q006",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "Dungeon Meshi",
+    "relevance": {
+      "manga-03": 2
+    }
+  },
+  {
+    "id": "q007",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "药屋少女的后宫秘录",
+    "relevance": {
+      "manga-05": 2
+    }
+  },
+  {
+    "id": "q008",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "间谍过家家",
+    "relevance": {
+      "manga-06": 2
+    }
+  },
+  {
+    "id": "q009",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "雾港列车",
+    "relevance": {
+      "work-01": 2,
+      "anim-01": 2
+    }
+  },
+  {
+    "id": "q010",
+    "split": "dev",
+    "category": "exact_title_alias",
+    "query": "Cyber Fist Boxer",
+    "relevance": {
+      "work-03": 2,
+      "anim-03": 1
+    }
+  },
+  {
+    "id": "q011",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Cyberpunk Edgerunners 2",
+    "relevance": {
+      "anime-01": 2
+    }
+  },
+  {
+    "id": "q012",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "星穹铁道：逐星旅人",
+    "relevance": {
+      "anime-02": 2
+    }
+  },
+  {
+    "id": "q013",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Laid-Back Camp",
+    "relevance": {
+      "anime-03": 2
+    }
+  },
+  {
+    "id": "q014",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "孤独吉他与霓虹舞台",
+    "relevance": {
+      "anime-04": 2
+    }
+  },
+  {
+    "id": "q015",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "White Cat Legend",
+    "relevance": {
+      "anime-06": 2
+    }
+  },
+  {
+    "id": "q016",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "名侦探柯南：战栗的乐谱",
+    "relevance": {
+      "anime-07": 2
+    }
+  },
+  {
+    "id": "q017",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Detective Conan Full Score",
+    "relevance": {
+      "anime-07": 2
+    }
+  },
+  {
+    "id": "q018",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "海贼王黄金城",
+    "relevance": {
+      "anime-08": 2
+    }
+  },
+  {
+    "id": "q019",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "魔法少女育成计划",
+    "relevance": {
+      "anime-09": 2
+    }
+  },
+  {
+    "id": "q020",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Aegis Mecha",
+    "relevance": {
+      "anime-10": 2
+    }
+  },
+  {
+    "id": "q021",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "异世界深夜食堂",
+    "relevance": {
+      "anime-11": 2
+    }
+  },
+  {
+    "id": "q022",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Hotaru no Yomeiri",
+    "relevance": {
+      "anime-16": 2
+    }
+  },
+  {
+    "id": "q023",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "萤火虫的出嫁",
+    "relevance": {
+      "anime-16": 2
+    }
+  },
+  {
+    "id": "q024",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "电锯恶魔猎人",
+    "relevance": {
+      "manga-01": 2
+    }
+  },
+  {
+    "id": "q025",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Frieren Journey",
+    "relevance": {
+      "manga-02": 2
+    }
+  },
+  {
+    "id": "q026",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Haikyuu Crow Flight",
+    "relevance": {
+      "manga-04": 2
+    }
+  },
+  {
+    "id": "q027",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Blue Striker Lock",
+    "relevance": {
+      "manga-08": 2
+    }
+  },
+  {
+    "id": "q028",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "天台天文社",
+    "relevance": {
+      "work-02": 2,
+      "anim-02": 1
+    }
+  },
+  {
+    "id": "q029",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "青铜古剑与山海录",
+    "relevance": {
+      "work-04": 2,
+      "anim-04": 1
+    }
+  },
+  {
+    "id": "q030",
+    "split": "test",
+    "category": "exact_title_alias",
+    "query": "Cat Detective Agency",
+    "relevance": {
+      "work-05": 2
+    }
+  },
+  {
+    "id": "q031",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "street kid cybernetic mercenary fighting corporations in neon city",
+    "relevance": {
+      "anime-01": 2,
+      "work-03": 1
+    }
+  },
+  {
+    "id": "q032",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "girls camping in winter by a campfire near mountain",
+    "relevance": {
+      "anime-03": 2
+    }
+  },
+  {
+    "id": "q033",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "introvert high school girl joins rock band playing guitar",
+    "relevance": {
+      "anime-04": 2
+    }
+  },
+  {
+    "id": "q034",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "boy trapped in summer time loop trying to save friend",
+    "relevance": {
+      "anime-05": 2
+    }
+  },
+  {
+    "id": "q035",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "cooking monsters inside a fantasy dungeon to survive",
+    "relevance": {
+      "manga-03": 2
+    }
+  },
+  {
+    "id": "q036",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "elf mage traveling slowly after defeating the demon king",
+    "relevance": {
+      "manga-02": 2
+    }
+  },
+  {
+    "id": "q037",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "fake family of spy assassin and telepathic little girl",
+    "relevance": {
+      "manga-06": 2
+    }
+  },
+  {
+    "id": "q038",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "modern accountant managing budget inside demon lord castle",
+    "relevance": {
+      "manga-10": 2
+    }
+  },
+  {
+    "id": "q039",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "steampunk ghost train and clockmaker repairing frozen time",
+    "relevance": {
+      "work-01": 2,
+      "anim-01": 2
+    }
+  },
+  {
+    "id": "q040",
+    "split": "dev",
+    "category": "semantic_plot",
+    "query": "lonely radio keeper watching aurora in arctic lighthouse",
+    "relevance": {
+      "work-06": 2
+    }
+  },
+  {
+    "id": "q041",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "interstellar silver train crew exploring alien ruins in galaxy",
+    "relevance": {
+      "anime-02": 2
+    }
+  },
+  {
+    "id": "q042",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "ancient Chinese white cat magistrate solving palace mysteries",
+    "relevance": {
+      "anime-06": 2
+    }
+  },
+  {
+    "id": "q043",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "concert hall bombing mystery solved by detective during organ performance",
+    "relevance": {
+      "anime-07": 2
+    }
+  },
+  {
+    "id": "q044",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "pirate crew heist on a floating golden casino ship",
+    "relevance": {
+      "anime-08": 2
+    }
+  },
+  {
+    "id": "q045",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "dark survival game where magical girls betray each other",
+    "relevance": {
+      "anime-09": 2
+    }
+  },
+  {
+    "id": "q046",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "giant robot pilots defending earth orbit against alien fleet",
+    "relevance": {
+      "anime-10": 2
+    }
+  },
+  {
+    "id": "q047",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "warm tavern doorway connecting modern restaurant to fantasy world",
+    "relevance": {
+      "anime-11": 2
+    }
+  },
+  {
+    "id": "q048",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "wandering samurai seeking revenge in winter snow with broken sword",
+    "relevance": {
+      "anime-12": 2
+    }
+  },
+  {
+    "id": "q049",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "high school basketball underdog team aiming for national championship",
+    "relevance": {
+      "anime-13": 2
+    }
+  },
+  {
+    "id": "q050",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "alchemist exploring cursed underground abyss relics and monsters",
+    "relevance": {
+      "anime-14": 2
+    }
+  },
+  {
+    "id": "q051",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "noble girl proposes marriage contract to cold killer in Meiji era",
+    "relevance": {
+      "anime-16": 2
+    }
+  },
+  {
+    "id": "q052",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "injured male figure skater pairs with young prodigy on ice rink",
+    "relevance": {
+      "anime-17": 2
+    }
+  },
+  {
+    "id": "q053",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "phantom thief stealing gems from Victorian locked clocktower",
+    "relevance": {
+      "anime-18": 2
+    }
+  },
+  {
+    "id": "q054",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "poor teenager makes contract with demon becoming chainsaw hunter",
+    "relevance": {
+      "manga-01": 2
+    }
+  },
+  {
+    "id": "q055",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "herbalist palace maid obsessed with poison solving royal crimes",
+    "relevance": {
+      "manga-05": 2
+    }
+  },
+  {
+    "id": "q056",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "scrap mechanic girl in desert wasteland discovers ancient war robot",
+    "relevance": {
+      "manga-07": 2
+    }
+  },
+  {
+    "id": "q057",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "three hundred soccer strikers locked in survival ego training camp",
+    "relevance": {
+      "manga-08": 2
+    }
+  },
+  {
+    "id": "q058",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "Kyoto antique bookshop owner investigating haunted books and yokai",
+    "relevance": {
+      "manga-09": 2
+    }
+  },
+  {
+    "id": "q059",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "space delivery girl traveling between orbital colonies with robot cat",
+    "relevance": {
+      "manga-11": 2
+    }
+  },
+  {
+    "id": "q060",
+    "split": "test",
+    "category": "semantic_plot",
+    "query": "rainy jazz cafe pianist falling in love with mysterious singer",
+    "relevance": {
+      "manga-13": 2
+    }
+  },
+  {
+    "id": "q061",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "赛博朋克 边缘行者",
+    "relevance": {
+      "anime-01": 2
+    }
+  },
+  {
+    "id": "q062",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "摇曳露营 篝火",
+    "relevance": {
+      "anime-03": 2
+    }
+  },
+  {
+    "id": "q063",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "柯南 战栗乐谱",
+    "relevance": {
+      "anime-07": 2
+    }
+  },
+  {
+    "id": "q064",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "魔法少女 育成计划",
+    "relevance": {
+      "anime-09": 2
+    }
+  },
+  {
+    "id": "q065",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "异世界 食堂 咖喱",
+    "relevance": {
+      "anime-11": 2
+    }
+  },
+  {
+    "id": "q066",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "迷宫 魔物 料理",
+    "relevance": {
+      "manga-03": 2
+    }
+  },
+  {
+    "id": "q067",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "药师少女 毒药 后宫",
+    "relevance": {
+      "manga-05": 2
+    }
+  },
+  {
+    "id": "q068",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "排球少年 乌鸦",
+    "relevance": {
+      "manga-04": 2
+    }
+  },
+  {
+    "id": "q069",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "机械义肢 拳击",
+    "relevance": {
+      "work-03": 2,
+      "anim-03": 2
+    }
+  },
+  {
+    "id": "q070",
+    "split": "dev",
+    "category": "typo_noisy",
+    "query": "橘猫 侦探 小鱼干",
+    "relevance": {
+      "work-05": 2
+    }
+  },
+  {
+    "id": "q071",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "cyberpunk edgeruner",
+    "relevance": {
+      "anime-01": 2
+    }
+  },
+  {
+    "id": "q072",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "星穹铁道 列车 宇宙",
+    "relevance": {
+      "anime-02": 2
+    }
+  },
+  {
+    "id": "q073",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "社恐 吉他 女子乐队",
+    "relevance": {
+      "anime-04": 2
+    }
+  },
+  {
+    "id": "q074",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "八月 时间循环 青梅竹马",
+    "relevance": {
+      "anime-05": 2
+    }
+  },
+  {
+    "id": "q075",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "白猫 少卿 长安 断案",
+    "relevance": {
+      "anime-06": 2
+    }
+  },
+  {
+    "id": "q076",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "草帽 海贼 黄金城",
+    "relevance": {
+      "anime-08": 2
+    }
+  },
+  {
+    "id": "q077",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "近地轨道 机甲 防线",
+    "relevance": {
+      "anime-10": 2
+    }
+  },
+  {
+    "id": "q078",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "风雪 浪人 断刀 复仇",
+    "relevance": {
+      "anime-12": 2
+    }
+  },
+  {
+    "id": "q079",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "高中 篮球队 全国大赛",
+    "relevance": {
+      "anime-13": 2
+    }
+  },
+  {
+    "id": "q080",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "地下深渊 炼金术师 诅咒",
+    "relevance": {
+      "anime-14": 2
+    }
+  },
+  {
+    "id": "q081",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "dark machin arena",
+    "relevance": {
+      "anime-15": 2
+    }
+  },
+  {
+    "id": "q082",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "明治 千金 杀手 契约结婚",
+    "relevance": {
+      "anime-16": 2
+    }
+  },
+  {
+    "id": "q083",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "花样滑冰 双人 冰场",
+    "relevance": {
+      "anime-17": 2
+    }
+  },
+  {
+    "id": "q084",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "钟楼 密室 怪盗 宝石",
+    "relevance": {
+      "anime-18": 2
+    }
+  },
+  {
+    "id": "q085",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "链锯 恶魔 契约 猎人",
+    "relevance": {
+      "manga-01": 2
+    }
+  },
+  {
+    "id": "q086",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "精灵 魔法使 魔王 旅途",
+    "relevance": {
+      "manga-02": 2
+    }
+  },
+  {
+    "id": "q087",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "特工 杀手 读心 女儿",
+    "relevance": {
+      "manga-06": 2
+    }
+  },
+  {
+    "id": "q088",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "废土 机甲 修理工坊",
+    "relevance": {
+      "manga-07": 2
+    }
+  },
+  {
+    "id": "q089",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "足球 前锋 淘汰赛 射手",
+    "relevance": {
+      "manga-08": 2
+    }
+  },
+  {
+    "id": "q090",
+    "split": "test",
+    "category": "typo_noisy",
+    "query": "古书店 京都 妖怪 委托",
+    "relevance": {
+      "manga-09": 2
+    }
+  },
+  {
+    "id": "q091",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "cyberpunk neon action",
+    "relevance": {
+      "anime-01": 2,
+      "work-03": 2,
+      "anim-03": 2
+    }
+  },
+  {
+    "id": "q092",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "giant robot mecha combat",
+    "relevance": {
+      "anime-10": 2,
+      "anime-15": 2,
+      "manga-07": 2
+    }
+  },
+  {
+    "id": "q093",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "fantasy cooking food restaurant",
+    "relevance": {
+      "anime-11": 2,
+      "manga-03": 2
+    }
+  },
+  {
+    "id": "q094",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "high school sports tournament",
+    "relevance": {
+      "anime-13": 2,
+      "manga-04": 2,
+      "manga-08": 1
+    }
+  },
+  {
+    "id": "q095",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "detective mystery investigation",
+    "relevance": {
+      "anime-06": 2,
+      "anime-07": 2,
+      "anime-18": 2,
+      "manga-05": 1,
+      "work-05": 1
+    }
+  },
+  {
+    "id": "q096",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "steampunk clocktower train",
+    "relevance": {
+      "work-01": 2,
+      "anim-01": 2,
+      "anime-18": 1
+    }
+  },
+  {
+    "id": "q097",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "Chinese mythology sword fantasy",
+    "relevance": {
+      "work-04": 2,
+      "anim-04": 2
+    }
+  },
+  {
+    "id": "q098",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "rooftop summer stars astronomy",
+    "relevance": {
+      "work-02": 2,
+      "anim-02": 2
+    }
+  },
+  {
+    "id": "q099",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "quiet winter healing slice of life",
+    "relevance": {
+      "anime-03": 2,
+      "manga-14": 2,
+      "work-06": 1
+    }
+  },
+  {
+    "id": "q100",
+    "split": "dev",
+    "category": "cross_type_topic",
+    "query": "music piano rock guitar youth",
+    "relevance": {
+      "anime-04": 2,
+      "manga-13": 2,
+      "anime-07": 1
+    }
+  },
+  {
+    "id": "q101",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "赛博朋克 义体 霓虹",
+    "relevance": {
+      "anime-01": 2,
+      "work-03": 2,
+      "anim-03": 1
+    }
+  },
+  {
+    "id": "q102",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "机甲 战斗 科幻",
+    "relevance": {
+      "anime-10": 2,
+      "anime-15": 2,
+      "manga-07": 2
+    }
+  },
+  {
+    "id": "q103",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "美食 治愈 日常",
+    "relevance": {
+      "anime-03": 2,
+      "anime-11": 2,
+      "manga-03": 1,
+      "manga-14": 2
+    }
+  },
+  {
+    "id": "q104",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "悬疑 推理 探案",
+    "relevance": {
+      "anime-06": 2,
+      "anime-07": 2,
+      "anime-18": 2,
+      "manga-05": 2,
+      "work-05": 1
+    }
+  },
+  {
+    "id": "q105",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "校园 青春 运动",
+    "relevance": {
+      "anime-13": 2,
+      "manga-04": 2,
+      "manga-08": 1
+    }
+  },
+  {
+    "id": "q106",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "暗黑 奇幻 生存 恶魔",
+    "relevance": {
+      "anime-09": 2,
+      "anime-14": 1,
+      "manga-01": 2
+    }
+  },
+  {
+    "id": "q107",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "国风 古风 奇幻 神兽",
+    "relevance": {
+      "work-04": 2,
+      "anim-04": 2,
+      "anime-06": 1
+    }
+  },
+  {
+    "id": "q108",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "蒸汽朋克 列车 钟表",
+    "relevance": {
+      "work-01": 2,
+      "anim-01": 2
+    }
+  },
+  {
+    "id": "q109",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "space travel galaxy planets",
+    "relevance": {
+      "anime-02": 2,
+      "manga-11": 2
+    }
+  },
+  {
+    "id": "q110",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "magic sword academy tournament",
+    "relevance": {
+      "manga-12": 2
+    }
+  },
+  {
+    "id": "q111",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "站内改编动画 蒸汽朋克",
+    "relevance": {
+      "anim-01": 2,
+      "work-01": 1
+    }
+  },
+  {
+    "id": "q112",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "站内改编动画 拳击 格斗",
+    "relevance": {
+      "anim-03": 2,
+      "work-03": 1
+    }
+  },
+  {
+    "id": "q113",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "站内改编动画 流星雨 天台",
+    "relevance": {
+      "anim-02": 2,
+      "work-02": 1
+    }
+  },
+  {
+    "id": "q114",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "站内改编动画 山海经 青铜剑",
+    "relevance": {
+      "anim-04": 2,
+      "work-04": 1
+    }
+  },
+  {
+    "id": "q115",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "winter snow ice cold",
+    "relevance": {
+      "anime-03": 1,
+      "anime-12": 1,
+      "anime-17": 2,
+      "manga-14": 2,
+      "work-06": 1
+    }
+  },
+  {
+    "id": "q116",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "异世界 魔王 搞笑 职场",
+    "relevance": {
+      "manga-10": 2
+    }
+  },
+  {
+    "id": "q117",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "宇宙 快递 机械猫 星际",
+    "relevance": {
+      "manga-11": 2
+    }
+  },
+  {
+    "id": "q118",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "爵士 钢琴 咖啡馆 恋爱",
+    "relevance": {
+      "manga-13": 2
+    }
+  },
+  {
+    "id": "q119",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "北海道 渔村 慢生活 热汤",
+    "relevance": {
+      "manga-14": 2
+    }
+  },
+  {
+    "id": "q120",
+    "split": "test",
+    "category": "cross_type_topic",
+    "query": "无魔力 剑士 学院 逆袭",
+    "relevance": {
+      "manga-12": 2
+    }
+  }
+]

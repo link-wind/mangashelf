@@ -1,0 +1,407 @@
+[
+  {
+    "key": "anime-01",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "赛博朋克：边缘行者 2",
+    "altTitles": "Cyberpunk: Edgerunners 2 / 边缘行者",
+    "body": "日韩动漫 科幻 动作 赛博朋克 反乌托邦 Night City street kid chrome cyberware mercenary rebellion neon future dystopia 在霓虹夜之城中底层少年改造义体成为雇佣兵反抗巨型企业统治",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-02",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "星穹铁道：逐星旅人",
+    "altTitles": "Starlight Express / Astral Voyagers",
+    "body": "科幻 冒险 太空歌剧 space train galaxy voyage interstellar crew cosmic mystery 搭乘跨越星海的银色列车探索未知星球与古代星神遗迹的宇宙冒险",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-03",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "摇曳露营：冬日篝火",
+    "altTitles": "Yuru Camp / Laid-Back Camp / ゆるキャン△",
+    "body": "日常 治愈 露营 美食 校园 high school girls winter camping tent campfire hot cocoa Mount Fuji quiet relaxing 女子高中生在富士山脚下搭帐篷生篝火煮火锅享受安静的冬日露营治愈日常",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-04",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "孤独吉他与霓虹舞台",
+    "altTitles": "Bocchi Live / Neon Band Girls",
+    "body": "音乐 校园 青春 喜剧 乐队 shy introvert girl electric guitar rock band livehouse stage anxiety friendship 社恐高中女生抱着电吉他加入女子摇滚乐队在地下Livehouse舞台克服紧张成长的青春故事",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-05",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "时间回溯者的第九次夏天",
+    "altTitles": "Ninth Summer Time Loop / Rewind August",
+    "body": "悬疑 科幻 恋爱 时间循环 time travel loop repeat august save childhood friend mystery tragedy 少年在八月最后一天陷入时间循环不断回到过去试图拯救青梅竹马的命运",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-06",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "大理寺日志：长安奇案",
+    "altTitles": "White Cat Legend / 大理寺日志第二季",
+    "body": "国产动漫 古风 悬疑 推理 喜剧 Tang dynasty ancient China white cat magistrate detective palace conspiracy 盛唐长安洛阳白猫少卿带领大理寺众人侦破诡异朝堂悬案与市井奇案",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-07",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "名侦探柯南：战栗的乐谱",
+    "altTitles": "Detective Conan: Full Score of Fear",
+    "body": "日韩动漫 悬疑 推理 音乐 剧场版 classical music concert hall pipe organ bombing detective mystery murder 著名音乐厅发生连环爆炸暗杀事件侦探凭借绝对音感在管风琴演奏会揭开真凶阴谋",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-08",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "航海王之黄金城",
+    "altTitles": "One Piece Film: Gold / 海贼王黄金城",
+    "body": "日韩动漫 热血 冒险 奇幻 海贼 pirate crew giant golden casino ship heist treasure action 草帽海贼团闯入海上巨大黄金娱乐城与掌控金钱帝国的反派展开华丽夺宝大战",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-09",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "魔法少女育成计划 restart",
+    "altTitles": "Magical Girl Raising Project Restart",
+    "body": "日韩动漫 奇幻 暗黑 悬疑 生存游戏 dark magical girls survival battle game betrayal twist 十六名魔法少女被卷入残酷的虚拟生存淘汰游戏在猜忌与背叛中寻找幕后黑手",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-10",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "铁壁机甲：苍穹防线",
+    "altTitles": "Aegis Mecha / Skyward Frame",
+    "body": "机甲 科幻 战争 热血 giant robot pilot orbital defense mecha battle academy sacrifice 人类驾驶巨型人形机甲在近地轨道防线抵御外星机械舰队入侵的硬核战争史诗",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-11",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "异世界深夜食堂",
+    "altTitles": "Isekai Midnight Diner / Fantasy Bistro",
+    "body": "异世界 美食 治愈 奇幻 restaurant portal fantasy tavern cooking stew elf dragon warm comfort food 连接现代商店街与异世界的神秘洋食屋为精灵骑士和龙族端上热腾腾的咖喱与炖牛肉",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-12",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "银雪刀客：断刃之誓",
+    "altTitles": "Silver Snow Ronin / Broken Blade Oath",
+    "body": "动作 武侠 历史 复仇 samurai swordsman snow revenge feudal Japan duel honor blood 落魄浪人背负断刀穿越风雪幕府追查灭门惨案的冷峻复仇剑戟片",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-13",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "灌篮疾风：全国制霸",
+    "altTitles": "Fastbreak Slam / High School Basketball",
+    "body": "运动 热血 校园 篮球 high school basketball tournament slam dunk team coach rivalry comeback 红发问题少年加入湘北式弱旅高中篮球队冲击全国大赛的热血青春竞技",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-14",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "深渊炼金术师的笔记",
+    "altTitles": "Abyss Alchemist Journal",
+    "body": "奇幻 暗黑 冒险 炼金术 forbidden alchemy dungeon curse relic expedition ancient ruins monster 探索禁忌地下深渊遗迹的年轻炼金术师以等价交换对抗诅咒与远古魔物",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-15",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "暗机 DARK MACHINE",
+    "altTitles": "DARK MACHINE THE ANIMATION",
+    "body": "日韩动漫 机甲 电竞 科幻 underground arena robotic combat esports tournament pilot 地下竞技场中操纵暗黑涂装战斗机甲参加虚拟与现实交错的高速格斗联赛",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-16",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "萤火虫的出嫁 迷你动画",
+    "altTitles": "Hotaru no Yomeiri / ホタルの嫁入り",
+    "body": "日韩动漫 恋爱 历史 悬疑 Meiji era noble daughter assassin marriage contract romance 明治时期体弱的华族千金为了活命向冷血杀手提出契约结婚的危险恋爱故事",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-17",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "零度冰场：双人华尔兹",
+    "altTitles": "Zero Ice Waltz / Figure Skating Duo",
+    "body": "运动 竞技 治愈 花样滑冰 figure skating rink ice dance winter olympics elegance partnership 受伤隐退的男子花样滑冰选手与天才少女搭档重返冰场角逐世界锦标赛",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "anime-18",
+    "docType": "ANIME_CATALOG",
+    "isPublic": true,
+    "title": "量子怪盗与钟楼密室",
+    "altTitles": "Quantum Phantom Thief",
+    "body": "悬疑 推理 怪盗 科幻 phantom thief locked room clocktower puzzle detective heist 运用光学伪装与精密机关在维多利亚蒸汽钟楼窃取失落宝石的智斗怪盗物语",
+    "sourceLabel": "番剧目录"
+  },
+  {
+    "key": "manga-01",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "电锯恶魔猎人",
+    "altTitles": "Chainsaw Devil Hunter / 链锯猎手",
+    "body": "漫画 暗黑 热血 奇幻 战斗 devil hunter chainsaw demon contract gore urban dark fantasy 背负巨额债务的贫穷少年与恶魔缔结契约化身双臂电锯的恶魔猎人",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-02",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "葬送的旅途：千年魔法使",
+    "altTitles": "Frieren Journey / Thousand Year Mage",
+    "body": "漫画 奇幻 治愈 冒险 elf mage after demon king defeat memory farewell slow travel 击败魔王之后长寿精灵魔法使重新踏上旅途理解人类短暂生命与昔日队友羁绊的温柔物语",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-03",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "迷宫魔物烹饪指南",
+    "altTitles": "Dungeon Meshi / Delicious in Dungeon",
+    "body": "漫画 美食 奇幻 冒险 喜剧 dungeon monster cooking slime dragon recipe party rescue 没钱买干粮的冒险小队决定把地下城里的史莱姆走地菇和炎龙做成料理边吃边救同伴",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-04",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "排球少年：飞翔乌鸦",
+    "altTitles": "Haikyuu Crow Flight / Volleyball Youth",
+    "body": "漫画 运动 热血 校园 排球 short volleyball spiker setter high school nationals teamwork 身高矮小却拥有惊人弹跳力的少年与天才二传手携手复兴乌野式排球部",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-05",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "药屋少女的后宫秘录",
+    "altTitles": "Apothecary Palace Diaries / 药师少女",
+    "body": "漫画 古风 悬疑 推理 宫廷 imperial court poison herbalist maid mystery palace intrigue 痴迷毒药与草药的试毒宫女在深宫后院接连破解投毒疑案与皇室秘辛",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-06",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "间谍与读心女儿的日常",
+    "altTitles": "Spy Family Telepath / 间谍过家家",
+    "body": "漫画 喜剧 动作 日常 家庭 spy assassin telepath daughter fake family cold war comedy 顶级特工冷面杀手与会读心术的可爱小女孩组成临时家庭的爆笑温馨日常",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-07",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "机甲师徒与废土工坊",
+    "altTitles": "Wasteland Mecha Workshop",
+    "body": "漫画 机甲 科幻 废土 冒险 scrap mechanic giant robot repair desert wasteland survival 在黄沙废土经营旧机甲修理工坊的少女意外挖出沉睡百年的古代战争机兵",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-08",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "蓝色球场：前锋囚笼",
+    "altTitles": "Blue Striker Lock / Egoist Soccer",
+    "body": "漫画 运动 热血 竞技 足球 soccer striker survival academy ego competition world cup 三百名高中足球前锋被关进封闭训练基地通过残酷淘汰赛选拔世界第一利己主义射手",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-09",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "古书堂妖怪事件簿",
+    "altTitles": "Antique Bookshop Yokai Files",
+    "body": "漫画 奇幻 悬疑 妖怪 日常 antique bookstore folklore spirits ghost detective Kyoto 京都老旧古书店的年轻店主与能看见妖怪的助手一同解决附着在古籍上的灵异委托",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-10",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "重启人生的魔王城财务官",
+    "altTitles": "Demon Castle Accountant",
+    "body": "漫画 异世界 喜剧 职场 奇幻 demon lord castle budget accounting spreadsheet comedy isekai 现代社畜会计转生到魔王军后用财务报表和成本优化拯救濒临破产的魔王城",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-11",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "星际快递员与机械猫",
+    "altTitles": "Orbital Courier & RoboCat",
+    "body": "漫画 科幻 治愈 冒险 space courier delivery robot cat colonies planets slice of life 驾驶二手货船往返殖民卫星送快递的女孩与毒舌机械猫的温暖星际旅行见闻",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-12",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "剑与魔法学院的落榜生",
+    "altTitles": "Academy Dropout Swordsman",
+    "body": "漫画 热血 奇幻 校园 战斗 magic academy zero mana swordsmanship underdog tournament 毫无魔力却把体术与剑技练到极致的落榜少年在魔法学院锦标赛逆袭贵族天才",
+    "sourceLabel": "漫画目录·copymanga"
+  },
+  {
+    "key": "manga-13",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "雨夜咖啡馆的琴声",
+    "altTitles": "Rainy Cafe Piano Notes",
+    "body": "漫画 音乐 恋爱 治愈 日常 jazz piano rainy cafe quiet romance slice of life 失意钢琴师在雨夜小巷的爵士咖啡馆邂逅神秘驻唱少女重拾音乐热情的都市恋曲",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "manga-14",
+    "docType": "MANGA_CATALOG",
+    "isPublic": true,
+    "title": "极北渔村的冬日手记",
+    "altTitles": "Northern Fishing Village Winter",
+    "body": "漫画 日常 治愈 美食 生活 winter village sea fishing warm soup snow family calm 北海道极北渔村里返乡青年记录出海捕鱼晒海带与邻里煮热汤的静谧慢生活",
+    "sourceLabel": "漫画目录·bilibili"
+  },
+  {
+    "key": "work-01",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "雾港列车与失语钟表匠",
+    "altTitles": "Fog Harbor Train / Silent Clockmaker",
+    "body": "站内原创漫画 蒸汽朋克 悬疑 奇幻 steampunk train harbor fog clockmaker time gear mystery 蒸汽雾港每逢午夜驶出的幽灵列车与沉默钟表匠修复停止时间齿轮的原创短篇漫画",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "work-02",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "天台天文社的夏日观测",
+    "altTitles": "Rooftop Astronomy Club",
+    "body": "站内原创漫画 校园 青春 治愈 天文 high school rooftop telescope meteor shower summer stars youth 暑假夜晚在教学楼天台架起望远镜等待英仙座流星雨的校园青春漫画",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "work-03",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "机械义肢拳击手",
+    "altTitles": "Cyber Fist Boxer",
+    "body": "站内原创漫画 赛博朋克 动作 运动 热血 cybernetic arm underground boxing arena champion underdog 在霓虹地下拳馆依靠旧型号机械义肢挑战高科技冠军的热血格斗漫画",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "work-04",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "青铜古剑与山海录",
+    "altTitles": "Bronze Sword Shanhai Chronicles",
+    "body": "站内原创漫画 国风 奇幻 冒险 妖怪 ancient China mythology bronze sword spirits mountain journey 持青铜古剑的少年游历山海经异兽秘境记录失落神兽图谱的国风奇幻作品",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "work-05",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "猫咪侦探事务所",
+    "altTitles": "Cat Detective Agency",
+    "body": "站内原创漫画 喜剧 推理 日常 宠物 cat detective neighborhood missing fish mystery funny 戴着格子帽的橘猫侦探帮商店街居民寻找失踪小鱼干和钥匙的轻松推理短篇",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "work-06",
+    "docType": "WORK",
+    "isPublic": true,
+    "title": "极夜灯塔守望者",
+    "altTitles": "Polar Night Lighthouse Keeper",
+    "body": "站内原创漫画 科幻 治愈 孤独 arctic lighthouse aurora radio signal lonely keeper quiet 驻守北极圈孤岛灯塔的无线电员在极光与极夜中接收未知远方电波的静谧物语",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "anim-01",
+    "docType": "ANIMATION",
+    "isPublic": true,
+    "title": "雾港列车：第一幕改编短片",
+    "altTitles": "Fog Harbor Train Adaptation EP1",
+    "body": "站内改编动画 蒸汽朋克 悬疑 MangaWeaver adaptation clocktower steam train animation short 由雾港列车与失语钟表匠第一章改编的蒸汽朋克悬疑动画短片",
+    "sourceLabel": "站内动画"
+  },
+  {
+    "key": "anim-02",
+    "docType": "ANIMATION",
+    "isPublic": true,
+    "title": "天台流星雨：3分钟PV",
+    "altTitles": "Rooftop Meteor Shower PV",
+    "body": "站内改编动画 校园 青春 治愈 astronomy club telescope summer night starlight anime PV 还原天台天文社夏日观测流星雨名场面的原创治愈动画短片",
+    "sourceLabel": "站内动画"
+  },
+  {
+    "key": "anim-03",
+    "docType": "ANIMATION",
+    "isPublic": true,
+    "title": "义肢铁拳：决胜回合动画版",
+    "altTitles": "Cyber Fist Final Round Anime",
+    "body": "站内改编动画 赛博朋克 动作 拳击 cyberpunk boxing ring final knockout high impact action 机械义肢拳击手地下拳馆最终决胜回合的高燃打斗改编动画",
+    "sourceLabel": "站内动画"
+  },
+  {
+    "key": "anim-04",
+    "docType": "ANIMATION",
+    "isPublic": true,
+    "title": "山海青铜剑：云海试炼",
+    "altTitles": "Shanhai Bronze Sword Trial",
+    "body": "站内改编动画 国风 奇幻 武侠 ancient Chinese mythology sword trial cloud sea animation 青铜古剑与山海录云海神兽试炼篇章的国风手绘感改编动画",
+    "sourceLabel": "站内动画"
+  },
+  {
+    "key": "priv-01",
+    "docType": "WORK",
+    "isPublic": false,
+    "title": "绝密私人草稿：绯红星门计划",
+    "altTitles": "Top Secret Crimson Stargate Draft",
+    "body": "私人未发布草稿 crimson stargate secret prototype classified private manga draft 仅供作者本人查阅的绝密星门设定稿件",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "priv-02",
+    "docType": "WORK",
+    "isPublic": false,
+    "title": "私人分镜笔记：黑曜石协议",
+    "altTitles": "Obsidian Protocol Private Storyboard",
+    "body": "私人草稿 obsidian protocol confidential storyboard internal draft 未公开分镜与人物设定",
+    "sourceLabel": "站内作品"
+  },
+  {
+    "key": "priv-03",
+    "docType": "ANIMATION",
+    "isPublic": false,
+    "title": "私人测试动画：未公开样片",
+    "altTitles": "Private Unreleased Cut",
+    "body": "私人未发布动画样片 unreleased private test clip confidential",
+    "sourceLabel": "站内动画"
+  }
+]

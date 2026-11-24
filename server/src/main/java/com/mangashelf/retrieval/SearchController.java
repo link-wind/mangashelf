@@ -40,16 +40,23 @@ import java.util.concurrent.atomic.AtomicReference;
 public class SearchController {
 
     private final SearchService search;
+    private final HybridDocumentSearchService documentSearch;
+    private final SearchDocumentSyncService documentSync;
     private final RetrievalRepository retrievals;
     private final CatalogService catalog;
     private final com.mangashelf.ingestion.JobCreationService jobCreation;
     private final org.springframework.beans.factory.ObjectProvider<org.springframework.ai.chat.client.ChatClient> chatClientProvider;
 
-    public SearchController(SearchService search, RetrievalRepository retrievals,
+    public SearchController(SearchService search,
+                            HybridDocumentSearchService documentSearch,
+                            SearchDocumentSyncService documentSync,
+                            RetrievalRepository retrievals,
                             CatalogService catalog,
                             com.mangashelf.ingestion.JobCreationService jobCreation,
                             org.springframework.beans.factory.ObjectProvider<org.springframework.ai.chat.client.ChatClient> chatClientProvider) {
         this.search = search;
+        this.documentSearch = documentSearch;
+        this.documentSync = documentSync;
         this.retrievals = retrievals;
         this.catalog = catalog;
         this.jobCreation = jobCreation;
@@ -62,6 +69,12 @@ public class SearchController {
                                 Integer limit) {
     }
 
+    public record DocumentSearchRequest(@NotBlank @Size(max = 100) String q,
+                                        String strategy,
+                                        String docType,
+                                        Integer limit) {
+    }
+
     @PostMapping("/search")
     public SearchService.SearchResult search(@AuthUser CurrentUser user,
                                              @Valid @RequestBody SearchRequest request) {
@@ -69,6 +82,31 @@ public class SearchController {
         return search.search(user, request.q(), SearchService.Mode.parse(request.mode()),
                 Boolean.TRUE.equals(request.withAnimation()),
                 request.limit() == null || request.limit() <= 0 ? 10 : request.limit());
+    }
+
+    /** 统一站内结构化文档混合检索（零 OCR，支持 lexical/vector/hybrid_rrf/hybrid_rerank）。 */
+    @PostMapping("/search/documents")
+    public HybridDocumentSearchService.DocumentSearchResponse searchDocuments(
+            @AuthUser CurrentUser user,
+            @Valid @RequestBody DocumentSearchRequest request) {
+        TokenScopes.require(Scopes.SEARCH_READ);
+        HybridDocumentSearchService.Strategy defaultStrategy = search.semanticEnabled()
+                ? HybridDocumentSearchService.Strategy.HYBRID_RERANK
+                : HybridDocumentSearchService.Strategy.LEXICAL;
+        var strategy = HybridDocumentSearchService.Strategy.parse(request.strategy(), defaultStrategy);
+        int limit = request.limit() == null || request.limit() <= 0 ? 10 : request.limit();
+        return documentSearch.search(user.id(), request.q(), strategy, request.docType(), limit);
+    }
+
+    /** 管理员显式同步站内作品/动画/番剧与漫画目录至统一检索文档表。 */
+    @PostMapping("/admin/search-documents/sync")
+    public SearchDocumentSyncService.SyncSummary syncSearchDocuments(
+            @AuthUser CurrentUser user,
+            @RequestParam(defaultValue = "true") boolean embed) {
+        if (!user.isAdmin()) {
+            throw new ApiException(403, "FORBIDDEN", "仅管理员可触发全量检索文档同步。");
+        }
+        return documentSync.syncAll(embed);
     }
 
     // ── 索引触发 ──

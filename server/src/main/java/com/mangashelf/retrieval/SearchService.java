@@ -6,8 +6,10 @@ import com.mangashelf.catalog.Work;
 import com.mangashelf.identity.CurrentUser;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,14 +30,24 @@ public class SearchService {
     private final CatalogRepository catalog;
     private final AnimationRepository animations;
     private final ObjectProvider<EmbeddingModel> embeddingModelProvider;
+    private final SearchMetrics metrics;
 
+    SearchService(RetrievalRepository retrievals, CatalogRepository catalog,
+                  AnimationRepository animations,
+                  ObjectProvider<EmbeddingModel> embeddingModelProvider) {
+        this(retrievals, catalog, animations, embeddingModelProvider, null);
+    }
+
+    @Autowired
     public SearchService(RetrievalRepository retrievals, CatalogRepository catalog,
                          AnimationRepository animations,
-                         ObjectProvider<EmbeddingModel> embeddingModelProvider) {
+                         ObjectProvider<EmbeddingModel> embeddingModelProvider,
+                         SearchMetrics metrics) {
         this.retrievals = retrievals;
         this.catalog = catalog;
         this.animations = animations;
         this.embeddingModelProvider = embeddingModelProvider;
+        this.metrics = metrics;
     }
 
     public record SearchHit(String kind, UUID workId, String workTitle, UUID chapterId,
@@ -74,11 +86,16 @@ public class SearchService {
             throw new com.mangashelf.config.ApiException(503, "SEMANTIC_UNAVAILABLE",
                     "语义检索未配置 Embedding 模型；请使用标题检索。");
         }
+        long startNs = System.nanoTime();
         // 字面与标题两路召回；语义分支仅在显式语义模式下加入。
         List<RetrievalRepository.PageHit> chunkHits = retrievals.searchChunks(viewer.id(), q, effectiveLimit);
         List<RetrievalRepository.PageHit> semanticHits = List.of();
         if (mode == Mode.SEMANTIC) {
+            long embedStart = System.nanoTime();
             float[] vec = embedding.embed("query: " + q);
+            if (metrics != null) {
+                metrics.recordEmbed("query", Duration.ofNanos(System.nanoTime() - embedStart));
+            }
             semanticHits = retrievals.searchChunksSemantic(viewer.id(), vectorString(vec), effectiveLimit);
         }
         List<Work> workHits = catalog.searchWorksByTitle(viewer.id(), q, effectiveLimit);
@@ -132,6 +149,11 @@ public class SearchService {
                 hits.add(new SearchHit("work", work.id(), work.title(), null, null, 0, null,
                         work.description(), animated));
             }
+        }
+        if (metrics != null) {
+            String modeName = mode.name().toLowerCase(java.util.Locale.ROOT);
+            metrics.recordSearch(modeName, mode == Mode.SEMANTIC ? "chunk_rrf" : "chunk_lexical",
+                    Duration.ofNanos(System.nanoTime() - startNs));
         }
         return new SearchResult(q, mode.name().toLowerCase(java.util.Locale.ROOT), semanticEnabled(), hits);
     }
