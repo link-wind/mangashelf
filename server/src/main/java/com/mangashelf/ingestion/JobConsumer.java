@@ -14,12 +14,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Worker 消费者（DESIGN 11.2）：结果与事件入库后确认消息。
- * 三队列显式监听（content.resolve/process/index）——曾尝试按配置动态注册容器，
- * 但 List 形式的 @Bean 不受 Spring 生命周期管理导致容器不启动，回归为显式监听；
- * 按队列拆分 Worker 角色留到有真实部署需求时再做（distributed-evolution 9.7）。
- * 任务执行失败（已提交 FAILED）与重复通知同样确认；未预期异常按"重投无益"记录并确认，
- * 避免无限重投，真实中断恢复由租约恢复扫描补齐。
+ * Worker 消费者（DESIGN 11.2 / harden-reliable-jobs-and-fault-injection）：
+ * - 损坏 JSON 或缺少 jobId 的毒消息通过 basicNack(..., requeue=false) 路由至 content.dlq 隔离；
+ * - 合法消息交由 JobExecutor 按数据库租约状态机处理并 ACK，避免无限重投循环。
  */
 @Component
 @Profile("worker")
@@ -29,10 +26,12 @@ public class JobConsumer {
 
     private final JobExecutor executor;
     private final ObjectMapper objectMapper;
+    private final JobMetrics metrics;
 
-    public JobConsumer(JobExecutor executor, ObjectMapper objectMapper) {
+    public JobConsumer(JobExecutor executor, ObjectMapper objectMapper, JobMetrics metrics) {
         this.executor = executor;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_RESOLVE, ackMode = "MANUAL")
@@ -52,13 +51,24 @@ public class JobConsumer {
 
     void consume(Message message, Channel channel) throws IOException {
         long tag = message.getMessageProperties().getDeliveryTag();
+        JobMessage msg;
         try {
-            JobMessage msg = objectMapper.readValue(
+            msg = objectMapper.readValue(
                     new String(message.getBody(), StandardCharsets.UTF_8), JobMessage.class);
+            if (msg == null || msg.jobId() == null) {
+                throw new IllegalArgumentException("missing jobId in JobMessage");
+            }
+        } catch (Exception e) {
+            log.error("poison job message detected, routing to DLQ: {}", e.getMessage());
+            metrics.recordDlqRouted();
+            channel.basicNack(tag, false, false);
+            return;
+        }
+        try {
             executor.execute(msg);
             channel.basicAck(tag, false);
         } catch (Exception e) {
-            log.error("job message processing failed, ack to avoid redelivery loop", e);
+            log.error("job {} unexpected dispatch error, ack to avoid redelivery loop", msg.jobId(), e);
             channel.basicAck(tag, false);
         }
     }

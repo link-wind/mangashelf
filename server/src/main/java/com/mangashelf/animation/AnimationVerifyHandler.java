@@ -4,6 +4,7 @@ import com.mangashelf.config.MangaShelfProperties;
 import com.mangashelf.ingestion.Job;
 import com.mangashelf.ingestion.JobContext;
 import com.mangashelf.ingestion.JobHandler;
+import com.mangashelf.ingestion.JobRepository;
 import com.mangashelf.ingestion.JobResult;
 import com.mangashelf.ingestion.PythonTaskRunner;
 import com.mangashelf.ingestion.TaskSpec;
@@ -38,7 +39,8 @@ import java.util.UUID;
 
 /**
  * animation.verify：ffprobe 实测媒体（DESIGN 13.3），声明的 content-type 不替代检查。
- * 通过后版本 READY 并落时长/尺寸/编码；封面与字幕产物按 18.1 Key 归位。
+ * 通过后在短事务内校验任务租约令牌有效，再原子落库媒体元数据与 READY 状态，
+ * 避免过期 Worker 覆盖新 attempt 的有效结果（harden-reliable-jobs-and-fault-injection）。
  */
 @Component
 public class AnimationVerifyHandler implements JobHandler {
@@ -51,6 +53,7 @@ public class AnimationVerifyHandler implements JobHandler {
 
     private final AnimationRepository animations;
     private final AssetRepository assets;
+    private final JobRepository jobs;
     private final S3Client s3;
     private final MangaShelfProperties props;
     private final PythonTaskRunner python;
@@ -58,10 +61,12 @@ public class AnimationVerifyHandler implements JobHandler {
     private final TransactionTemplate tx;
 
     public AnimationVerifyHandler(AnimationRepository animations, AssetRepository assets,
-                                  S3Client s3, MangaShelfProperties props, PythonTaskRunner python,
-                                  ObjectMapper objectMapper, TransactionTemplate tx) {
+                                  JobRepository jobs, S3Client s3, MangaShelfProperties props,
+                                  PythonTaskRunner python, ObjectMapper objectMapper,
+                                  TransactionTemplate tx) {
         this.animations = animations;
         this.assets = assets;
+        this.jobs = jobs;
         this.s3 = s3;
         this.props = props;
         this.python = python;
@@ -116,18 +121,23 @@ public class AnimationVerifyHandler implements JobHandler {
         if (!"SUCCEEDED".equals(result.path("status").asText())) {
             String code = result.path("error_code").asText("MEDIA_INVALID");
             String message = result.path("message").asText("媒体校验失败");
-            animations.markRevisionStatus(revision.id(), AnimationRevision.STATUS_FAILED, code, message);
+            if (!markFailedIfLeased(job.id(), ctx.leaseToken(), revision.id(), code, message)) {
+                return JobResult.failure("STALE_LEASE", "租约已失效，放弃覆盖动画版本状态");
+            }
             return JobResult.failure(code, message);
         }
 
-        // ── 媒体元数据入库 ──
+        // ── 媒体元数据校验 ──
         JsonNode media = result.path("media");
         if (!media.isObject()) {
-            animations.markRevisionStatus(revision.id(), AnimationRevision.STATUS_FAILED,
-                    "MEDIA_RESULT_INVALID", "任务结果缺少媒体信息");
+            if (!markFailedIfLeased(job.id(), ctx.leaseToken(), revision.id(),
+                    "MEDIA_RESULT_INVALID", "任务结果缺少媒体信息")) {
+                return JobResult.failure("STALE_LEASE", "租约已失效，放弃覆盖动画版本状态");
+            }
             return JobResult.failure("MEDIA_RESULT_INVALID", "任务结果缺少媒体信息");
         }
 
+        // ── 产物上传在短事务外完成；落库前校验租约仍有效 ──
         ctx.progress().emit("publish", "上传封面与字幕产物");
         UUID posterAsset = null;
         UUID subtitleAsset = null;
@@ -137,22 +147,53 @@ public class AnimationVerifyHandler implements JobHandler {
             if ("POSTER".equals(role)) posterAsset = assetId;
             if ("SUBTITLE".equals(role)) subtitleAsset = assetId;
         }
-        final UUID fPoster = posterAsset;
-        final UUID fSubtitle = subtitleAsset;
-        tx.executeWithoutResult(status -> animations.bindAssetsAndMedia(
-                revision.id(), revision.videoAssetId(), fPoster, fSubtitle,
-                media.path("duration_ms").asLong(),
-                media.path("width").asInt(), media.path("height").asInt(),
-                media.path("video_codec").asText(null), media.path("audio_codec").asText(null),
-                media.path("has_audio").asBoolean(false),
-                revision.sourceManifestSha256()));
-        animations.markRevisionStatus(revision.id(), AnimationRevision.STATUS_READY, null, null);
+
+        boolean committed = commitVerifiedIfLeased(
+                job.id(), ctx.leaseToken(), revision, posterAsset, subtitleAsset, media);
+        if (!committed) {
+            log.warn("job {} stale lease before animation revision {} commit, discarding",
+                    job.id(), revision.id());
+            return JobResult.failure("STALE_LEASE", "租约已失效，拒绝写入动画版本元数据");
+        }
+
         ctx.progress().emit("publish", "媒体校验完成");
         log.info("job {} media verified for revision {}: {}ms {}x{} audio={}",
                 job.id(), revision.id(), media.path("duration_ms").asLong(),
                 media.path("width").asInt(), media.path("height").asInt(),
                 media.path("has_audio").asBoolean());
         return JobResult.success("verified");
+    }
+
+    /**
+     * 短事务内租约 Fencing + 媒体元数据绑定 + 状态置 READY（可由集成测试直接构造竞态验证）。
+     */
+    public boolean commitVerifiedIfLeased(UUID jobId, UUID leaseToken, AnimationRevision revision,
+                                          UUID posterAssetId, UUID subtitleAssetId, JsonNode media) {
+        return Boolean.TRUE.equals(tx.execute(status -> {
+            if (!jobs.isLeaseValid(jobId, leaseToken)) {
+                return false;
+            }
+            animations.bindAssetsAndMedia(
+                    revision.id(), revision.videoAssetId(), posterAssetId, subtitleAssetId,
+                    media.path("duration_ms").asLong(),
+                    media.path("width").asInt(), media.path("height").asInt(),
+                    media.path("video_codec").asText(null), media.path("audio_codec").asText(null),
+                    media.path("has_audio").asBoolean(false),
+                    revision.sourceManifestSha256());
+            animations.markRevisionStatus(revision.id(), AnimationRevision.STATUS_READY, null, null);
+            return true;
+        }));
+    }
+
+    private boolean markFailedIfLeased(UUID jobId, UUID leaseToken, UUID revisionId,
+                                       String code, String message) {
+        return Boolean.TRUE.equals(tx.execute(status -> {
+            if (!jobs.isLeaseValid(jobId, leaseToken)) {
+                return false;
+            }
+            animations.markRevisionStatus(revisionId, AnimationRevision.STATUS_FAILED, code, message);
+            return true;
+        }));
     }
 
     private void downloadTo(Path workDir, String role, UUID assetId, List<TaskSpec.TaskInput> inputs) {

@@ -14,17 +14,19 @@ import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 任务通知拓扑（DESIGN 11.1）：按任务类型拆分队列（harden-job-lease-and-routing）——
- * content.resolve（浏览器解析）、content.process（文件处理）、content.index（索引）。
- * 拓扑声明幂等，API 与 Worker 均可执行。
+ * 任务通知拓扑（DESIGN 11.1 / harden-reliable-jobs-and-fault-injection）：
+ * 按任务类型拆分队列（content.resolve / content.process / content.index），
+ * 全部绑定死信交换机 mangashelf.jobs.dlx 与死信队列 content.dlq 以隔离毒消息。
  */
 @Configuration
 public class RabbitTopologyConfig {
 
     public static final String JOBS_EXCHANGE = "mangashelf.jobs";
+    public static final String JOBS_DLX = "mangashelf.jobs.dlx";
     public static final String QUEUE_CONTENT_PROCESS = "content.process";
     public static final String QUEUE_CONTENT_RESOLVE = "content.resolve";
     public static final String QUEUE_CONTENT_INDEX = "content.index";
+    public static final String QUEUE_CONTENT_DLQ = "content.dlq";
 
     @Bean
     public DirectExchange jobsExchange() {
@@ -32,8 +34,26 @@ public class RabbitTopologyConfig {
     }
 
     @Bean
+    public DirectExchange jobsDeadLetterExchange() {
+        return new DirectExchange(JOBS_DLX, true, false);
+    }
+
+    @Bean
+    public Queue contentDlq() {
+        return QueueBuilder.durable(QUEUE_CONTENT_DLQ).build();
+    }
+
+    @Bean
+    public Binding contentDlqBinding(DirectExchange jobsDeadLetterExchange, Queue contentDlq) {
+        return BindingBuilder.bind(contentDlq).to(jobsDeadLetterExchange).with(QUEUE_CONTENT_DLQ);
+    }
+
+    @Bean
     public Queue contentProcessQueue() {
-        return QueueBuilder.durable(QUEUE_CONTENT_PROCESS).build();
+        return QueueBuilder.durable(QUEUE_CONTENT_PROCESS)
+                .deadLetterExchange(JOBS_DLX)
+                .deadLetterRoutingKey(QUEUE_CONTENT_DLQ)
+                .build();
     }
 
     @Bean
@@ -43,7 +63,10 @@ public class RabbitTopologyConfig {
 
     @Bean
     public Queue contentResolveQueue() {
-        return QueueBuilder.durable(QUEUE_CONTENT_RESOLVE).build();
+        return QueueBuilder.durable(QUEUE_CONTENT_RESOLVE)
+                .deadLetterExchange(JOBS_DLX)
+                .deadLetterRoutingKey(QUEUE_CONTENT_DLQ)
+                .build();
     }
 
     @Bean
@@ -53,7 +76,10 @@ public class RabbitTopologyConfig {
 
     @Bean
     public Queue contentIndexQueue() {
-        return QueueBuilder.durable(QUEUE_CONTENT_INDEX).build();
+        return QueueBuilder.durable(QUEUE_CONTENT_INDEX)
+                .deadLetterExchange(JOBS_DLX)
+                .deadLetterRoutingKey(QUEUE_CONTENT_DLQ)
+                .build();
     }
 
     @Bean
