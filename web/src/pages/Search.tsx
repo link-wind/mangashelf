@@ -8,13 +8,18 @@ interface CatalogHit {
   workId: string | null; bangumiSubjectId: number | null
 }
 
-interface MangaSourceInfo {
-  id: string; name: string; capabilities: string[]
+interface StreamEntry {
+  source: string; sourceName: string; id: string; readable: boolean
+  coverUrl: string | null; remarks: string; workId: string | null
 }
-
-interface MangaCatalogHit {
-  source: string; sourceItemId: string; name: string; altTitle: string
-  coverUrl: string | null; remarks: string | null; episodeCount: number | null
+interface UnifiedMangaHit {
+  title: string; altTitle: string; coverUrl: string | null
+  primarySource: string; primarySourceName: string; primaryId: string
+  workId: string | null; readable: boolean; remarks: string
+  sourceCount: number; streams: StreamEntry[]
+}
+interface SourceStatus {
+  source: string; name: string; count: number; ok: boolean; error: string | null; durationMs: number
 }
 
 interface Hit {
@@ -31,14 +36,19 @@ interface Hit {
 
 type FilterTab = 'all' | 'anime' | 'manga' | 'local'
 
-/** 搜索页：并行检索番剧目录、外部漫画目录与站内标题/对白/语义混合结果；显式报错不静默吞错。 */
+function mangaHref(source: string, id: string, title: string, workId?: string | null): string {
+  if (source === 'local' || workId) return `/manga/${workId ?? id}`
+  return `/manga-ext/${id}?${new URLSearchParams({ lang: 'all', source, title })}`
+}
+
+/** 全局搜索页：并行检索番剧目录、全流漫画聚合（在线源+目录库+本地）与站内标题/对白；显式展示各流状态与错误。 */
 export default function Search() {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const [q, setQ] = useState(params.get('q') ?? '')
   const [hits, setHits] = useState<Hit[]>([])
   const [catalog, setCatalog] = useState<CatalogHit[]>([])
-  const [mangaHits, setMangaHits] = useState<MangaCatalogHit[]>([])
-  const [mangaSources, setMangaSources] = useState<MangaSourceInfo[]>([])
+  const [mangaHits, setMangaHits] = useState<UnifiedMangaHit[]>([])
+  const [mangaStatus, setMangaStatus] = useState<SourceStatus[]>([])
   const [tab, setTab] = useState<FilterTab>('all')
   const [semanticEnabled, setSemanticEnabled] = useState(false)
   const [semantic, setSemantic] = useState(false)
@@ -47,16 +57,10 @@ export default function Search() {
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
 
-  useEffect(() => {
-    void api.get<MangaSourceInfo[]>('/api/v1/manga-sources')
-      .then(list => setMangaSources(list.filter(s => s.capabilities.includes('SEARCH'))))
-      .catch(() => { /* 源列表加载失败时仅跳过外部漫画目录 */ })
-  }, [])
-
   const run = useCallback(async (query: string) => {
     const trimmed = query.trim()
     if (!trimmed) {
-      setHits([]); setCatalog([]); setMangaHits([]); setSearched(false); setErrors([])
+      setHits([]); setCatalog([]); setMangaHits([]); setMangaStatus([]); setSearched(false); setErrors([])
       return
     }
     setLoading(true)
@@ -78,7 +82,7 @@ export default function Search() {
     })
 
     const animePromise = api.get<{ items: CatalogHit[] }>(
-      `/api/v1/catalog-items?limit=12&q=${encodeURIComponent(trimmed)}`
+      `/api/v1/catalog-items?limit=12&page=1&q=${encodeURIComponent(trimmed)}`
     ).then(r => {
       setCatalog(r.items)
     }).catch(e => {
@@ -86,48 +90,35 @@ export default function Search() {
       nextErrors.push(`番剧目录检索失败：${e instanceof Error ? e.message : '未知错误'}`)
     })
 
-    const mangaPromise = (async () => {
-      if (mangaSources.length === 0) {
-        setMangaHits([])
-        return
-      }
-      const results = await Promise.allSettled(
-        mangaSources.map(src =>
-          api.get<{ items: MangaCatalogHit[] }>(
-            `/api/v1/manga-catalog?source=${encodeURIComponent(src.id)}&limit=8&q=${encodeURIComponent(trimmed)}`
-          )
-        )
-      )
-      const merged: MangaCatalogHit[] = []
-      const seen = new Set<string>()
-      let failedCount = 0
-      for (const r of results) {
-        if (r.status === 'fulfilled') {
-          for (const item of r.value.items) {
-            const key = `${item.source}:${item.sourceItemId}`
-            if (!seen.has(key)) {
-              seen.add(key)
-              merged.push(item)
-            }
-          }
-        } else {
-          failedCount++
-        }
-      }
-      setMangaHits(merged)
-      if (failedCount > 0 && merged.length === 0) {
-        nextErrors.push('外部漫画目录检索失败，请稍后重试。')
-      }
-    })()
+    const mangaPromise = api.get<{ items: UnifiedMangaHit[]; sourceStatus: SourceStatus[] }>(
+      `/api/v1/manga-discovery/search?q=${encodeURIComponent(trimmed)}&source=all&limit=24`
+    ).then(r => {
+      setMangaHits(r.items ?? [])
+      setMangaStatus(r.sourceStatus ?? [])
+    }).catch(e => {
+      setMangaHits([])
+      setMangaStatus([])
+      nextErrors.push(`全流漫画检索失败：${e instanceof Error ? e.message : '未知错误'}`)
+    })
 
     await Promise.all([localPromise, animePromise, mangaPromise])
     setErrors(nextErrors)
     setSearched(true)
     setLoading(false)
-  }, [hasAnimation, semantic, mangaSources])
+  }, [hasAnimation, semantic])
 
   useEffect(() => {
-    const t = setTimeout(() => { void run(q) }, 320)
+    const t = setTimeout(() => {
+      const trimmed = q.trim()
+      const current = params.get('q') ?? ''
+      if (trimmed !== current) {
+        const next = new URLSearchParams(params)
+        if (trimmed) next.set('q', trimmed)
+        else next.delete('q')
+        setParams(next, { replace: true })
+      }
+      void run(q)
+    }, 350)
     return () => clearTimeout(t)
   }, [q, run])
 
@@ -138,9 +129,9 @@ export default function Search() {
 
   return (
     <main className="page">
-      <h1 style={{ margin: '0 0 8px' }}>搜索</h1>
+      <h1 style={{ margin: '0 0 8px' }}>全站搜索</h1>
       <div className="search-bar">
-        <input className="search search-input-lg" placeholder="搜索番剧、漫画标题或站内对白…"
+        <input className="search search-input-lg" placeholder="搜索番剧、全流漫画或站内对白…"
                value={q} onChange={e => setQ(e.target.value)} autoFocus />
         <label className="scope-item">
           <input type="checkbox" checked={hasAnimation} onChange={e => setHasAnimation(e.target.checked)} />
@@ -154,10 +145,18 @@ export default function Search() {
         )}
       </div>
 
-      {!semanticEnabled && searched && (
-        <p className="muted" style={{ marginTop: 0 }}>语义检索未启用（本地嵌入模型缺失），当前使用字面与目录检索。</p>
-      )}
       {errors.map((err, i) => <p key={i} className="error" style={{ margin: '4px 0' }}>{err}</p>)}
+
+      {mangaStatus.length > 0 && (
+        <div className="stream-status-bar">
+          {mangaStatus.map(st => (
+            <span key={st.source} className={'stream-pill ' + (st.ok ? 'ok' : 'warn')}
+                  title={st.error ?? `${st.durationMs} ms`}>
+              {st.name}：{st.ok ? `${st.count} 条` : (st.error ?? '失败')}
+            </span>
+          ))}
+        </div>
+      )}
 
       {searched && totalCount > 0 && (
         <div className="search-tabs" role="tablist" aria-label="结果分类">
@@ -165,10 +164,10 @@ export default function Search() {
             全部 · {totalCount}
           </button>
           <button type="button" className={'mini ' + (tab === 'anime' ? '' : 'ghost')} onClick={() => setTab('anime')}>
-            番剧目录 · {catalog.length}
+            番剧 · {catalog.length}
           </button>
           <button type="button" className={'mini ' + (tab === 'manga' ? '' : 'ghost')} onClick={() => setTab('manga')}>
-            漫画目录 · {mangaHits.length}
+            全流漫画 · {mangaHits.length}
           </button>
           <button type="button" className={'mini ' + (tab === 'local' ? '' : 'ghost')} onClick={() => setTab('local')}>
             站内内容 · {hits.length}
@@ -176,11 +175,11 @@ export default function Search() {
         </div>
       )}
 
-      {loading && <p className="muted">搜索中…</p>}
+      {loading && <p className="muted">正在并发搜索番剧与全部漫画流…</p>}
 
       {showAnime && (
         <section className="search-section">
-          <h2>番剧目录（{catalog.length}）</h2>
+          <h2>番剧（{catalog.length}）</h2>
           <div className="card-grid">
             {catalog.map(c => (
               <Link key={c.id} to={`/catalog/${c.id}`} className="work-card">
@@ -189,7 +188,7 @@ export default function Search() {
                     src={c.bangumiSubjectId ? `/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=common` : c.coverUrl}
                     alt={c.name}
                   />
-                  {c.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+                  {c.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在库</span>}
                 </div>
                 <div className="work-card-body">
                   <div className="work-card-title clamp">{c.name}</div>
@@ -203,23 +202,40 @@ export default function Search() {
 
       {showManga && (
         <section className="search-section">
-          <h2>漫画目录（{mangaHits.length}）</h2>
+          <h2>全流漫画（{mangaHits.length}）</h2>
           <div className="card-grid">
             {mangaHits.map(m => {
-              const qs = new URLSearchParams({ source: m.source, title: m.name })
+              const href = mangaHref(m.primarySource, m.primaryId, m.title, m.workId)
               return (
-                <Link key={`${m.source}:${m.sourceItemId}`} to={`/manga-ext/${m.sourceItemId}?${qs}`} className="work-card">
-                  <div className="cover">
-                    <CoverImage src={m.coverUrl} alt={m.name} />
-                    <span className="badge-anim">{m.source}</span>
-                  </div>
+                <div key={`${m.primarySource}:${m.primaryId}`} className="work-card">
+                  <Link to={href} className="cover">
+                    <CoverImage src={m.coverUrl} alt={m.title} />
+                    {m.sourceCount > 1
+                      ? <span className="badge-anim">{m.sourceCount} 流可用</span>
+                      : <span className="badge-anim" style={m.workId ? { background: 'var(--pub)' } : undefined}>
+                          {m.primarySourceName}
+                        </span>}
+                  </Link>
                   <div className="work-card-body">
-                    <div className="work-card-title clamp">{m.name}</div>
+                    <Link to={href} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>
+                      {m.title}
+                    </Link>
                     <div className="work-card-meta">
-                      <span>{m.remarks || (m.episodeCount ? `${m.episodeCount} 话` : '漫画')}</span>
+                      <span className="clamp">{m.remarks || m.altTitle || m.primarySourceName}</span>
                     </div>
+                    {m.streams.length > 1 && (
+                      <div className="stream-switch-row">
+                        {m.streams.map(st => (
+                          <Link key={`${st.source}:${st.id}`}
+                                to={mangaHref(st.source, st.id, m.title, st.workId)}
+                                className="stream-chip">
+                            {st.sourceName}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </Link>
+                </div>
               )
             })}
           </div>
@@ -248,7 +264,7 @@ export default function Search() {
                       </Link>
                       {h.hasAnimation && <span className="tag pub">有动画</span>}
                     </div>
-                    <p className="muted clamp" style={{ marginBottom: 0 }}>{h.snippet}</p>
+                    <p className="muted" style={{ marginBottom: 0 }}>{h.snippet}</p>
                   </>
                 )}
               </div>
@@ -258,7 +274,7 @@ export default function Search() {
       )}
 
       {searched && !loading && totalCount === 0 && errors.length === 0 && (
-        <p className="muted">没有找到与「{q.trim()}」相关的内容。</p>
+        <p className="muted">没有找到与「{q.trim()}」相关的番剧、漫画或站内内容。</p>
       )}
     </main>
   )

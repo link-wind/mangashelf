@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import { ToastProvider } from './components/Toast'
@@ -6,51 +6,46 @@ import {
   ChevronDownIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
   SearchIcon, SettingsIcon, SunIcon, UploadIcon,
 } from './components/Icons'
-import LoginPage from './pages/Login'
-import Home from './pages/Home'
-import AnimeIndex from './pages/AnimeIndex'
-import Schedule from './pages/Schedule'
-import CatalogDetail from './pages/CatalogDetail'
-import History from './pages/History'
-import MangaIndex from './pages/MangaIndex'
-import MangaCatalog from './pages/MangaCatalog'
-import MangaDetailPage from './pages/MangaDetail'
-import ExternalManga from './pages/ExternalManga'
-import ExternalMangaDetail from './pages/ExternalMangaDetail'
-import ExternalMangaReader from './pages/ExternalMangaReader'
-import WorkDetail from './pages/WorkDetail'
-import Reader from './pages/Reader'
-import Watch from './pages/Watch'
-import MyUploads from './pages/MyUploads'
-import Shelf from './pages/Shelf'
-import Search from './pages/Search'
-import Settings from './pages/Settings'
-import ExternalEpisodes from './pages/ExternalEpisodes'
-import ExternalWatch from './pages/ExternalWatch'
-import BrowseWatch from './pages/BrowseWatch'
+
+// 路由级代码分割：把播放器（hls.js）、阅读器、上传页从首屏主包拆出
+const LoginPage = lazy(() => import('./pages/Login'))
+const Home = lazy(() => import('./pages/Home'))
+const AnimeIndex = lazy(() => import('./pages/AnimeIndex'))
+const Schedule = lazy(() => import('./pages/Schedule'))
+const CatalogDetail = lazy(() => import('./pages/CatalogDetail'))
+const MangaIndex = lazy(() => import('./pages/MangaIndex'))
+const MangaDetailPage = lazy(() => import('./pages/MangaDetail'))
+const ExternalMangaDetail = lazy(() => import('./pages/ExternalMangaDetail'))
+const ExternalMangaReader = lazy(() => import('./pages/ExternalMangaReader'))
+const WorkDetail = lazy(() => import('./pages/WorkDetail'))
+const Reader = lazy(() => import('./pages/Reader'))
+const Watch = lazy(() => import('./pages/Watch'))
+const MyUploads = lazy(() => import('./pages/MyUploads'))
+const Me = lazy(() => import('./pages/Me'))
+const Search = lazy(() => import('./pages/Search'))
+const Settings = lazy(() => import('./pages/Settings'))
+const ExternalEpisodes = lazy(() => import('./pages/ExternalEpisodes'))
+const ExternalWatch = lazy(() => import('./pages/ExternalWatch'))
+const BrowseWatch = lazy(() => import('./pages/BrowseWatch'))
 
 const NAV_ENTRIES = [
   { to: '/', label: '首页', private: false },
+  { to: '/anime', label: '番剧', private: false },
   { to: '/manga', label: '漫画', private: false },
-  { to: '/manga-index', label: '漫画索引', private: false },
-  { to: '/anime', label: '番剧索引', private: false },
-  { to: '/schedule', label: '新番时刻表', private: false },
-  { to: '/shelf', label: '我的收藏', private: true },
-  { to: '/history', label: '观看历史', private: true },
+  { to: '/schedule', label: '时刻表', private: false },
+  { to: '/me', label: '我的', private: true },
 ]
 
 const PAGE_TITLES: Array<[RegExp, string]> = [
   [/^\/$/, '首页 · MangaShelf'],
   [/^\/login$/, '登录 · MangaShelf'],
-  [/^\/manga$/, '漫画专区 · MangaShelf'],
-  [/^\/manga-index$/, '漫画索引 · MangaShelf'],
+  [/^\/manga$/, '漫画 · MangaShelf'],
   [/^\/manga\//, '漫画详情 · MangaShelf'],
   [/^\/manga-ext\/read\//, '阅读中 · MangaShelf'],
   [/^\/manga-ext/, '漫画详情 · MangaShelf'],
-  [/^\/anime$/, '番剧索引 · MangaShelf'],
+  [/^\/anime$/, '番剧 · MangaShelf'],
   [/^\/schedule$/, '新番时刻表 · MangaShelf'],
-  [/^\/shelf$/, '我的收藏 · MangaShelf'],
-  [/^\/history$/, '观看历史 · MangaShelf'],
+  [/^\/me$/, '我的 · MangaShelf'],
   [/^\/search$/, '搜索 · MangaShelf'],
   [/^\/uploads$/, '我的素材 · MangaShelf'],
   [/^\/settings$/, '设置 · MangaShelf'],
@@ -62,6 +57,17 @@ const PAGE_TITLES: Array<[RegExp, string]> = [
 
 function currentTheme(): 'dark' | 'light' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+}
+
+function PageFallback() {
+  return (
+    <div className="page-center">
+      <div className="row-inline">
+        <div className="player-spinner" style={{ width: 22, height: 22, margin: 0, borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        <span>加载页面…</span>
+      </div>
+    </div>
+  )
 }
 
 function Nav() {
@@ -97,8 +103,6 @@ function Nav() {
     }
   }, [userOpen])
 
-  // 访客也可浏览公开内容（DESIGN 3.1/3.2）；不再整体隐藏顶栏。
-
   function toggleTheme() {
     const next = currentTheme() === 'dark' ? 'light' : 'dark'
     document.documentElement.dataset.theme = next
@@ -132,12 +136,11 @@ function Nav() {
         <form className="nav-search" onSubmit={submit}>
           <span className="nav-search-icon"><SearchIcon size={15} /></span>
           <input value={kw} onChange={e => setKw(e.target.value)}
-                 placeholder="搜索番剧、漫画、对白…" aria-label="全站搜索" />
+                 placeholder="搜索番剧、全流漫画、对白…" aria-label="全站搜索" />
           <button type="submit" className="pill">搜索</button>
         </form>
         <span className="spacer" />
 
-        {/* 手机端（≤720px）顶栏快捷搜索入口，避免次级按钮与悬浮菜单重复 */}
         <NavLink to="/search" className="nav-icon-btn nav-mobile-search" aria-label="站内搜索" title="站内搜索">
           <SearchIcon size={16} />
         </NavLink>
@@ -162,6 +165,7 @@ function Nav() {
                     <strong>{me.login}</strong>
                     <span>{me.role === 'ADMIN' ? '站点管理员' : '登录用户'}</span>
                   </div>
+                  <NavLink to="/me" role="menuitem">我的追更与收藏</NavLink>
                   <NavLink to="/uploads" role="menuitem"><UploadIcon />我的素材</NavLink>
                   <NavLink to="/settings" role="menuitem"><SettingsIcon />设置与令牌</NavLink>
                   <button type="button" className="danger" role="menuitem" onClick={() => void doLogout()}>
@@ -176,7 +180,6 @@ function Nav() {
         </div>
       </header>
 
-      {/* 手机端液态玻璃悬浮导航（≤720px）：放在 header 外避免 backdrop-filter 改变 fixed 包含块 */}
       <button type="button" className={'nav-fab' + (menuOpen ? ' open' : '')}
               aria-label="导航菜单" aria-expanded={menuOpen}
               onClick={() => setMenuOpen(v => !v)}>
@@ -188,7 +191,7 @@ function Nav() {
             {visibleNav.map(e => (
               <NavLink key={e.to} to={e.to} end={e.to === '/'}>{e.label}</NavLink>
             ))}
-            <NavLink to="/search"><SearchIcon size={15} />站内搜索</NavLink>
+            <NavLink to="/search"><SearchIcon size={15} />全站搜索</NavLink>
             <div className="nav-mobile-sep" />
             {me ? (
               <>
@@ -220,50 +223,46 @@ export default function App() {
 
   useEffect(() => {
     const matched = PAGE_TITLES.find(([re]) => re.test(location.pathname))
-    document.title = matched ? matched[1] : 'MangaShelf · 漫画与动画书架'
+    document.title = matched ? matched[1] : 'MangaShelf · 动画与漫画空间'
   }, [location.pathname])
 
   if (loading) {
-    return (
-      <div className="page-center">
-        <div className="row-inline">
-          <div className="player-spinner" style={{ width: 22, height: 22, margin: 0, borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-          <span>加载中…</span>
-        </div>
-      </div>
-    )
+    return <PageFallback />
   }
 
   return (
     <ToastProvider>
       <Nav />
-      <Routes>
-        <Route path="/login" element={me ? <Navigate to="/" /> : <LoginPage />} />
-        {/* 公开内容：访客与登录用户都可访问（访客只看 PUBLIC+PUBLISHED） */}
-        <Route path="/" element={<Home />} />
-        <Route path="/anime" element={<AnimeIndex />} />
-        <Route path="/manga" element={<MangaIndex />} />
-        <Route path="/manga-index" element={<MangaCatalog />} />
-        <Route path="/manga/:id" element={<MangaDetailPage />} />
-        <Route path="/manga-ext" element={<ExternalManga />} />
-        <Route path="/manga-ext/read/:chapterId" element={<ExternalMangaReader />} />
-        <Route path="/manga-ext/:mangaId" element={<ExternalMangaDetail />} />
-        <Route path="/schedule" element={<Schedule />} />
-        <Route path="/catalog/:id" element={<CatalogDetail />} />
-        <Route path="/works/:id" element={<WorkDetail />} />
-        <Route path="/read/:revisionId" element={<Reader />} />
-        <Route path="/watch/:animationId" element={<Watch />} />
-        <Route path="/search" element={<Search />} />
-        <Route path="/browse/:itemId" element={<BrowseWatch />} />
-        <Route path="/browse/:itemId/:episodeId" element={<BrowseWatch />} />
-        {/* 私有页面：需登录，未登录跳转登录页并记住来源 */}
-        <Route path="/history" element={<RequireAuth><History /></RequireAuth>} />
-        <Route path="/uploads" element={<RequireAuth><MyUploads /></RequireAuth>} />
-        <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
-        <Route path="/works/:workId/external" element={<RequireAuth><ExternalEpisodes /></RequireAuth>} />
-        <Route path="/works/:workId/external/:episodeId" element={<RequireAuth><ExternalWatch /></RequireAuth>} />
-        <Route path="/shelf" element={<RequireAuth><Shelf /></RequireAuth>} />
-      </Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/login" element={me ? <Navigate to="/" /> : <LoginPage />} />
+          {/* 公开内容：访客与登录用户都可访问（访客只看 PUBLIC+PUBLISHED） */}
+          <Route path="/" element={<Home />} />
+          <Route path="/anime" element={<AnimeIndex />} />
+          <Route path="/manga" element={<MangaIndex />} />
+          <Route path="/manga-index" element={<Navigate to="/manga?tab=index" replace />} />
+          <Route path="/manga/:id" element={<MangaDetailPage />} />
+          <Route path="/manga-ext" element={<Navigate to="/manga" replace />} />
+          <Route path="/manga-ext/read/:chapterId" element={<ExternalMangaReader />} />
+          <Route path="/manga-ext/:mangaId" element={<ExternalMangaDetail />} />
+          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/catalog/:id" element={<CatalogDetail />} />
+          <Route path="/works/:id" element={<WorkDetail />} />
+          <Route path="/read/:revisionId" element={<Reader />} />
+          <Route path="/watch/:animationId" element={<Watch />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/browse/:itemId" element={<BrowseWatch />} />
+          <Route path="/browse/:itemId/:episodeId" element={<BrowseWatch />} />
+          {/* 私有页面：未登录原地展示「需要登录」，已登录兼容旧路由并跳至 /me */}
+          <Route path="/me" element={<RequireAuth><Me /></RequireAuth>} />
+          <Route path="/shelf" element={<RequireAuth><Navigate to="/me?tab=favorites" replace /></RequireAuth>} />
+          <Route path="/history" element={<RequireAuth><Navigate to="/me?tab=history" replace /></RequireAuth>} />
+          <Route path="/uploads" element={<RequireAuth><MyUploads /></RequireAuth>} />
+          <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+          <Route path="/works/:workId/external" element={<RequireAuth><ExternalEpisodes /></RequireAuth>} />
+          <Route path="/works/:workId/external/:episodeId" element={<RequireAuth><ExternalWatch /></RequireAuth>} />
+        </Routes>
+      </Suspense>
       <Footer />
     </ToastProvider>
   )
@@ -279,7 +278,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
       <main className="page">
         <div className="login-required">
           <h1>需要登录</h1>
-          <p className="muted">该页面需要登录后才能访问（收藏、观看/阅读进度、我的素材与设置均为私有数据）。</p>
+          <p className="muted">该页面需要登录后才能访问（追更、收藏、观看/阅读记录、我的素材与设置均为私有数据）。</p>
           <div className="login-required-actions">
             <NavLink to={`/login?next=${next}`} className="pill nav-login-btn">去登录</NavLink>
             <NavLink to="/" className="ghost pill">返回首页</NavLink>
@@ -291,30 +290,32 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** 页脚（gugu 式分组链接；无广告 / 无第三方统计）。 */
+/** 页脚（无广告 / 无第三方统计）。 */
 function Footer() {
   return (
     <footer className="site-footer">
       <div className="footer-inner">
         <div className="footer-col footer-brand">
           <span className="brand">MangaShelf</span>
-          <p className="muted">个人自托管 · 无广告 · 视频由浏览器直连来源</p>
+          <p className="muted">个人自托管 · 动画与漫画空间 · 视频由浏览器直连来源</p>
         </div>
         <div className="footer-col">
           <h3>发现内容</h3>
           <NavLink to="/anime">番剧索引</NavLink>
-          <NavLink to="/manga-index">漫画索引</NavLink>
+          <NavLink to="/manga">漫画发现</NavLink>
+          <NavLink to="/manga?tab=index">漫画索引</NavLink>
           <NavLink to="/schedule">新番时刻表</NavLink>
-          <NavLink to="/search">站内搜索</NavLink>
         </div>
         <div className="footer-col">
-          <h3>我的书架</h3>
-          <NavLink to="/shelf">我的收藏</NavLink>
-          <NavLink to="/history">观看历史</NavLink>
+          <h3>我的</h3>
+          <NavLink to="/me?tab=continue">继续追更</NavLink>
+          <NavLink to="/me?tab=favorites">我的收藏</NavLink>
+          <NavLink to="/me?tab=history">观看与阅读历史</NavLink>
           <NavLink to="/uploads">我的素材</NavLink>
         </div>
         <div className="footer-col">
-          <h3>账号服务</h3>
+          <h3>账号与搜索</h3>
+          <NavLink to="/search">全站搜索</NavLink>
           <NavLink to="/settings">设置与令牌</NavLink>
         </div>
       </div>

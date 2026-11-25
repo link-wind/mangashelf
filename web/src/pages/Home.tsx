@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import CoverImage from '../components/CoverImage'
 import { HeartIcon, InfoIcon, PlayIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../auth'
-import SeasonSection from './SeasonSection'
 
 interface CalendarEntry {
   subjectId: number; name: string; nameCn: string; coverUrl: string
@@ -19,77 +18,70 @@ interface CatalogItem {
 }
 interface ContinueRow {
   type: 'work-read' | 'manga-read' | 'animation-watch' | 'external-watch'
-  title: string
-  coverUrl: string | null
-  workId: string | null
-  catalogItemId: string | null
-  chapterId: string | null
-  revisionId: string | null
-  pageOrdinal: number | null
-  episodeId: string | null
-  ordinal: number | null
-  positionMs: number | null
-  durationMs: number | null
+  title: string; coverUrl: string | null; workId: string | null; catalogItemId: string | null
+  chapterId: string | null; revisionId: string | null; pageOrdinal: number | null
+  episodeId: string | null; ordinal: number | null; positionMs: number | null; durationMs: number | null
 }
-interface MangaCard {
-  id: string; title: string; description: string; visibility: string
-  chapterCount: number; latestOrdinal: number | null; coverUrl: string | null; updatedAt: string
+interface AnimeCatchUpItem {
+  catalogItemId: string; workId: string | null; title: string; coverUrl: string
+  remarks: string; watchedOrdinal: number; latestOrdinal: number; newEpisodes: number
 }
-interface MangaContinue {
-  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; title: string; coverUrl: string | null
+interface AnimeRecItem {
+  catalogItemId: string; workId: string | null; bangumiSubjectId: number | null
+  title: string; coverUrl: string; remarks: string; categoryName: string | null
+  episodeCount: number; rating: number | null; matchedTags: string[]; reason: string
 }
-interface WorkCard {
-  id: string; title: string; description: string; status: string; visibility: string
-  animations: number; episodes: number; posterUrl: string | null
+interface AnimeRecResult {
+  personalized: boolean
+  topPreferences: string[]
+  catchUp: AnimeCatchUpItem[]
+  forYou: AnimeRecItem[]
+  seasonalPicks: CalendarEntry[]
+  totalCandidates: number
 }
 
 const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const CATEGORIES = [
-  { id: 29, label: '国产动漫' },
-  { id: 30, label: '日韩动漫' },
-  { id: 31, label: '欧美动漫' },
-  { id: 32, label: '港台动漫' },
-  { id: 33, label: '海外动漫' },
-]
 
-/** 首页：骨架屏 → 液态玻璃 Hero 轮播 → 新番时刻表 → 继续观看/阅读（含进度条）→ 最近更新 → 高分榜 → 分类。 */
+/** 首页：精选 Hero → 追更提醒与继续观看 → 为你推荐（可换一批）→ 新番时刻表速览 → 最近更新 → 本季必看榜。 */
 export default function Home() {
   const { me } = useAuth()
   const [calendar, setCalendar] = useState<CalendarEntry[]>([])
   const [updates, setUpdates] = useState<CatalogItem[]>([])
   const [continueList, setContinueList] = useState<ContinueRow[]>([])
-  const [works, setWorks] = useState<WorkCard[]>([])
-  const [manga, setManga] = useState<MangaCard[]>([])
-  const [mangaContinue, setMangaContinue] = useState<MangaContinue[]>([])
+  const [rec, setRec] = useState<AnimeRecResult | null>(null)
+  const [recOffset, setRecOffset] = useState(0)
+  const [recLoading, setRecLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const loadRecommendations = useCallback(async (offset: number) => {
+    setRecLoading(true)
+    try {
+      const data = await api.get<AnimeRecResult>(`/api/v1/recommendations/anime?limit=12&offset=${offset}`)
+      setRec(data)
+    } catch { /* 推荐异常不阻断公开首页 */ }
+    finally { setRecLoading(false) }
+  }, [])
 
   useEffect(() => {
     void (async () => {
       try {
-        const [cal, cat, page, mg] = await Promise.all([
+        const [cal, cat, recData] = await Promise.all([
           api.get<CalendarEntry[]>('/api/v1/calendar'),
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
-          api.get<{ items: WorkCard[] }>('/api/v1/works?limit=12'),
-          api.get<{ items: MangaCard[] }>('/api/v1/manga?limit=12'),
+          api.get<AnimeRecResult>('/api/v1/recommendations/anime?limit=12&offset=0')
+            .catch(() => null),
         ])
         setCalendar(cal)
         setUpdates(cat.items)
-        setWorks(page.items)
-        setManga(mg.items)
-        // 继续观看/阅读是私有数据；访客跳过，不影响公开首页。
+        setRec(recData)
         if (me) {
           try {
             const cont = await api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
-            setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 6))
-            setMangaContinue(cont.filter(r => r.type === 'work-read' && r.chapterId && r.revisionId)
-              .slice(0, 6)
-              .map(r => ({
-                chapterId: r.chapterId as string, revisionId: r.revisionId as string,
-                pageOrdinal: r.pageOrdinal ?? 1, workId: r.workId as string, title: r.title,
-                coverUrl: r.coverUrl,
-              })))
+            setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 8))
           } catch { /* 私有继续列表失败不影响首页 */ }
+        } else {
+          setContinueList([])
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
@@ -99,24 +91,17 @@ export default function Home() {
     })()
   }, [me])
 
-  const topRated = [...calendar]
-    .filter(i => (i.rating ?? 0) > 0)
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-    .slice(0, 10)
+  const seasonalPicks = rec?.seasonalPicks?.length
+    ? rec.seasonalPicks
+    : [...calendar].filter(i => (i.rating ?? 0) > 0).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 10)
 
-  const todayDow = new Date().getDay() || 7
-  const yesterdayDow = (((todayDow) + 5) % 7) + 1
-  const recentCovered = calendar
-    .filter(i => i.covered && (i.rating ?? 0) > 0
-                 && (i.airWeekday === yesterdayDow || i.airWeekday === todayDow))
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-  const topCovered = [...calendar]
-    .filter(i => i.covered && (i.rating ?? 0) > 0)
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-  const bannerPool = recentCovered.length >= 4
-    ? recentCovered
-    : (topCovered.length >= 4 ? topCovered : topRated)
-  const bannerItems = bannerPool.slice(0, 4)
+  const bannerItems = seasonalPicks.slice(0, 4)
+
+  function refreshRec() {
+    const next = recOffset + 12
+    setRecOffset(next)
+    void loadRecommendations(next)
+  }
 
   if (loading) {
     return (
@@ -138,19 +123,52 @@ export default function Home() {
     )
   }
 
+  const catchUp = rec?.catchUp ?? []
+  const forYou = rec?.forYou ?? []
+
   return (
     <main className="home-page">
       <HeroBanner items={bannerItems} />
 
       {error && <p className="error">{error}</p>}
 
-      <WeeklyPreview items={calendar} />
+      {catchUp.length > 0 && (
+        <section style={{ marginTop: 28 }}>
+          <div className="section-head">
+            <h2>
+              追更提醒
+              <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                {catchUp.length} 部在追番剧有新集
+              </span>
+            </h2>
+            <Link to="/me?tab=continue&kind=anime" className="muted">进入「我的」→</Link>
+          </div>
+          <div className="hscroll">
+            {catchUp.map(item => (
+              <Link key={item.catalogItemId}
+                    to={item.workId ? `/works/${item.workId}` : `/browse/${item.catalogItemId}`}
+                    className="work-card">
+                <div className="cover">
+                  <CoverImage src={item.coverUrl} alt={item.title} />
+                  <span className="badge-anim badge-new">+{item.newEpisodes} 新集</span>
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{item.title}</div>
+                  <div className="work-card-meta">
+                    <span>第 {item.watchedOrdinal} → {item.latestOrdinal} 集</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {continueList.length > 0 && (
-        <section style={{ marginTop: 30 }}>
+        <section style={{ marginTop: 28 }}>
           <div className="section-head">
             <h2>继续观看</h2>
-            <Link to="/history" className="muted">观看历史 →</Link>
+            <Link to="/me?tab=continue&kind=anime" className="muted">全部记录 →</Link>
           </div>
           <div className="hscroll">
             {continueList.map(r => {
@@ -183,44 +201,38 @@ export default function Home() {
         </section>
       )}
 
-      {(manga.length > 0 || mangaContinue.length > 0) && (
+      {forYou.length > 0 && (
         <section style={{ marginTop: 30 }}>
           <div className="section-head">
-            <h2>漫画{mangaContinue.length > 0 ? ' · 继续阅读' : ''}</h2>
-            <Link to="/manga" className="muted">漫画专区 →</Link>
+            <h2>
+              {rec?.personalized ? '为你推荐' : '精选推荐'}
+              {rec && rec.topPreferences.length > 0 && (
+                <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                  常看：{rec.topPreferences.slice(0, 3).join(' · ')}
+                </span>
+              )}
+            </h2>
+            {(rec?.totalCandidates ?? 0) > 12 && (
+              <button type="button" className="mini ghost" disabled={recLoading} onClick={refreshRec}>
+                {recLoading ? '刷新中…' : '换一批 ↻'}
+              </button>
+            )}
           </div>
-          {mangaContinue.length > 0 && (
-            <div className="hscroll" style={{ marginBottom: 12 }}>
-              {mangaContinue.map(r => (
-                <Link key={`${r.workId}-${r.chapterId}`}
-                      to={`/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal}`}
-                      className="work-card">
-                  <div className="cover">
-                    <CoverImage src={r.coverUrl} alt={r.title} />
-                    <span className="badge-anim">读到 {r.pageOrdinal} 页</span>
-                    <div className="card-progress" aria-hidden="true">
-                      <div className="card-progress-fill" style={{ width: `${Math.min(100, Math.max(12, r.pageOrdinal * 5))}%` }} />
-                    </div>
-                  </div>
-                  <div className="work-card-body">
-                    <div className="work-card-title clamp">{r.title}</div>
-                    <div className="work-card-meta"><span>继续阅读</span></div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
           <div className="card-grid">
-            {manga.map(m => (
-              <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
+            {forYou.map(it => (
+              <Link key={it.catalogItemId}
+                    to={it.workId ? `/works/${it.workId}` : `/catalog/${it.catalogItemId}`}
+                    className="work-card">
                 <div className="cover">
-                  <CoverImage src={m.coverUrl} alt={m.title} />
+                  <CoverImage src={it.coverUrl} alt={it.title} />
+                  {typeof it.rating === 'number' && it.rating > 0 && (
+                    <span className="badge-anim">★ {it.rating.toFixed(1)}</span>
+                  )}
                 </div>
                 <div className="work-card-body">
-                  <div className="work-card-title clamp">{m.title}</div>
+                  <div className="work-card-title clamp">{it.title}</div>
                   <div className="work-card-meta">
-                    <span>{m.chapterCount} 话</span>
-                    {m.latestOrdinal != null && <span>更新至第 {m.latestOrdinal} 话</span>}
+                    <span className="rec-reason clamp">{it.reason}</span>
                   </div>
                 </div>
               </Link>
@@ -229,10 +241,12 @@ export default function Home() {
         </section>
       )}
 
+      <WeeklyPreview items={calendar} />
+
       <section style={{ marginTop: 30 }}>
         <div className="section-head">
           <h2>最近更新</h2>
-          <Link to="/anime" className="muted">查看全部 →</Link>
+          <Link to="/anime" className="muted">全部番剧 →</Link>
         </div>
         {updates.length === 0
           ? <p className="muted">目录为空——在设置页触发一次目录同步。</p>
@@ -241,14 +255,14 @@ export default function Home() {
             </div>}
       </section>
 
-      {topRated.length > 0 && (
+      {seasonalPicks.length > 0 && (
         <section style={{ marginTop: 30 }}>
           <div className="section-head">
-            <h2>本季高分榜</h2>
-            <Link to="/schedule" className="muted">查看时刻表 →</Link>
+            <h2>本季必看榜</h2>
+            <Link to="/anime?category=season&sort=rating" className="muted">按评分浏览 →</Link>
           </div>
           <ol className="rank-list">
-            {topRated.map((it, i) => (
+            {seasonalPicks.slice(0, 10).map((it, i) => (
               <li key={it.subjectId} className="rank-item">
                 <span className={'rank-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
                 <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=small`} alt=""
@@ -258,7 +272,7 @@ export default function Home() {
                       to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}>
                   {it.nameCn || it.name}
                 </Link>
-                <span className="star">★ {(it.rating ?? 0).toFixed(1)}</span>
+                {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
                 {it.airWeekday ? <span className="muted">{WEEKDAYS[it.airWeekday]}</span> : null}
                 {it.covered
                   ? <span className="tag pub">可看</span>
@@ -268,49 +282,11 @@ export default function Home() {
           </ol>
         </section>
       )}
-
-      <section style={{ marginTop: 30 }}>
-        <SeasonSection layout="scroll" limit={12} />
-      </section>
-
-      {works.length > 0 && (
-        <section style={{ marginTop: 30 }}>
-          <div className="section-head">
-            <h2>我的作品</h2>
-            <Link to="/shelf" className="muted">我的收藏 →</Link>
-          </div>
-          <div className="card-grid">
-            {works.map(w => (
-              <Link key={w.id} to={`/works/${w.id}`} className="work-card">
-                <div className="cover">
-                  <CoverImage src={w.posterUrl} alt={w.title} />
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{w.title}</div>
-                  <div className="work-card-meta">
-                    {w.animations > 0 && <span>动画 {w.animations}</span>}
-                    {w.episodes > 0 && <span>外部 {w.episodes} 集</span>}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section style={{ marginTop: 30 }}>
-        <div className="section-head"><h2>按分类浏览</h2></div>
-        <div className="row-inline">
-          {CATEGORIES.map(c => (
-            <Link key={c.id} to={`/anime?category=${c.id}`} className="btn ghost pill">{c.label}</Link>
-          ))}
-        </div>
-      </section>
     </main>
   )
 }
 
-/** 首屏 Banner：4 张淡入轮播，液态玻璃悬浮控件与缩略图托盘。 */
+/** 首屏 Banner：4 张淡入轮播，优先可播 + 贝叶斯高分 + 近期更新条目。 */
 function HeroBanner({ items }: { items: CalendarEntry[] }) {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -338,9 +314,9 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
     setBusy(it.catalogItemId)
     try {
       await api.put(`/api/v1/me/favorites/catalog/${it.catalogItemId}`)
-      showToast(`已追番「${it.nameCn || it.name}」`, 'success')
+      showToast(`已收藏「${it.nameCn || it.name}」`, 'success')
     } catch (e) {
-      showToast(e instanceof Error ? e.message : '追番失败', 'error')
+      showToast(e instanceof Error ? e.message : '收藏失败', 'error')
     } finally {
       setBusy(null)
     }
@@ -351,7 +327,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
       <section className="hero">
         <div>
           <h1>MangaShelf</h1>
-          <p className="muted">读漫画、追改编动画、按剧情找内容——你的私人收藏。</p>
+          <p className="muted">追动画、读漫画、全流检索——你的个人影音漫画空间。</p>
         </div>
         <div className="hero-search">
           <Link to="/anime" className="btn ghost pill">番剧索引 →</Link>
@@ -374,7 +350,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
       <div className="hero-content">
         <div className="hero-badges">
           <span className="hb hb-tv">TV</span>
-          <span className="hb hb-on">连载中</span>
+          <span className="hb hb-on">本季精选</span>
           {it.airWeekday ? <span className="hb hb-time">每周{WEEKDAYS[it.airWeekday].slice(1)}放送</span> : null}
         </div>
         <h1>{it.nameCn || it.name}</h1>
@@ -382,7 +358,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
         <div className="hero-meta">
           {typeof it.rating === 'number' && <span className="star">★ Bangumi {it.rating.toFixed(1)}</span>}
           {it.categoryName && <span>{it.categoryName}</span>}
-          {it.episodeCount ? <span>全 {it.episodeCount} 集</span> : null}
+          {it.episodeCount ? <span>已更 {it.episodeCount} 集</span> : null}
           {it.remarks && <span>{it.remarks}</span>}
         </div>
         {it.summary && <p className="hero-desc">{it.summary}</p>}
@@ -395,7 +371,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
           <button type="button" className="pill hero-sub-btn" disabled={isBusy}
                   onClick={() => void subscribe(it)}>
             <HeartIcon size={15} />
-            {isBusy ? '处理中…' : '追番'}
+            {isBusy ? '处理中…' : '收藏'}
           </button>
           {it.catalogItemId && (
             <Link to={`/catalog/${it.catalogItemId}`} className="hero-info" title="详情" aria-label="查看详情">
@@ -469,7 +445,6 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   )
 }
 
-/** 点卡片直接进播放页（浏览态）：不创建作品；已入库则走作品播放页。 */
 function CatalogCard({ it }: { it: CatalogItem }) {
   const navigate = useNavigate()
   return (
@@ -481,7 +456,7 @@ function CatalogCard({ it }: { it: CatalogItem }) {
           alt={it.name}
         />
         {it.workId
-          ? <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>
+          ? <span className="badge-anim" style={{ background: 'var(--pub)' }}>在库</span>
           : <span className="badge-anim">可播</span>}
       </div>
       <div className="work-card-body">

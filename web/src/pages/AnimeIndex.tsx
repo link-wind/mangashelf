@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import CoverImage from '../components/CoverImage'
+import Pagination from '../components/Pagination'
+import { useToast } from '../components/Toast'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
@@ -10,182 +12,275 @@ interface CatalogItem {
   bangumiSubjectId?: number | null
 }
 
-// id 为数字（资源站分类）或 'season'（本季新番视图，anime-index-full-catalog）
-const CATEGORIES: { id: number | 'season' | undefined, label: string }[] = [
-  { id: undefined, label: '全部' },
+interface CatalogPageResponse {
+  items: CatalogItem[]
+  nextCursor: string | null
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+interface GenreStat { tag: string; items: number }
+
+const CATEGORIES: { id: string, label: string }[] = [
+  { id: '', label: '全部' },
   { id: 'season', label: '本季新番' },
-  { id: 30, label: '日韩动漫' },
-  { id: 29, label: '国产动漫' },
-  { id: 31, label: '欧美动漫' },
-  { id: 33, label: '海外动漫' },
+  { id: '30', label: '日韩动漫' },
+  { id: '29', label: '国产动漫' },
+  { id: '31', label: '欧美动漫' },
+  { id: '32', label: '港台动漫' },
+  { id: '33', label: '海外动漫' },
 ]
-// 状态与排序（mobile-ui-index-and-reader，咕咕番式筛选）：服务端按 remarks/category_name 过滤
+
 const STATUS = [
   { value: '', label: '全部状态' },
   { value: 'ongoing', label: '连载中' },
   { value: 'completed', label: '已完结' },
   { value: 'movie', label: '剧场版·HD' },
 ]
+
+const YEARS = [
+  { value: '', label: '全部年份' },
+  { value: '2026', label: '2026' },
+  { value: '2025', label: '2025' },
+  { value: '2024', label: '2024' },
+  { value: '2023', label: '2023' },
+  { value: 'earlier', label: '更早' },
+]
+
 const SORTS = [
   { value: 'updated', label: '最近更新' },
+  { value: 'rating', label: '评分最高' },
   { value: 'episodes', label: '集数最多' },
 ]
-// 题材（mobile-nav-genre-remove-mangadex）：与 Bangumi 条目 tags 匹配，服务端过滤
-const GENRES = ['热血', '机甲', '恋爱', '搞笑', '冒险', '科幻', '奇幻', '运动', '悬疑', '治愈', '日常', '古风']
 
-/** 番剧索引（M8 目录层）：资源站全库封面卡 + 分类筛选 + 搜索 + 一键入书库。 */
+const FALLBACK_GENRES = ['热血', '奇幻', '冒险', '恋爱', '搞笑', '科幻', '悬疑', '治愈', '日常', '校园', '战斗', '机甲']
+const PAGE_SIZE = 24
+
+/** 番剧索引：多维分类筛选（分区/题材/状态/年份/排序）+ 页码分页 + URL 双向同步。 */
 export default function AnimeIndex() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [params, setParams] = useSearchParams()
+
+  const category = params.get('category') ?? ''
+  const genre = params.get('genre') ?? ''
+  const status = params.get('status') ?? ''
+  const year = params.get('year') ?? ''
+  const sort = params.get('sort') ?? 'updated'
+  const activeQuery = params.get('q') ?? ''
+  const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
+
+  const [qInput, setQInput] = useState(activeQuery)
+  const [genres, setGenres] = useState<string[]>(FALLBACK_GENRES)
   const [items, setItems] = useState<CatalogItem[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [q, setQ] = useState('')
-  const [activeQuery, setActiveQuery] = useState('')
-  const [params] = useSearchParams()
-  const initialCat = params.get('category')
-  const [categoryId, setCategoryId] = useState<string | undefined>(
-    initialCat ? (initialCat === 'season' ? 'season' : String(Number(initialCat))) : undefined)
-  const [status, setStatus] = useState('')
-  const [sort, setSort] = useState('updated')
-  const [genre, setGenre] = useState('')
-  const [pageIndex, setPageIndex] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
   const [busyItem, setBusyItem] = useState<string | null>(null)
   const [error, setError] = useState('')
 
-  // 集数排序用偏移分页（无键集游标），其余用游标。
-  const load = useCallback(async (nextCursor: string | null, query: string, cat: string | undefined,
-                                  st: string, sot: string, gen: string, pageIdx: number, replace: boolean) => {
-    setLoading(true); setError('')
-    try {
-      const qs = new URLSearchParams({ limit: '24' })
-      if (sot === 'episodes') {
-        qs.set('sort', 'episodes')
-        qs.set('page', String(pageIdx))
-      } else if (nextCursor) {
-        qs.set('cursor', nextCursor)
-      }
-      if (query) qs.set('q', query)
-      if (cat === 'season') {
-        qs.set('season', 'true')
-      } else if (cat !== undefined && cat !== '') {
-        qs.set('categoryId', cat)
-      }
-      if (st) qs.set('status', st)
-      if (gen) qs.set('genre', gen)
-      const page = await api.get<{ items: CatalogItem[]; nextCursor: string | null }>(`/api/v1/catalog-items?${qs}`)
-      setItems(prev => replace ? page.items : [...prev, ...page.items])
-      setCursor(page.nextCursor)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    } finally { setLoading(false) }
+  useEffect(() => { setQInput(activeQuery) }, [activeQuery])
+
+  useEffect(() => {
+    void api.get<GenreStat[]>('/api/v1/catalog-items/genres')
+      .then(list => {
+        if (list.length > 0) setGenres(list.map(g => g.tag))
+      })
+      .catch(() => { /* 失败时保留预置题材 */ })
   }, [])
 
-  useEffect(() => { void load(null, '', initialCat ?? undefined, status, sort, genre, 0, true) },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [load, initialCat, status, sort])
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setLoading(true); setError('')
+      try {
+        const qs = new URLSearchParams({
+          limit: String(PAGE_SIZE),
+          page: String(page),
+          sort,
+        })
+        if (activeQuery) qs.set('q', activeQuery)
+        if (category === 'season') qs.set('season', 'true')
+        else if (category) qs.set('categoryId', category)
+        if (genre) qs.set('genre', genre)
+        if (status) qs.set('status', status)
+        if (year) qs.set('year', year)
 
-  function search() {
-    setActiveQuery(q.trim())
-    void load(null, q.trim(), categoryId, status, sort, genre, 0, true)
+        const data = await api.get<CatalogPageResponse>(`/api/v1/catalog-items?${qs}`)
+        if (cancelled) return
+        setItems(data.items)
+        setTotal(data.total)
+        setTotalPages(data.totalPages || 1)
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [category, genre, status, year, sort, activeQuery, page])
+
+  function updateFilter(patch: Record<string, string>, resetPage = true) {
+    const next = new URLSearchParams(params)
+    for (const [k, v] of Object.entries(patch)) {
+      if (!v) next.delete(k)
+      else next.set(k, v)
+    }
+    if (resetPage) next.delete('page')
+    setParams(next)
   }
 
-  function pickCategory(id: string | undefined) {
-    setCategoryId(id)
-    void load(null, activeQuery, id, status, sort, genre, 0, true)
-  }
-
-  // 播放直接进入浏览态，不创建作品；收藏是独立操作。
-  function play(item: CatalogItem) {
-    navigate(`/browse/${item.id}`)
+  function submitSearch() {
+    updateFilter({ q: qInput.trim() })
   }
 
   async function favorite(item: CatalogItem) {
     setBusyItem(item.id); setError('')
     try {
       await api.put(`/api/v1/me/favorites/catalog/${item.id}`)
+      showToast(`已收藏「${item.name}」`, 'success')
     } catch (e) {
-      setError(e instanceof Error ? e.message : '收藏失败')
+      const msg = e instanceof Error ? e.message : '收藏失败'
+      setError(msg)
+      showToast(msg, 'error')
     } finally { setBusyItem(null) }
   }
+
+  const hasFilters = Boolean(category || genre || status || year || activeQuery || sort !== 'updated')
 
   return (
     <main className="watch-page">
       <div className="section-head">
-        <h2>全部番剧</h2>
-        <span className="muted">来自资源站同步 · 收藏/导入在详情页</span>
+        <h1>番剧索引</h1>
+        <span className="muted">共 {total} 部 · 支持多维分类与页码翻页</span>
       </div>
 
-      <div className="row-inline" style={{ marginBottom: 14 }}>
-        <input placeholder="按标题搜索目录…" className="search" value={q}
-               onChange={e => setQ(e.target.value)}
-               onKeyDown={e => e.key === 'Enter' && search()} />
-        <button onClick={search} disabled={loading}>搜索</button>
-        {activeQuery && <button className="ghost" onClick={() => { setQ(''); setActiveQuery(''); void load(null, '', categoryId, status, sort, genre, 0, true) }}>清除</button>}
-        <span style={{ width: 12 }} />
-        <select className="mini" value={status}
-                onChange={e => { setStatus(e.target.value); void load(null, activeQuery, categoryId, e.target.value, sort, genre, 0, true) }}>
-          {STATUS.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
-        </select>
-        <select className="mini" value={sort}
-                onChange={e => { setSort(e.target.value); void load(null, activeQuery, categoryId, status, e.target.value, genre, 0, true) }}>
-          {SORTS.map(so => <option key={so.value} value={so.value}>{so.label}</option>)}
-        </select>
-        <select className="mini" value={genre}
-                onChange={e => { setGenre(e.target.value); void load(null, activeQuery, categoryId, status, sort, e.target.value, 0, true) }}>
-          <option value="">全部题材</option>
-          {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
-        {CATEGORIES.map(c => (
-          <button key={c.label}
-                  className={categoryId === c.id ? '' : 'ghost'}
-                  onClick={() => pickCategory(c.id === 'season' ? 'season' : c.id === undefined ? undefined : String(c.id))}>{c.label}</button>
-        ))}
+      <div className="index-filter-panel card">
+        <div className="filter-row">
+          <span className="filter-label">分区</span>
+          <div className="filter-pills">
+            {CATEGORIES.map(c => (
+              <button key={c.label} type="button"
+                      className={'mini ' + (category === c.id ? '' : 'ghost')}
+                      onClick={() => updateFilter({ category: c.id })}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-row">
+          <span className="filter-label">题材</span>
+          <div className="filter-pills">
+            <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
+                    onClick={() => updateFilter({ genre: '' })}>全部</button>
+            {genres.slice(0, 18).map(g => (
+              <button key={g} type="button"
+                      className={'mini ' + (genre === g ? '' : 'ghost')}
+                      onClick={() => updateFilter({ genre: g })}>{g}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-row">
+          <span className="filter-label">状态</span>
+          <div className="filter-pills">
+            {STATUS.map(st => (
+              <button key={st.value} type="button"
+                      className={'mini ' + (status === st.value ? '' : 'ghost')}
+                      onClick={() => updateFilter({ status: st.value })}>{st.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-row">
+          <span className="filter-label">年份</span>
+          <div className="filter-pills">
+            {YEARS.map(y => (
+              <button key={y.value} type="button"
+                      className={'mini ' + (year === y.value ? '' : 'ghost')}
+                      onClick={() => updateFilter({ year: y.value })}>{y.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-row filter-row-actions">
+          <span className="filter-label">排序</span>
+          <div className="filter-pills">
+            {SORTS.map(so => (
+              <button key={so.value} type="button"
+                      className={'mini ' + (sort === so.value ? '' : 'ghost')}
+                      onClick={() => updateFilter({ sort: so.value })}>{so.label}</button>
+            ))}
+          </div>
+          <div className="filter-search-inline">
+            <input placeholder="按标题筛选…" className="search" value={qInput}
+                   onChange={e => setQInput(e.target.value)}
+                   onKeyDown={e => e.key === 'Enter' && submitSearch()} />
+            <button type="button" className="mini" onClick={submitSearch} disabled={loading}>筛选</button>
+            {hasFilters && (
+              <button type="button" className="mini ghost"
+                      onClick={() => { setQInput(''); setParams(new URLSearchParams()) }}>
+                重置
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {error && <p className="error">{error}</p>}
-      {items.length === 0 && !loading && <p className="muted">目录为空——先在设置页触发一次目录同步。</p>}
-
-      <div className="card-grid">
-        {items.map(it => (
-          <div key={it.id} className="work-card">
-            <Link to={`/catalog/${it.id}`} className="cover">
-              <CoverImage
-                src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
-                alt={it.name}
-              />
-              {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
-            </Link>
-            <div className="work-card-body">
-              <Link to={`/catalog/${it.id}`} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
-              <div className="work-card-meta">
-                <span>{it.remarks || `${it.episodeCount} 集`}</span>
-              </div>
-              <div className="row-inline" style={{ marginTop: 8 }}>
-                {it.workId
-                  ? <Link className="btn ghost" style={{ fontSize: 12, padding: '4px 10px' }}
-                          to={`/works/${it.workId}`}>打开</Link>
-                  : <>
-                      <button className="ghost" style={{ fontSize: 12, padding: '4px 10px' }}
-                              disabled={busyItem === it.id}
-                              onClick={() => void favorite(it)}>收藏</button>
-                      <button style={{ fontSize: 12, padding: '4px 10px' }}
-                              onClick={() => play(it)}>播放</button>
-                    </>
-                }
-              </div>
+      {loading && items.length === 0 ? (
+        <div className="card-grid">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i}>
+              <div className="skeleton-box card-skeleton-cover" />
+              <div className="skeleton-box card-skeleton-line" />
+              <div className="skeleton-box card-skeleton-line short" />
             </div>
-          </div>
-        ))}
-      </div>
-
-      {cursor && (
-        <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <button className="ghost" disabled={loading}
-                  onClick={() => void load(cursor, activeQuery, categoryId, status, sort, genre,
-                    cursor?.startsWith('page:') ? Number(cursor.slice(5)) : 0, false)}>
-            {loading ? '加载中…' : '加载更多'}
-          </button>
+          ))}
         </div>
+      ) : items.length === 0 ? (
+        <p className="muted">当前筛选条件下暂无番剧——尝试切换分类或重置筛选条件。</p>
+      ) : (
+        <>
+          <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
+            {items.map(it => (
+              <div key={it.id} className="work-card">
+                <Link to={`/catalog/${it.id}`} className="cover">
+                  <CoverImage
+                    src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
+                    alt={it.name}
+                  />
+                  {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+                </Link>
+                <div className="work-card-body">
+                  <Link to={`/catalog/${it.id}`} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
+                  <div className="work-card-meta">
+                    <span>{it.remarks || `${it.episodeCount} 集`}</span>
+                  </div>
+                  <div className="row-inline" style={{ marginTop: 8 }}>
+                    {it.workId
+                      ? <Link className="btn ghost" style={{ fontSize: 12, padding: '4px 10px' }}
+                              to={`/works/${it.workId}`}>打开</Link>
+                      : <>
+                          <button type="button" className="ghost" style={{ fontSize: 12, padding: '4px 10px' }}
+                                  disabled={busyItem === it.id}
+                                  onClick={() => void favorite(it)}>收藏</button>
+                          <button type="button" style={{ fontSize: 12, padding: '4px 10px' }}
+                                  onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
+                        </>
+                    }
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Pagination page={page} totalPages={totalPages} total={total} unit="部番剧"
+                      loading={loading}
+                      onChange={p => updateFilter({ page: String(p) }, false)} />
+        </>
       )}
     </main>
   )

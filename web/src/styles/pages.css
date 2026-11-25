@@ -353,3 +353,178 @@
 .scope-item { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .token-reveal { margin-top: 12px; padding: 12px; background: var(--accent-soft); border-radius: var(--radius-sm); }
 .token-reveal code { display: block; word-break: break-all; margin: 6px 0; color: var(--accent-strong); }
+
+
+/* ── 导航收口、我的中心、分类筛选、页码分页与全流漫画搜索（revamp-discovery-search-index-and-nav） ── */
+.me-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 6px;
+}
+
+.manga-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.manga-header-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.manga-search-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 280px;
+  max-width: 460px;
+}
+.manga-search-form .search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.index-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+}
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.filter-label {
+  flex: 0 0 40px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding-top: 5px;
+}
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+.filter-row-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.filter-search-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.filter-search-inline .search {
+  width: 190px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.pagination-summary {
+  font-size: 13px;
+}
+.pagination-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.pagination-num {
+  min-width: 34px;
+  justify-content: center;
+}
+.pagination-ellipsis {
+  padding: 0 4px;
+  font-size: 13px;
+}
+
+.stream-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.stream-pill {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+.stream-pill.ok {
+  border-color: color-mix(in srgb, var(--pub, #22c55e) 35%, var(--border));
+}
+.stream-pill.warn {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 40%, var(--border));
+  color: var(--danger, #ef4444);
+}
+.stream-switch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.stream-chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+  background: var(--surface);
+}
+.stream-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mt-reason,
+.rec-reason {
+  font-size: 11px;
+  color: var(--accent);
+}
+.badge-new {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .manga-search-form {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .filter-search-inline {
+    margin-left: 0;
+    width: 100%;
+  }
+  .filter-search-inline .search {
+    flex: 1;
+    width: auto;
+  }
+  .pagination-bar {
+    justify-content: center;
+  }
+}

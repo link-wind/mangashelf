@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
-import Player from '../components/Player'
+import EpisodePlayerShell from '../components/EpisodePlayerShell'
+import { useToast } from '../components/Toast'
 import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BrowseEpisode {
@@ -14,13 +15,11 @@ interface Item {
 }
 interface BrowseEpisodes { item: Item; lines: BrowseLine[] }
 
-/**
- * 浏览态播放（M20）：直接播目录条目的剧集，不创建作品；
- * 进度按目录条目 + 集号保存（separate-favorites-and-history）。
- */
+/** 浏览态播放（M20）：复用 EpisodePlayerShell，进度按目录条目 + 集号保存。 */
 export default function BrowseWatch() {
   const { itemId, episodeId } = useParams()
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [data, setData] = useState<BrowseEpisodes | null>(null)
   const [line, setLine] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
@@ -47,7 +46,6 @@ export default function BrowseWatch() {
       .catch(() => { /* 收藏状态不可用不影响播放 */ })
   }, [itemId])
 
-  // 无集号时跳到第一集
   useEffect(() => {
     if (!itemId || episodeId || !data) return
     void api.get<{ episodeId?: string }>(`/api/v1/catalog-items/${itemId}/play-target`)
@@ -70,12 +68,16 @@ export default function BrowseWatch() {
       if (favorited) {
         await api.delete(`/api/v1/me/favorites/catalog/${itemId}`)
         setFavorited(false)
+        showToast('已取消收藏', 'info')
       } else {
         await api.put(`/api/v1/me/favorites/catalog/${itemId}`)
         setFavorited(true)
+        showToast('已加入「我的」收藏', 'success')
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '收藏操作失败')
+      const msg = e instanceof ApiError ? e.message : '收藏操作失败'
+      setError(msg)
+      showToast(msg, 'error')
     }
   }
 
@@ -83,116 +85,51 @@ export default function BrowseWatch() {
   const episodes = (lines.find(l => l.name === line)?.episodes ?? [])
     .filter(e => e.episodeType === tab)
     .sort((a, b) => a.ordinal - b.ordinal)
-  const index = episodes.findIndex(e => e.id === episodeId)
-  const prev = index > 0 ? episodes[index - 1] : null
-  const next = index >= 0 && index < episodes.length - 1 ? episodes[index + 1] : null
   const goto = (id: string) => navigate(`/browse/${itemId}/${id}`)
-  const hasExtra = all.some(e => e.episodeType === 'EXTRA')
 
   if (error) return <main className="watch-page"><p className="error">{error}</p></main>
   if (!data) return <main className="watch-page page-center">加载中…</main>
   if (!current) return <main className="watch-page page-center">正在准备剧集…</main>
 
   return (
-    <main className="watch-page">
-      <div className="watch-title">
-        <h1>{data.item.name}</h1>
-        <span className="ep-name">第 {current.ordinal} 话 {current.title}</span>
-      </div>
-      <div className="watch-meta">
-        <span>浏览模式（{favorited ? '已收藏' : '未收藏'}）· 共 {episodes.length} 集 · 线路 {line}</span>
-        <Link to={`/catalog/${itemId}`}>作品详情</Link>
-      </div>
-      {notice && <p className="muted" role="status" style={{ margin: '6px 0 0' }}>{notice}</p>}
-
-      <div className="watch-layout">
-        <div>
-          <Player
-            src={status?.playUrl ?? null}
-            kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
-            resumeMs={resumeMs}
-            onProgress={saveProgress}
-            onEnded={() => next && goto(next.id)}
-            onFatal={() => void resolve(current.id)}
-            overlay={resolving ? (
-              <div className="player-overlay">
-                <div>
-                  <div className="player-spinner" />
-                  <div className="big">正在获取视频源</div>
-                  <div className="sub">无头浏览器解析直链中，通常需要 5～15 秒</div>
-                </div>
-              </div>
-            ) : failed ? (
-              status?.errorCode === 'NEED_LOGIN' ? (
-                <div className="player-overlay">
-                  <div>
-                    <div className="big">登录后播放</div>
-                    <div className="sub">该剧集尚未解析直链，登录后可触发解析并播放</div>
-                    <Link to="/login" className="pill nav-login-btn" style={{ marginTop: 12, display: 'inline-flex' }}>去登录</Link>
-                  </div>
-                </div>
-              ) : (
-                <div className="player-overlay">
-                  <div>
-                    <div className="big">解析失败</div>
-                    <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
-                    <button style={{ marginTop: 12 }} onClick={() => void resolve(current.id)}>重试解析</button>
-                  </div>
-                </div>
-              )
-            ) : undefined}
-          />
-          <div className="watch-actions">
-            <button className="ghost" disabled={!prev} onClick={() => prev && goto(prev.id)}>← 上一集</button>
-            <button className="ghost" disabled={!next} onClick={() => next && goto(next.id)}>下一集 →</button>
-            <button className="ghost" onClick={() => void resolve(current.id)}>重新解析</button>
-            <button className="pill" onClick={() => void toggleFavorite()}>
-              {favorited ? '取消收藏' : '收藏'}
-            </button>
-          </div>
-        </div>
-
-        <aside className="watch-side">
-          <div className="card">
-            <h3>选集（{episodes.length}）</h3>
-            <div className="row-inline" style={{ marginBottom: 10 }}>
-              {lines.map(l => (
-                <button key={l.name} className={l.name === line ? 'mini' : 'mini ghost'}
-                        onClick={() => {
-                          setLine(l.name)
-                          const first = l.episodes.find(e => e.episodeType === tab)
-                          if (first) goto(first.id)
-                        }}>{l.name}</button>
-              ))}
-            </div>
-            {hasExtra && (
-              <div className="row-inline" style={{ marginBottom: 10 }}>
-                <button className={tab === 'MAIN' ? 'mini' : 'mini ghost'} onClick={() => setTab('MAIN')}>正片</button>
-                <button className={tab === 'EXTRA' ? 'mini' : 'mini ghost'} onClick={() => setTab('EXTRA')}>PV/特典</button>
-              </div>
-            )}
-            <div className="episode-grid">
-              {episodes.map(e => (
-                <button key={e.id}
-                        className={'episode-cell' + (e.id === current.id ? ' active' : '')}
-                        onClick={() => goto(e.id)}>
-                  <div className="no">{String(e.ordinal).padStart(2, '0')}</div>
-                  <div className="name">{e.title}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="card">
-            <h3>播放信息</h3>
-            <ul className="info-list">
-              <li><span className="k">模式</span><span>浏览（{favorited ? '已收藏' : '未收藏'}，不占作品）</span></li>
-              <li><span className="k">线路</span><span>{line}</span></li>
-              <li><span className="k">解析状态</span><span>{status?.playUrl ? '已就绪' : failed ? '失败' : '解析中…'}</span></li>
-              <li><span className="k">进度</span><span>服务端保存</span></li>
-            </ul>
-          </div>
-        </aside>
-      </div>
-    </main>
+    <EpisodePlayerShell
+      title={data.item.name}
+      current={current}
+      metaText={`浏览模式（${favorited ? '已收藏' : '未收藏'}）· 共 ${episodes.length} 集 · 线路 ${line}`}
+      backLinkTo={`/catalog/${itemId}`}
+      backLinkLabel="作品详情"
+      notice={notice}
+      status={status}
+      resumeMs={resumeMs}
+      resolving={resolving}
+      failed={failed}
+      onProgress={saveProgress}
+      onResolve={() => void resolve(current.id)}
+      lines={lines.map(l => l.name)}
+      activeLine={line}
+      onSelectLine={target => {
+        setLine(target)
+        const targetLine = lines.find(l => l.name === target)
+        const match = targetLine?.episodes.find(e => e.episodeType === tab && e.ordinal === current.ordinal)
+          ?? targetLine?.episodes.find(e => e.episodeType === tab)
+        if (match) goto(match.id)
+      }}
+      hasExtra={all.some(e => e.episodeType === 'EXTRA')}
+      tab={tab}
+      onSelectTab={setTab}
+      episodes={episodes}
+      onSelectEpisode={goto}
+      extraActions={
+        <button className="pill" onClick={() => void toggleFavorite()}>
+          {favorited ? '取消收藏' : '收藏'}
+        </button>
+      }
+      infoRows={[
+        { label: '模式', value: `浏览（${favorited ? '已收藏' : '未收藏'}）` },
+        { label: '线路', value: line },
+        { label: '解析状态', value: status?.playUrl ? '已就绪' : failed ? '失败' : '解析中…' },
+        { label: '进度', value: '服务端保存' },
+      ]}
+    />
   )
 }
