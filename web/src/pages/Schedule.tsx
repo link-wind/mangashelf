@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 interface CalendarEntry {
   subjectId: number
@@ -76,8 +77,7 @@ export default function Schedule() {
             {unscheduled.map(it => (
               <div key={it.subjectId} className="work-card">
                 <div className="cover">
-                  <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
-                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=common`} alt={it.nameCn || it.name} />
                   {it.covered && <span className="badge-anim">可看</span>}
                 </div>
                 <div className="work-card-body">
@@ -106,7 +106,8 @@ function ScheduleCard({ it, onPlay }: {
 }) {
   return (
     <div className="schedule-item">
-      <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt="" loading="lazy" decoding="async"
+      <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=small`} alt="" loading="lazy" decoding="async"
+           referrerPolicy="no-referrer"
            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
       <div className="schedule-body">
         <div className="schedule-name clamp">{it.nameCn || it.name}</div>

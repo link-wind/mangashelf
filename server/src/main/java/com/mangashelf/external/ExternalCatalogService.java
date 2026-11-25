@@ -51,7 +51,8 @@ public class ExternalCatalogService {
 
     public record SyncStarted(UUID jobId) {}
 
-    public SyncStarted triggerSync(CurrentUser user, UUID sourceId, List<Integer> categories, String mode) {
+    public SyncStarted triggerSync(CurrentUser user, UUID sourceId, List<Integer> categories, String mode,
+                                   Integer hours) {
         requireAdmin(user);
         if (externals.findSource(sourceId).isEmpty()) {
             throw new ApiException(404, "SOURCE_NOT_FOUND", "资源源不存在。");
@@ -60,18 +61,24 @@ public class ExternalCatalogService {
         boolean active = latest.isPresent()
                 && (Job.STATUS_QUEUED.equals(latest.get().status()) || Job.STATUS_RUNNING.equals(latest.get().status()));
         if (!active) {
+            String effectiveMode = mode == null ? "full" : mode;
+            int effectiveHours = hours == null ? 168 : Math.min(720, Math.max(1, hours));
             String params;
             try {
                 var node = objectMapper.createObjectNode();
-                node.put("mode", mode == null ? "full" : mode);
+                node.put("mode", effectiveMode);
+                if ("incremental".equals(effectiveMode)) {
+                    node.put("hours", effectiveHours);
+                }
                 node.set("categories", objectMapper.valueToTree(categories == null ? List.of() : categories));
                 params = node.toString();
             } catch (Exception e) {
                 throw new IllegalStateException("params 序列化失败", e);
             }
             long window = Instant.now().getEpochSecond() / SYNC_DEDUP_WINDOW_SECONDS;
-            jobCreation.create(Job.KIND_CATALOG_SYNC, user.id(), null, null, null, null, null,
-                    sourceId, params, "catalog.sync:" + sourceId + ":" + mode + ":" + window);
+            UUID jobId = jobCreation.create(Job.KIND_CATALOG_SYNC, user.id(), null, null, null, null, null,
+                    sourceId, params, "catalog.sync:" + sourceId + ":" + effectiveMode + ":" + effectiveHours + ":" + window);
+            return new SyncStarted(jobId);
         }
         return new SyncStarted(latest.map(Job::id).orElse(null));
     }
@@ -118,8 +125,8 @@ public class ExternalCatalogService {
                     + ":" + status + ":" + genre + ":" + season;
             return hotspotCache.getOrLoad("catalog_page", pageKey, Duration.ofSeconds(30), () -> {
                 Cursor c = decodeCursor(null);
-                List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, null, status, sort,
-                        genre, season, c.updatedAt, c.id, 0, effectiveLimit);
+                List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, null, status, sort,
+                        genre, season, c.updatedAt, c.id, 0, effectiveLimit));
                 String next = items.size() == effectiveLimit
                         ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                                 items.getLast().id())
@@ -132,8 +139,8 @@ public class ExternalCatalogService {
 
         if (byEpisodes) {
             int effectivePage = Math.max(page == null ? 0 : page, 0);
-            List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
-                    genre, season, null, null, effectivePage * effectiveLimit, effectiveLimit);
+            List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status, sort,
+                    genre, season, null, null, effectivePage * effectiveLimit, effectiveLimit));
             String next = items.size() == effectiveLimit
                     ? "page:" + (effectivePage + 1) : null;
             long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
@@ -141,8 +148,8 @@ public class ExternalCatalogService {
             return new CatalogItemPage(items, next, total);
         }
         Cursor c = decodeCursor(cursor);
-        List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
-                genre, season, c.updatedAt, c.id, 0, effectiveLimit);
+        List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status, sort,
+                genre, season, c.updatedAt, c.id, 0, effectiveLimit));
         String next = items.size() == effectiveLimit
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
@@ -150,6 +157,20 @@ public class ExternalCatalogService {
         long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
                 () -> catalogItems.count(sourceId, categoryId, status, genre, season));
         return new CatalogItemPage(items, next, total);
+    }
+
+    private static List<ExternalCatalogItem> rewriteCovers(List<ExternalCatalogItem> items) {
+        return items.stream().map(ExternalCatalogService::rewriteCover).toList();
+    }
+
+    private static ExternalCatalogItem rewriteCover(ExternalCatalogItem item) {
+        if (item == null || item.coverUrl() == null || item.coverUrl().isBlank()) {
+            return item;
+        }
+        if (item.coverUrl().startsWith("http://") || item.coverUrl().startsWith("https://")) {
+            return item.withCoverUrl("/api/v1/catalog-covers/" + item.id());
+        }
+        return item;
     }
 
     // ── 目录条目详情（M11）──
@@ -184,7 +205,7 @@ public class ExternalCatalogService {
         } catch (Exception ignored) {
             // 线路解析失败只影响详情展示
         }
-        return new CatalogDetail(item, b == null ? null : b.cn(), b == null ? null : b.rating(),
+        return new CatalogDetail(rewriteCover(item), b == null ? null : b.cn(), b == null ? null : b.rating(),
                 b == null ? null : b.summary(), b == null ? null : b.weekday(), lines);
     }
 
@@ -212,7 +233,7 @@ public class ExternalCatalogService {
         var lines = byLine.values().stream()
                 .sorted(java.util.Comparator.comparingInt(BrowseLine::rank))
                 .toList();
-        return new BrowseEpisodes(item, lines);
+        return new BrowseEpisodes(rewriteCover(item), lines);
     }
 
     /** 浏览态播放目标：首选线路的第一集（按 rank、ordinal）。 */
@@ -226,14 +247,34 @@ public class ExternalCatalogService {
                 .map(ExternalEpisode::id).orElse(null);
     }
 
-    /** 懒生成：目录条目尚无剧集时，按 play_groups 写入浏览态剧集。 */
+    /** 懒生成与追更：目录条目尚无剧集或资源站已更新更多集数时，按最新 play_groups 幂等补齐（保留已有集 ID 与进度）。 */
     private void ensureBrowseEpisodes(ExternalCatalogItem item) {
-        if (!externals.listEpisodesByCatalogItem(item.id()).isEmpty()) return;
-        for (var ep : parseEpisodes(item)) {
+        List<Episode> parsed = parseEpisodes(item);
+        List<ExternalEpisode> existing = externals.listEpisodesByCatalogItem(item.id());
+        if (existing.size() >= parsed.size() && hasSameKeys(existing, parsed)) {
+            return;
+        }
+        for (var ep : parsed) {
             externals.insertCatalogEpisode(UUID.randomUUID(), item.id(), item.sourceId(),
                     ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
                     ep.episodeType());
         }
+    }
+
+    private static boolean hasSameKeys(List<ExternalEpisode> existing, List<Episode> parsed) {
+        if (existing.size() != parsed.size()) {
+            return false;
+        }
+        java.util.Set<String> keys = new java.util.HashSet<>(existing.size() * 2);
+        for (ExternalEpisode e : existing) {
+            keys.add(e.lineName() + "#" + e.ordinal() + "#" + e.episodeUrl());
+        }
+        for (Episode p : parsed) {
+            if (!keys.contains(p.lineName() + "#" + p.ordinal() + "#" + p.url())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ── 物化 ──
@@ -269,17 +310,25 @@ public class ExternalCatalogService {
      * 解析全部线路（M11）：每组按名称排序（含 m3u8 的排前），组内 名称$url#… 逐条。
      * 同一集号在各线路各存一行；EXTRA 识别 PV/预告/特典/OP/ED 等非正片。
      */
-    private record Episode(String title, String url, int ordinal, String lineName,
-                           int lineRank, String episodeType) {}
+    record Episode(String title, String url, int ordinal, String lineName,
+                   int lineRank, String episodeType) {}
 
     private static final java.util.regex.Pattern EXTRA_PATTERN = java.util.regex.Pattern.compile(
             "PV|预告|特典|花絮|OP|ED|片头|片尾|番外|彩蛋|CM|MENU|映像",
             java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private List<Episode> parseEpisodes(ExternalCatalogItem item) {
+        List<Episode> out = parsePlayGroups(objectMapper, item.playGroups());
+        if (out.isEmpty()) {
+            throw new ApiException(422, "NO_EPISODES", "该条目没有可解析的剧集地址");
+        }
+        return out;
+    }
+
+    static List<Episode> parsePlayGroups(ObjectMapper mapper, String playGroupsJson) {
         List<Episode> out = new ArrayList<>();
         try {
-            var groups = objectMapper.readTree(item.playGroups());
+            var groups = mapper.readTree(playGroupsJson);
             var ordered = new ArrayList<JsonNode>();
             for (JsonNode g : groups) {
                 if (g.path("from").asText().toLowerCase().contains("m3u8")) ordered.add(g);
@@ -302,9 +351,6 @@ public class ExternalCatalogService {
             }
         } catch (Exception e) {
             throw new ApiException(422, "PLAY_GROUPS_INVALID", "线路数据无法解析：" + e.getMessage());
-        }
-        if (out.isEmpty()) {
-            throw new ApiException(422, "NO_EPISODES", "该条目没有可解析的剧集地址");
         }
         return out;
     }

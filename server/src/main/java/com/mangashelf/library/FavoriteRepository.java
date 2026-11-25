@@ -106,7 +106,13 @@ public class FavoriteRepository {
         }
         if (type == null || type.isBlank() || "all".equals(type) || "catalog".equals(type)) {
             rows.addAll(jdbc.query("""
-                    SELECT 'catalog' AS type, c.name AS title, c.cover_url, NULL::uuid AS work_id,
+                    SELECT 'catalog' AS type, c.name AS title,
+                           CASE
+                             WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                             WHEN c.cover_url <> '' THEN '/api/v1/catalog-covers/' || c.id
+                             ELSE ''
+                           END AS cover_url,
+                           NULL::uuid AS work_id,
                            NULL::text AS manga_source, NULL::text AS manga_id,
                            f.catalog_item_id, f.created_at
                       FROM favorites f

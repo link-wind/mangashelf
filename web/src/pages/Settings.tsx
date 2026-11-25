@@ -177,6 +177,18 @@ function ExternalSourceAdmin() {
     }
   }
 
+  async function syncCatalog(s: SourceRow) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      await api.post('/api/v1/admin/catalog-sync', {
+        sourceId: s.id, mode: 'incremental', hours: 168, categories: [29, 30, 31, 32, 33],
+      })
+      setNotice(`已触发「${s.name}」最近 7 天番剧增量同步`)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '触发同步失败')
+    } finally { setBusy(false) }
+  }
+
   async function remove(s: SourceRow) {
     try {
       await api.delete(`/api/v1/admin/external-sources/${s.id}`)
@@ -217,6 +229,9 @@ function ExternalSourceAdmin() {
               <span className="muted">{s.enabled ? '已启用' : '已停用'}</span>
             </span>
             <span className="row-inline">
+              {s.enabled && (
+                <button onClick={() => void syncCatalog(s)} disabled={busy}>同步最新集</button>
+              )}
               <button className="ghost" onClick={() => void toggle(s)}>{s.enabled ? '停用' : '启用'}</button>
               <button className="ghost" onClick={() => void remove(s)}>删除</button>
             </span>

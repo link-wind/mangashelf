@@ -15,5 +15,7 @@ public record User(
 
     public static final String ROLE_USER = "USER";
     public static final String ROLE_ADMIN = "ADMIN";
+    /** 访客角色：仅用于未登录主体（CurrentUser.GUEST），不落库。 */
+    public static final String ROLE_GUEST = "GUEST";
     public static final String STATUS_ACTIVE = "ACTIVE";
 }

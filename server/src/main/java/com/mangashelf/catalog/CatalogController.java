@@ -3,6 +3,7 @@ package com.mangashelf.catalog;
 import com.mangashelf.config.ApiException;
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -44,7 +45,7 @@ public class CatalogController {
     }
 
     @GetMapping("/works")
-    public CatalogService.WorkListPage list(@AuthUser CurrentUser user,
+    public CatalogService.WorkListPage list(@OptionalAuthUser CurrentUser user,
                                             @RequestParam(required = false) String cursor,
                                             @RequestParam(defaultValue = "20") int limit,
                                             @RequestParam(required = false) String q) {
@@ -53,7 +54,7 @@ public class CatalogController {
     }
 
     @GetMapping("/works/{id}")
-    public CatalogService.WorkView detail(@AuthUser CurrentUser user, @PathVariable UUID id) {
+    public CatalogService.WorkView detail(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         return catalog.workView(user, id);
     }
 
@@ -83,7 +84,7 @@ public class CatalogController {
     }
 
     @GetMapping("/chapters/{id}")
-    public CatalogService.ChapterView chapter(@AuthUser CurrentUser user, @PathVariable UUID id) {
+    public CatalogService.ChapterView chapter(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         return catalog.chapterView(user, id);
     }
 
@@ -111,7 +112,7 @@ public class CatalogController {
     }
 
     @GetMapping("/chapter-revisions/{id}/pages")
-    public CatalogService.PagesPage pages(@AuthUser CurrentUser user, @PathVariable UUID id,
+    public CatalogService.PagesPage pages(@OptionalAuthUser CurrentUser user, @PathVariable UUID id,
                                           @RequestParam(required = false) String cursor,
                                           @RequestParam(defaultValue = "20") int limit) {
         return catalog.pages(user, id, cursor, limit);

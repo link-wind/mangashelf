@@ -2,6 +2,7 @@ package com.mangashelf.catalog;
 
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,7 +23,7 @@ public class MangaController {
     }
 
     @GetMapping("/manga")
-    public MangaService.MangaListPage list(@AuthUser CurrentUser user,
+    public MangaService.MangaListPage list(@OptionalAuthUser CurrentUser user,
                                            @RequestParam(required = false) String cursor,
                                            @RequestParam(defaultValue = "24") int limit,
                                            @RequestParam(required = false) String q) {
@@ -30,7 +31,7 @@ public class MangaController {
     }
 
     @GetMapping("/manga/{workId}")
-    public MangaService.MangaDetail detail(@AuthUser CurrentUser user, @PathVariable UUID workId) {
+    public MangaService.MangaDetail detail(@OptionalAuthUser CurrentUser user, @PathVariable UUID workId) {
         return manga.detail(user, workId);
     }
 }

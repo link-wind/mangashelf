@@ -93,7 +93,7 @@ export default function History() {
               <li key={`${a.type}-${a.chapterId}-${a.updatedAt}`}>
                 <span className="row-inline" style={{ gap: 12 }}>
                   {a.coverUrl && (
-                    <img src={a.coverUrl} alt="" className="history-thumb"
+                    <img src={a.coverUrl} alt="" className="history-thumb" referrerPolicy="no-referrer"
                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   )}
                   <span>
@@ -117,7 +117,7 @@ export default function History() {
               <li key={`${a.type}-${a.episodeId ?? a.animationId}-${a.updatedAt}`}>
                 <span className="row-inline" style={{ gap: 12 }}>
                   {a.coverUrl && (
-                    <img src={a.coverUrl} alt="" className="history-thumb"
+                    <img src={a.coverUrl} alt="" className="history-thumb" referrerPolicy="no-referrer"
                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   )}
                   <span>

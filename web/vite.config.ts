@@ -8,6 +8,9 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    headers: {
+      'Referrer-Policy': 'no-referrer',
+    },
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
       '/media': { target: 'http://localhost:9000', changeOrigin: true, rewrite: p => p.replace(/^\/media/, '') },

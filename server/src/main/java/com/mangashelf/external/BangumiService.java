@@ -4,6 +4,9 @@ import com.mangashelf.config.HotspotCache;
 import com.mangashelf.config.MangaShelfProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -15,10 +18,15 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 /**
  * Bangumi 元数据源（M9）：api.bgm.tv 官方接口，礼貌限速与合规 UA。
@@ -39,26 +47,56 @@ public class BangumiService {
     private final CatalogItemWriter itemWriter;
     private final ExternalCatalogRepository catalogItems;
     private final HotspotCache hotspotCache;
+    private final CoverCacheService coverCache;
+    private final ExecutorService warmupExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "bangumi-cover-warmup");
+        t.setDaemon(true);
+        return t;
+    });
 
+    @Autowired
     public BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper,
                           CatalogItemWriter itemWriter, ExternalCatalogRepository catalogItems,
-                          HotspotCache hotspotCache) {
+                          HotspotCache hotspotCache, CoverCacheService coverCache) {
         this.props = props;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.itemWriter = itemWriter;
         this.catalogItems = catalogItems;
         this.hotspotCache = hotspotCache;
+        this.coverCache = coverCache;
         var cfg = props.bangumi();
         var builder = HttpClient.newBuilder().connectTimeout(TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL);
         if (cfg != null && cfg.proxy() != null && !cfg.proxy().isBlank()) {
-            var uri = URI.create(cfg.proxy());
+            var uri = resolveProxyUri(cfg.proxy());
             builder.proxy(ProxySelector.of(new InetSocketAddress(uri.getHost(),
                     uri.getPort() == -1 ? 80 : uri.getPort())));
             log.info("Bangumi HTTP via proxy {}", uri);
         }
         this.httpClient = builder.build();
+    }
+
+    /** 兼容既有测试构造器。 */
+    BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper,
+                   CatalogItemWriter itemWriter, ExternalCatalogRepository catalogItems,
+                   HotspotCache hotspotCache) {
+        this(props, jdbc, objectMapper, itemWriter, catalogItems, hotspotCache, null);
+    }
+
+    /** 容器内若配置了宿主机回环代理（127.0.0.1/localhost），自动改写为 host.docker.internal 防止必挂。 */
+    static URI resolveProxyUri(String rawProxy) {
+        URI uri = URI.create(rawProxy.trim());
+        String host = uri.getHost();
+        if (host != null && ("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host))
+                && Files.exists(Path.of("/.dockerenv"))) {
+            URI rewritten = URI.create(rawProxy.trim().replaceFirst("(?i)127\\.0\\.0\\.1|localhost",
+                    "host.docker.internal"));
+            log.warn("Bangumi proxy {} points to loopback inside Docker container; rewriting to {}",
+                    uri, rewritten);
+            return rewritten;
+        }
+        return uri;
     }
 
     // ── 日历（本季新番）──
@@ -93,7 +131,77 @@ public class BangumiService {
             }
         }
         hotspotCache.invalidate("calendar");
+        warmCalendarCoversAsync();
         return n;
+    }
+
+    @Autowired(required = false)
+    private org.springframework.core.env.Environment env;
+
+    /** 仅 API 角色就绪后后台静默预热本季尚未落盘的封面（Worker 不服务 HTTP 封面，跳过预热）。 */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onReadyWarmCovers() {
+        if (env != null && env.matchesProfiles("worker")) {
+            return;
+        }
+        if (props != null && props.bangumi() != null && props.bangumi().enabled()) {
+            warmCalendarCoversAsync();
+        }
+    }
+
+    public void warmCalendarCoversAsync() {
+        if (coverCache == null || jdbc == null) {
+            return;
+        }
+        warmupExecutor.submit(() -> {
+            try {
+                List<Long> subjectIds = jdbc.query(
+                        "SELECT subject_id FROM bangumi_subjects WHERE in_calendar AND cover_url <> '' ORDER BY rating DESC NULLS LAST",
+                        (rs, i) -> rs.getLong(1));
+                if (subjectIds.isEmpty()) {
+                    return;
+                }
+                int toWarm = 0;
+                Semaphore permits = new Semaphore(4);
+                try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+                    for (int idx = 0; idx < subjectIds.size(); idx++) {
+                        long sid = subjectIds.get(idx);
+                        boolean needCommon = !coverCache.isCached("bangumi", sid + "-common");
+                        boolean needSmall = idx < 12 && !coverCache.isCached("bangumi", sid + "-small");
+                        boolean needLarge = idx < 6 && !coverCache.isCached("bangumi", sid + "-large");
+                        if (!needCommon && !needSmall && !needLarge) {
+                            continue;
+                        }
+                        toWarm++;
+                        pool.submit(() -> {
+                            try {
+                                permits.acquire();
+                                try {
+                                    if (needCommon) {
+                                        fetchCover(sid, "common");
+                                    }
+                                    if (needSmall) {
+                                        fetchCover(sid, "small");
+                                    }
+                                    if (needLarge) {
+                                        fetchCover(sid, "large");
+                                    }
+                                } finally {
+                                    permits.release();
+                                }
+                            } catch (Exception ignored) {
+                                // 单张预热失败不影响其他封面
+                            }
+                        });
+                    }
+                }
+                if (toWarm > 0) {
+                    log.info("bangumi cover warmup finished ({} subjects checked)", toWarm);
+                }
+            } catch (Exception e) {
+                log.debug("bangumi cover warmup skipped: {}", e.getMessage());
+            }
+        });
     }
 
     /** v0 搜索（type=2 动画）；供后续按需匹配扩展使用。 */
@@ -125,51 +233,73 @@ public class BangumiService {
     /** 封面代理：按 subjectId 取图（不接受任意 URL，避免 SSRF；仅访问库内 cover_url）。 */
     public record Cover(byte[] bytes, String contentType) {}
 
-    /** 封面磁盘缓存目录（首次回源后落盘，后续零上游请求）。 */
-    private java.nio.file.Path coverCacheDir() {
-        return java.nio.file.Path.of(props.processing().workRoot()).getParent()
-                .resolve("covers");
+    public Cover fetchCover(long subjectId, String size) throws Exception {
+        String sz = normalizeCoverSize(size);
+        if (coverCache != null) {
+            CoverCacheService.CoverData data = coverCache.getOrFetch(
+                    "bangumi", subjectId + "-" + sz, () -> fetchCoverRemoteQuietly(subjectId, sz));
+            return data == null ? null : new Cover(data.bytes(), data.contentType());
+        }
+        return fetchCoverRemote(subjectId, sz);
     }
 
-    public Cover fetchCover(long subjectId, String size) throws Exception {
-        String sz = size == null || size.isBlank() ? "medium" : size;
-        java.nio.file.Path cached = coverCacheDir().resolve(subjectId + "-" + sz + ".jpg");
-        if (java.nio.file.Files.isRegularFile(cached)) {
-            return new Cover(java.nio.file.Files.readAllBytes(cached), "image/jpeg");
+    private static String normalizeCoverSize(String size) {
+        if (size == null || size.isBlank()) {
+            return "common";
         }
-        Cover fetched = fetchCoverRemote(subjectId, sz);
-        if (fetched != null) {
-            try {
-                java.nio.file.Files.createDirectories(cached.getParent());
-                java.nio.file.Files.write(cached, fetched.bytes());
-            } catch (Exception e) {
-                log.warn("cover cache write failed for {}: {}", subjectId, e.getMessage());
-            }
+        return switch (size) {
+            case "large", "common", "medium", "small" -> size;
+            default -> "common";
+        };
+    }
+
+    private CoverCacheService.CoverData fetchCoverRemoteQuietly(long subjectId, String size) {
+        try {
+            Cover c = fetchCoverRemote(subjectId, size);
+            return c == null ? null : new CoverCacheService.CoverData(c.bytes(), c.contentType());
+        } catch (Exception e) {
+            log.warn("bangumi cover fetch failed for {}-{}: {}", subjectId, size, e.getMessage());
+            return null;
         }
-        return fetched;
     }
 
     private Cover fetchCoverRemote(long subjectId, String size) throws Exception {
-        String url = jdbc.queryForObject(
+        List<String> urls = jdbc.query(
                 "SELECT cover_url FROM bangumi_subjects WHERE subject_id = ? AND cover_url <> ''",
-                String.class, subjectId);
-        if (url == null) return null;
+                (rs, i) -> rs.getString(1), subjectId);
+        if (urls.isEmpty()) return null;
+        String url = urls.get(0);
         if (url.startsWith("http://lain.bgm.tv")) {
             url = "https://" + url.substring("http://".length());
         }
         // 同图多尺寸：/pic/cover/{l|m|c|s}/… —— 网格用 common（300px 级）保证 retina 清晰度
-        String seg = switch (size == null ? "medium" : size) {
+        String seg = switch (size == null ? "common" : size) {
             case "large" -> "l";
             case "common" -> "c";
             case "small" -> "s";
             default -> "m";
         };
         url = url.replaceFirst("/pic/cover/[lmcs]/", "/pic/cover/" + seg + "/");
-        HttpRequest request = requestBuilder(url).GET().build();
-        HttpResponse<byte[]> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-        if (resp.statusCode() != 200) return null;
-        String ct = resp.headers().firstValue("content-type").orElse("image/jpeg");
-        return new Cover(resp.body(), ct);
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .header("User-Agent", UA)
+                .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                .GET().build();
+        Exception lastErr = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpResponse<byte[]> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                if (resp.statusCode() != 200) return null;
+                String ct = resp.headers().firstValue("content-type").orElse("image/jpeg");
+                return new Cover(resp.body(), ct);
+            } catch (java.io.IOException e) {
+                lastErr = e;
+                if (attempt < 2) {
+                    Thread.sleep(200);
+                }
+            }
+        }
+        throw lastErr != null ? lastErr : new java.io.IOException("Bangumi cover fetch failed");
     }
 
     // ── 标题匹配（本地，Bangumi subject ↔ 资源目录条目）──

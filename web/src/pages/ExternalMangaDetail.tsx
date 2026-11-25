@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 
 interface ExtManga {
@@ -165,9 +166,7 @@ export default function ExternalMangaDetail() {
     <main className="watch-page">
       <section className="manga-hero">
         <div className="manga-cover">
-          {manga.coverUrl
-            ? <img src={manga.coverUrl ?? ''} alt={manga.title} />
-            : <span className="cover-initial">{manga.title.slice(0, 1)}</span>}
+          <CoverImage src={manga.coverUrl} alt={manga.title} loading="eager" fetchPriority="high" />
         </div>
         <div className="manga-info">
           <h1>{manga.title}</h1>
@@ -223,7 +222,7 @@ export default function ExternalMangaDetail() {
                             onClick={() => navigate(`/manga-ext/${r.id}?source=${r.source}` +
                               `&title=${encodeURIComponent(r.title)}`)}>
                       {r.coverUrl
-                        ? <img src={r.coverUrl ?? ''} alt="" loading="lazy" decoding="async" />
+                        ? <img src={r.coverUrl ?? ''} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
                         : <span className="switch-cover-fallback">{(r.title || '?').slice(0, 1)}</span>}
                       <span className="switch-item-title clamp">{r.title}</span>
                     </button>

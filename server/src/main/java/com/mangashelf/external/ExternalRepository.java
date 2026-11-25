@@ -119,6 +119,13 @@ public class ExternalRepository {
                 episodeMapper, catalogItemId);
     }
 
+    public boolean hasCatalogEpisodes(UUID catalogItemId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM external_episodes WHERE catalog_item_id = ?)",
+                Boolean.class, catalogItemId);
+        return Boolean.TRUE.equals(exists);
+    }
+
     /** 入书库：把该目录条目的浏览态剧集收编到作品下（两者互斥，由 CHECK 约束保证）。 */
     public int adoptEpisodes(UUID catalogItemId, UUID workId) {
         return jdbc.update("""

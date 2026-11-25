@@ -8,7 +8,8 @@ WORKDIR /src
 COPY server/pom.xml server/mvnw ./
 COPY server/.mvn .mvn
 COPY server/src src
-RUN chmod +x mvnw && MAVEN_CONFIG= ./mvnw -q -DskipTests package
+ARG MAVEN_ARGS=
+RUN --mount=type=cache,id=mangashelf-m2,sharing=locked,target=/root/.m2 chmod +x mvnw && MAVEN_CONFIG= ./mvnw -q -DskipTests ${MAVEN_ARGS} package
 
 FROM eclipse-temurin:25-jre-noble
 WORKDIR /opt/app
@@ -21,6 +22,7 @@ RUN apt-get update \
  && mkdir -p /opt/data/jobs /opt/data/bilibili-http-cache /opt/browser-home \
  && chown -R 1000:1000 /opt/data /opt/browser-home \
  && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /opt/data/covers && chown 1000:1000 /opt/data/covers
 COPY processing /opt/processing
 COPY --from=build /src/target/mangashelf-server-0.1.0-SNAPSHOT.jar app.jar
 ENV MANGASHELF_PYTHON=/opt/browser-venv/bin/python \

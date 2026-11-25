@@ -6,6 +6,7 @@ import com.mangashelf.catalog.ChapterRevision;
 import com.mangashelf.config.ApiException;
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import com.mangashelf.identity.Scopes;
 import com.mangashelf.identity.TokenScopes;
 import jakarta.validation.Valid;
@@ -76,7 +77,7 @@ public class SearchController {
     }
 
     @PostMapping("/search")
-    public SearchService.SearchResult search(@AuthUser CurrentUser user,
+    public SearchService.SearchResult search(@OptionalAuthUser CurrentUser user,
                                              @Valid @RequestBody SearchRequest request) {
         TokenScopes.require(Scopes.SEARCH_READ);
         return search.search(user, request.q(), SearchService.Mode.parse(request.mode()),
@@ -87,7 +88,7 @@ public class SearchController {
     /** 统一站内结构化文档混合检索（零 OCR，支持 lexical/vector/hybrid_rrf/hybrid_rerank）。 */
     @PostMapping("/search/documents")
     public HybridDocumentSearchService.DocumentSearchResponse searchDocuments(
-            @AuthUser CurrentUser user,
+            @OptionalAuthUser CurrentUser user,
             @Valid @RequestBody DocumentSearchRequest request) {
         TokenScopes.require(Scopes.SEARCH_READ);
         HybridDocumentSearchService.Strategy defaultStrategy = search.semanticEnabled()

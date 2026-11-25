@@ -43,7 +43,10 @@ public class ScheduledSyncService {
         this.props = props;
     }
 
-    /** 每 10 分钟检查一次：目录超过 30 分钟未同步则触发增量同步。 */
+    /**
+     * 每 10 分钟检查一次：距上次成功同步超过 30 分钟则触发增量同步。
+     * 动态计算 hours（最少 24h，最长 720h=30d），自动追平容器关停数天/数周期间漏更的连载番剧。
+     */
     @Scheduled(initialDelay = 60_000, fixedDelay = 600_000)
     public void syncCatalogIfStale() {
         try {
@@ -51,16 +54,32 @@ public class ScheduledSyncService {
                     .flatMap(externals::findSource)
                     .orElseGet(() -> externals.listSources(true).stream().findFirst().orElse(null));
             if (source == null) return;
-            var latest = catalogItems.findLatestSyncJob(source.id());
-            if (latest.isPresent() && latest.get().createdAt()
-                    .isAfter(Instant.now().minus(CATALOG_INTERVAL))) {
+            var latestAny = catalogItems.findLatestSyncJob(source.id());
+            if (latestAny.isPresent()) {
+                String st = latestAny.get().status();
+                if (Job.STATUS_QUEUED.equals(st) || Job.STATUS_RUNNING.equals(st)) {
+                    return;
+                }
+            }
+            var latestOk = catalogItems.findLatestSucceededSyncJob(source.id());
+            Instant now = Instant.now();
+            if (latestOk.isPresent() && latestOk.get().createdAt().isAfter(now.minus(CATALOG_INTERVAL))) {
                 return;
             }
-            String params = "{\"mode\":\"incremental\",\"hours\":24,\"categories\":[29,30,31,32,33]}";
-            long window = Instant.now().getEpochSecond() / 1800; // 30 分钟窗口
+
+            Instant baseline = catalogItems.findMaxResourceUpdatedAt(source.id())
+                    .orElseGet(() -> latestOk.map(Job::createdAt).orElse(now.minus(Duration.ofHours(72))));
+            if (latestOk.isPresent() && latestOk.get().createdAt().isBefore(baseline)) {
+                baseline = latestOk.get().createdAt();
+            }
+            long gapHours = Math.max(0L, Duration.between(baseline, now).toHours());
+            int hours = (int) Math.min(720L, Math.max(24L, gapHours + 6L));
+
+            String params = "{\"mode\":\"incremental\",\"hours\":" + hours + ",\"categories\":[29,30,31,32,33]}";
+            long window = now.getEpochSecond() / 600; // 10 分钟窗口（仅失败重触发时推进，成功时被上面 30m 门控拦截）
             jobCreation.create(Job.KIND_CATALOG_SYNC, props.demoOwnerId(), null, null, null,
                     null, null, source.id(), params, "catalog.auto:" + source.id() + ":" + window);
-            log.info("scheduled catalog sync triggered for {}", source.name());
+            log.info("scheduled catalog sync triggered for {} (hours={})", source.name(), hours);
         } catch (Exception e) {
             log.warn("scheduled catalog sync failed: {}", e.getMessage());
         }

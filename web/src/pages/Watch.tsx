@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError, mediaUrl } from '../api'
+import { useAuth } from '../auth'
 
 interface SourceView {
   chapterRevisionId: string
@@ -27,6 +28,7 @@ interface Playback {
 
 /** 观看页（DESIGN 14.2 / 4.1，gugu 式版式）：续播、字幕、来源信息与回到原作。 */
 export default function Watch() {
+  const { me } = useAuth()
   const { animationId } = useParams()
   const [pb, setPb] = useState<Playback | null>(null)
   const [title, setTitle] = useState('')
@@ -60,6 +62,7 @@ export default function Watch() {
   }, [animationId])
 
   const saveProgress = useCallback(async (force = false) => {
+    if (!me) return // 访客不保存观看进度
     const video = videoRef.current
     if (!video || !pb) return
     const ms = Math.floor(video.currentTime * 1000)

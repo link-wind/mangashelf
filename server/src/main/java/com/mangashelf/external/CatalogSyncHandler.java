@@ -75,6 +75,7 @@ public class CatalogSyncHandler implements JobHandler {
             }
         }
         hotspotCache.invalidatePrefix("catalog-");
+        hotspotCache.invalidate("calendar");
         String summary = (incremental ? "增量" : "全量") + "同步完成，共 " + total + " 条";
         ctx.progress().emit("sync", summary);
         log.info("job {} catalog sync {}: {}", job.id(), source.name(), summary);
@@ -128,16 +129,34 @@ public class CatalogSyncHandler implements JobHandler {
         return total;
     }
 
-    /** 拉一页；HTTP 非 200 或 JSON code!=1 返回 null（调用方终止当前循环）。 */
+    /** 拉一页；瞬时网络/TLS 抖动自动短重试，持续失败抛出 TransientJobException 走任务级退避重试。 */
     private JsonNode fetch(JobContext ctx, ExternalSource source, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(source.baseUrl() + path))
                 .timeout(HTTP_TIMEOUT).header("User-Agent", UA).GET().build();
-        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("资源站返回 HTTP " + resp.statusCode());
+        Exception lastErr = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() >= 500 || resp.statusCode() == 429) {
+                    throw new java.io.IOException("资源站返回瞬态 HTTP " + resp.statusCode());
+                }
+                if (resp.statusCode() != 200) {
+                    throw new IllegalStateException("资源站返回 HTTP " + resp.statusCode());
+                }
+                JsonNode d = objectMapper.readTree(resp.body());
+                return d.path("code").asInt(0) == 1 ? d : null;
+            } catch (java.io.IOException e) {
+                lastErr = e;
+                log.warn("catalog sync fetch attempt {}/3 failed ({}): {}", attempt, path, e.getMessage());
+                if (attempt < 3) {
+                    Thread.sleep(attempt == 1 ? 400L : 1000L);
+                }
+            }
         }
-        JsonNode d = objectMapper.readTree(resp.body());
-        return d.path("code").asInt(0) == 1 ? d : null;
+        throw new com.mangashelf.ingestion.TransientJobException(
+                "UPSTREAM_TRANSIENT",
+                "资源站请求瞬时失败：" + (lastErr == null ? "unknown" : lastErr.getMessage()),
+                lastErr);
     }
 
     private long upsertPage(JobContext ctx, ExternalSource source, JsonNode d) {

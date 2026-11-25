@@ -124,6 +124,7 @@ services:
       MANGASHELF_BILIBILI_PROXY: ${MANGASHELF_BILIBILI_PROXY:-}
       MANGASHELF_BANGUMI_ENABLED: ${MANGASHELF_BANGUMI_ENABLED:-true}
       MANGASHELF_BANGUMI_PROXY: ${MANGASHELF_BANGUMI_PROXY:-}
+      MANGASHELF_WORK_ROOT: /opt/data/jobs
       MANGASHELF_BILIBILI_CACHE_ROOT: /opt/data/bilibili-http-cache
       MANGASHELF_BILIBILI_CACHE_MAX_BYTES: ${MANGASHELF_BILIBILI_CACHE_MAX_BYTES:-536870912}
       MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS: ${MANGASHELF_BILIBILI_DETAIL_TTL_SECONDS:-1800}
@@ -141,6 +142,7 @@ services:
       # e5 模型只读挂载（133MB，不入镜像；前置：server/models/ 已按 README 下载）
       - ./server/models:/opt/models:ro
       - bilibili-http-cache:/opt/data/bilibili-http-cache
+      - covers-cache:/opt/data/covers
     depends_on:
       db:
         condition: service_healthy
@@ -219,3 +221,4 @@ volumes:
   storage-data:
   worker-jobs:
   bilibili-http-cache:
+  covers-cache:

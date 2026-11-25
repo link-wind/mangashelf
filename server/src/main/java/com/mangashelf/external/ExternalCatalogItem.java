@@ -20,4 +20,11 @@ public record ExternalCatalogItem(
         Long bangumiSubjectId,
         Instant resourceUpdatedAt,
         Instant syncedAt) {
+
+    /** 返回封面重写后的副本（指向同源持久化封面缓存代理，避免前端直连慢外链）。 */
+    public ExternalCatalogItem withCoverUrl(String rewrittenCoverUrl) {
+        return new ExternalCatalogItem(
+                id, sourceId, vodId, name, rewrittenCoverUrl, remarks, categoryId, categoryName,
+                playFrom, playGroups, episodeCount, workId, bangumiSubjectId, resourceUpdatedAt, syncedAt);
+    }
 }

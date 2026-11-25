@@ -83,7 +83,7 @@ export default function ExternalMangaPage({
          aria-busy={state === 'loading'}>
       {imageUrl && (
         <img src={imageUrl} data-original={src} alt={`第 ${ordinal} 页`}
-             width={width} height={height} decoding="async"
+             width={width} height={height} decoding="async" referrerPolicy="no-referrer"
              onLoad={event => {
                const image = event.currentTarget
                onDimensions(ordinal, image.naturalWidth, image.naturalHeight)

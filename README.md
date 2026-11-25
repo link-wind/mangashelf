@@ -58,10 +58,24 @@
 | M13 播放器/弹幕 | 自定义播放器皮肤、首页轮播 Banner、站内弹幕（服务端存储） | ✅ 已完成（2026-11-09，见 docs/validation/m13.md） |
 | M12 体验与纪律 | 暗色主题、OpenSpec 清账、首个单测 | ✅ 已完成（2026-11-09，见 docs/validation/m10.md；弹幕延后） |
 | M9 Bangumi 元数据 | 本季新番日历、封面/评分、标题匹配+资源站反查、时刻表周视图、封面服务端代理 | ✅ 已完成（2026-11-09，见 docs/validation/m9.md；本季 114 部，68 部可看） |
+| M23 规则源引擎 | 声明式漫画源引擎 + 腾讯动漫中文源 | ✅ 已完成（2026-11-10，见 docs/validation/m23.md） |
+| M24 首页发现流 | 漫画首页发现流（推荐/排行/分区） | ✅ 已完成（2026-11-10，见 docs/validation/m24.md） |
+| M25 多源聚合推荐 | 中文源综合热榜 + 各源分区 | ✅ 已完成（2026-11-10，见 docs/validation/m25.md） |
+| M26 跨源同作合并 | 同作跨源合并 | ✅ 已完成（2026-11-10，见 docs/validation/m26.md） |
+| M29 浏览器解析源 | 拷贝漫画浏览器解析源 | ✅ 已完成（2026-11-11，见 docs/validation/m29.md） |
+| M32/M33 声明式浏览器源 | 包子漫画、嬉皮漫画声明式源 | ✅ 已完成（2026-11-11，见 docs/validation/m32.md、m33.md） |
+| M34 漫画性能 | 首页/切换/阅读性能优化 | ✅ 已完成（2026-11-11，见 docs/validation/m34.md） |
+| M35 哔哩站内阅读 | 公开章节站内阅读 | ✅ 已完成（2026-11-11，见 docs/validation/m35.md） |
+| 工程纪律 | 任务租约路由加固、Redis 共享缓存、多实例部署、进度冲突统一、收藏/历史拆分、退役旧实现 | ✅ 已完成（2026-11-13，见 docs/validation/ 对应文档） |
+| 可靠性加固 | 数据库任务为事实、Outbox 租约、Worker fencing、DLQ 隔离 + 故障注入 | ✅ 已完成（2026-11-24，见 docs/validation/harden-reliable-jobs-and-fault-injection.md） |
+| 性能与检索实测 | 读路径索引+热点缓存、媒体交付（S3 直连/Range/304）、零 OCR 混合检索评测 | ✅ 已完成（2026-11-25，见 docs/validation/benchmark-*.md、audit-and-measure-media-delivery.md） |
+| Web UI 液态玻璃改版 | 样式系统拆分、通用组件、顶栏/移动导航玻璃化、核心页美化、明暗双主题 | ✅ 已完成（2026-11-25，见 docs/validation/polish-web-ui-liquid-glass.md） |
+| 访客浏览 | 公开内容对访客可读/可播/可搜，私有操作引导登录（回到 DESIGN 3.1/3.2） | ✅ 已完成（2026-11-25，见 docs/validation/polish-web-ui-liquid-glass.md §3） |
 
 首个完整产品里程碑是 M3。每个里程碑开始时在 `openspec/changes/` 建立对应变更提案。
 
-**M0–M22 全部完成**（外部弹幕源/自动换线/追番红点/部署重验列为后续）。 验证记录见 docs/validation/（m0–m9），部署见下方本地开发。
+**M0–M35 及后续工程与性能里程碑全部完成**，另含 Web UI 液态玻璃改版与访客浏览能力。
+验证记录见 `docs/validation/`，部署见 `docs/deploy-server.md` 与下方本地开发。
 
 ## 本地开发
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, mediaUrl } from '../api'
+import { useAuth } from '../auth'
 
 interface PageView {
   id: string
@@ -47,6 +48,7 @@ interface WorkChapter {
 
 /** 阅读器（DESIGN 14.1/14.3/4.1）：固定版本页面窗口复用 + 有限预加载 + 进度防覆盖同步 + 续读 + 页级动画入口。 */
 export default function Reader() {
+  const { me } = useAuth()
   const { revisionId } = useParams()
   const [pagesByOrdinal, setPagesByOrdinal] = useState<Record<number, PageView>>({})
   const [pageCount, setPageCount] = useState(0)
@@ -228,6 +230,7 @@ export default function Reader() {
 
   // 进度保存：页面变更时提交（客户端防抖简化为直接提交，DESIGN 14.3 冲突时刷新版本号）
   const saveProgress = useCallback(async (ordinal: number) => {
+    if (!me) return // 访客不保存阅读进度
     if (!chapterId || !revisionId) return
     try {
       const snap = await api.put<Progress>(`/api/v1/me/reading-progress/${chapterId}`, {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ExternalEpisodes from './ExternalEpisodes'
 import { api, ApiError } from '../api'
+import CoverImage from '../components/CoverImage'
 
 interface Chapter {
   id: string
@@ -100,10 +101,7 @@ export default function WorkDetail() {
       {meta && (
         <div className="detail-hero" style={{ marginBottom: 18 }}>
           <div className="detail-cover">
-            {meta.coverUrl
-              ? <img src={meta.coverUrl} alt={work.title}
-                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              : <span className="cover-initial">{work.title.slice(0, 1)}</span>}
+            <CoverImage src={meta.coverUrl} alt={work.title} loading="eager" />
           </div>
           <div className="detail-info">
             <h1>{work.title}</h1>

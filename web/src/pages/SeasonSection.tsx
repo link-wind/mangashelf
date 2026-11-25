@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 export interface CalendarEntry {
   subjectId: number
@@ -60,8 +61,7 @@ export default function SeasonSection({ layout = 'grid', limit }: {
                  : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime'))}
                style={{ cursor: 'pointer' }}>
             <div className="cover">
-              <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
-                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=common`} alt={it.nameCn || it.name} />
               {typeof it.rating === 'number' && it.rating > 0 && (
                 <span className="badge-anim" style={{ left: 'auto', right: 8, background: '#f0a020' }}>
                   ★ {it.rating.toFixed(1)}

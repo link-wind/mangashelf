@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from './api'
+import { useAuth } from './auth'
 
 export interface PlaybackStatus {
   jobId: string | null
@@ -29,6 +30,9 @@ const MAX_MS = 90_000
  * 浏览态与作品态共用，进度由后端按剧集归属路由到目录或作品进度表。
  */
 export function useEpisodePlayback(episodeId: string | undefined) {
+  const { me } = useAuth()
+  const meRef = useRef(me)
+  meRef.current = me
   const [status, setStatus] = useState<PlaybackStatus | null>(null)
   const [resumeMs, setResumeMs] = useState(0)
   const [notice, setNotice] = useState('')
@@ -43,6 +47,12 @@ export function useEpisodePlayback(episodeId: string | undefined) {
     try {
       let st = await api.get<PlaybackStatus>(`/api/v1/external-episodes/${id}/resolve`)
       if (!st.playUrl) {
+        // 访客：已解析的剧集可直接播放；未解析的需登录触发解析（DESIGN 3.1）。
+        if (!meRef.current) {
+          setStatus({ jobId: null, jobState: 'NEED_LOGIN', playUrl: null, playKind: null,
+                      errorCode: 'NEED_LOGIN', errorMessage: '登录后可解析并播放该剧集' })
+          return
+        }
         await api.post(`/api/v1/external-episodes/${id}/resolve`, {})
         const started = Date.now()
         for (;;) {
@@ -120,6 +130,7 @@ export function useEpisodePlayback(episodeId: string | undefined) {
   }, [episodeId, notifyConflict])
 
   const saveProgress = useCallback((positionMs: number) => {
+    if (!meRef.current) return // 访客不保存进度（DESIGN 3.1：进度是私有数据）
     pendingRef.current = positionMs
     flush()
   }, [flush])

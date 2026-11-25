@@ -22,11 +22,13 @@ public class ExternalCatalogRepository {
         this.jdbc = jdbc;
     }
 
-    /** 单条 upsert（playGroups 为线路组原文 JSON 数组字符串）。 */
-    public void upsert(UUID sourceId, long vodId, String name, String coverUrl, String remarks,
-                       int categoryId, String categoryName, String playFrom, String playGroups,
-                       int episodeCount, Instant resourceUpdatedAt) {
-        jdbc.update("""
+    public record UpsertedItem(UUID id, UUID workId) {}
+
+    /** 单条 upsert（playGroups 为线路组原文 JSON 数组字符串），返回条目 ID 与已物化作品 ID。 */
+    public UpsertedItem upsert(UUID sourceId, long vodId, String name, String coverUrl, String remarks,
+                               int categoryId, String categoryName, String playFrom, String playGroups,
+                               int episodeCount, Instant resourceUpdatedAt) {
+        return jdbc.queryForObject("""
                 INSERT INTO external_catalog_items
                     (id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
                      play_from, play_groups, episode_count, resource_updated_at)
@@ -37,7 +39,11 @@ public class ExternalCatalogRepository {
                     play_from = EXCLUDED.play_from, play_groups = EXCLUDED.play_groups,
                     episode_count = EXCLUDED.episode_count,
                     resource_updated_at = EXCLUDED.resource_updated_at, synced_at = now()
+                RETURNING id, work_id
                 """,
+                (rs, i) -> new UpsertedItem(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("work_id", UUID.class)),
                 UUID.randomUUID(), sourceId, vodId, name, coverUrl, remarks, categoryId,
                 categoryName, playFrom, playGroups, episodeCount, JdbcTime.t(resourceUpdatedAt));
     }
@@ -180,5 +186,20 @@ public class ExternalCatalogRepository {
                 ORDER BY created_at DESC LIMIT 1
                 """, new DataClassRowMapper<>(com.mangashelf.ingestion.Job.class),
                 com.mangashelf.ingestion.Job.KIND_CATALOG_SYNC, sourceId).stream().findFirst();
+    }
+
+    public Optional<com.mangashelf.ingestion.Job> findLatestSucceededSyncJob(UUID sourceId) {
+        return jdbc.query("""
+                SELECT * FROM jobs WHERE kind = ? AND sync_source_id = ? AND status = 'SUCCEEDED'
+                ORDER BY created_at DESC LIMIT 1
+                """, new DataClassRowMapper<>(com.mangashelf.ingestion.Job.class),
+                com.mangashelf.ingestion.Job.KIND_CATALOG_SYNC, sourceId).stream().findFirst();
+    }
+
+    public Optional<Instant> findMaxResourceUpdatedAt(UUID sourceId) {
+        java.time.OffsetDateTime ts = jdbc.queryForObject(
+                "SELECT max(resource_updated_at) FROM external_catalog_items WHERE source_id = ?",
+                java.time.OffsetDateTime.class, sourceId);
+        return ts == null ? Optional.empty() : Optional.of(ts.toInstant());
     }
 }

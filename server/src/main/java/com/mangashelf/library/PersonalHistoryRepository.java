@@ -128,8 +128,12 @@ public class PersonalHistoryRepository {
         String sql = prefix + """
                 , p.episode_id, p.position_ms, p.duration_ms, p.updated_at,
                        w.title, e.title AS subtitle,
-                       (SELECT c.cover_url FROM external_catalog_items c
-                         WHERE c.work_id = p.work_id AND c.cover_url <> '' LIMIT 1) AS cover_url
+                       (SELECT CASE
+                                 WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                                 ELSE '/api/v1/catalog-covers/' || c.id
+                               END
+                          FROM external_catalog_items c
+                         WHERE c.work_id = p.work_id AND (c.bangumi_subject_id IS NOT NULL OR c.cover_url <> '') LIMIT 1) AS cover_url
                   FROM external_watch_progress p
                   JOIN works w ON w.id = p.work_id
                   LEFT JOIN external_episodes e ON e.id = p.episode_id
@@ -154,7 +158,12 @@ public class PersonalHistoryRepository {
                 : "ORDER BY p.updated_at DESC LIMIT ?";
         String sql = prefix + """
                 , p.episode_id, p.position_ms, p.duration_ms, p.updated_at,
-                       c.name AS title, e.title AS subtitle, c.cover_url
+                       c.name AS title, e.title AS subtitle,
+                       CASE
+                         WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                         WHEN c.cover_url <> '' THEN '/api/v1/catalog-covers/' || c.id
+                         ELSE ''
+                       END AS cover_url
                   FROM catalog_watch_progress p
                   JOIN external_catalog_items c ON c.id = p.catalog_item_id
                   LEFT JOIN external_episodes e ON e.id = p.episode_id

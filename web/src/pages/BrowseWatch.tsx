@@ -123,13 +123,23 @@ export default function BrowseWatch() {
                 </div>
               </div>
             ) : failed ? (
-              <div className="player-overlay">
-                <div>
-                  <div className="big">解析失败</div>
-                  <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
-                  <button style={{ marginTop: 12 }} onClick={() => void resolve(current.id)}>重试解析</button>
+              status?.errorCode === 'NEED_LOGIN' ? (
+                <div className="player-overlay">
+                  <div>
+                    <div className="big">登录后播放</div>
+                    <div className="sub">该剧集尚未解析直链，登录后可触发解析并播放</div>
+                    <Link to="/login" className="pill nav-login-btn" style={{ marginTop: 12, display: 'inline-flex' }}>去登录</Link>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="player-overlay">
+                  <div>
+                    <div className="big">解析失败</div>
+                    <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
+                    <button style={{ marginTop: 12 }} onClick={() => void resolve(current.id)}>重试解析</button>
+                  </div>
+                </div>
+              )
             ) : undefined}
           />
           <div className="watch-actions">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 
 interface SourceInfo {
@@ -136,10 +137,7 @@ export default function MangaCatalog() {
                 to={`/manga-ext/${r.id}?${new URLSearchParams({ source: r.source, title: r.title })}`}
                 className="work-card">
             <div className="cover">
-              {r.coverUrl
-                ? <img src={r.coverUrl ?? ''} alt={r.title} loading="lazy" decoding="async"
-                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                : <span className="cover-initial">{r.title.slice(0, 1)}</span>}
+              <CoverImage src={r.coverUrl} alt={r.title} />
               {r.year && <span className="badge-anim">{r.year}</span>}
             </div>
             <div className="work-card-body">

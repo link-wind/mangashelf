@@ -3,6 +3,7 @@ package com.mangashelf.external.manga;
 import com.mangashelf.config.ApiException;
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,7 +31,7 @@ public class MangaCatalogController {
                                   Integer episodeCount) {}
 
     @GetMapping
-    public CatalogPage page(@AuthUser CurrentUser user,
+    public CatalogPage page(@OptionalAuthUser CurrentUser user,
                             @RequestParam String source,
                             @RequestParam(defaultValue = "24") int limit,
                             @RequestParam(required = false) String genre,
@@ -59,7 +60,7 @@ public class MangaCatalogController {
     }
 
     @GetMapping("/genres")
-    public List<MangaCatalogRepository.GenreTag> genres(@AuthUser CurrentUser user,
+    public List<MangaCatalogRepository.GenreTag> genres(@OptionalAuthUser CurrentUser user,
                                                         @RequestParam String source) {
         return catalog.genres(source);
     }

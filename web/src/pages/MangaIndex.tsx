@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 import { hdCover } from '../externalManga'
 
 interface MangaCard {
@@ -204,15 +205,18 @@ function MangaDiscovery() {
 
       {hero && (
         <div className="manga-hero-banner">
-          {/* 交叉淡入：每张待显示的背景独立成层，key 变化触发淡入动画 */}
-          <div className="manga-hero-bg" key={hero.source + hero.id}
-               style={hero.coverUrl ? { backgroundImage: `url(${hdCover(hero.coverUrl)})` } : undefined} />
+          {/* 使用真实 <img referrerPolicy="no-referrer"> 作为景深模糊氛围背景，规避 CSS background-image 防盗链 403 */}
+          <div className="manga-hero-bg" key={hero.source + hero.id}>
+            {hero.coverUrl && (
+              <img className="manga-hero-bg-img" src={hdCover(hero.coverUrl)} alt=""
+                   referrerPolicy="no-referrer" decoding="async"
+                   onError={e => { e.currentTarget.style.display = 'none' }} />
+            )}
+          </div>
           <div className="manga-hero-shade" />
           <div className="manga-hero-inner">
-            <button className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
-              {hero.coverUrl
-                ? <img src={hero.coverUrl ?? ""} alt={hero.title} />
-                : <span className="cover-initial">{hero.title.slice(0, 1)}</span>}
+            <button type="button" className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
+              <CoverImage src={hdCover(hero.coverUrl)} alt={hero.title} loading="eager" fetchPriority="high" />
             </button>
             <div className="manga-hero-info">
               <span className="manga-hero-kicker">{heroLabel}</span>
@@ -243,9 +247,7 @@ function MangaDiscovery() {
                 <button key={it.source + it.id}
                         className={'manga-hero-thumb' + (i === heroIdx ? ' on' : '')}
                         onClick={() => setHeroIdx(i)} title={it.title}>
-                  {it.coverUrl
-                    ? <img src={it.coverUrl ?? ""} alt="" loading="lazy" />
-                    : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
+                  <CoverImage src={it.coverUrl} alt={it.title} loading="eager" />
                   <span className="manga-hero-thumb-title">{it.title}</span>
                 </button>
               ))}
@@ -290,9 +292,7 @@ function SectionRow({ section, showRank, onOpen }: {
                   title={(it.sources?.length ?? 0) > 1
                     ? `${it.title}（${it.sources!.join('、')}）` : it.title}>
             <div className="mt-cover">
-              {it.coverUrl
-                ? <img src={it.coverUrl ?? ""} alt={it.title} loading="lazy" decoding="async" />
-                : <span className="cover-initial">{it.title.slice(0, 1)}</span>}
+              <CoverImage src={it.coverUrl} alt={it.title} />
               {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
               {(it.sourceCount ?? 1) > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}
               {!it.readable && !it.readId && <span className="mt-outside">站外</span>}
@@ -365,18 +365,7 @@ function LocalManga() {
         {items.map(m => (
           <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
             <div className="cover">
-              {m.coverUrl
-                ? <img src={m.coverUrl} alt={m.title} loading="lazy" decoding="async"
-                       onError={e => {
-                         const img = e.target as HTMLImageElement
-                         img.style.display = 'none'
-                         const fb = img.nextElementSibling as HTMLElement | null
-                         if (fb) fb.style.display = 'grid'
-                       }} />
-                : null}
-              <span className="cover-initial" style={m.coverUrl ? { display: 'none' } : {}}>
-                {m.title.slice(0, 1)}
-              </span>
+              <CoverImage src={m.coverUrl} alt={m.title} />
               {m.visibility === 'PRIVATE' && <span className="badge-anim" style={{ background: 'var(--priv)' }}>私人</span>}
             </div>
             <div className="work-card-body">

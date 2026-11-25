@@ -2,6 +2,7 @@ package com.mangashelf.animation;
 
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -44,7 +45,7 @@ public class AnimationController {
     }
 
     @GetMapping("/animations")
-    public AnimationService.AnimationListPage list(@AuthUser CurrentUser user,
+    public AnimationService.AnimationListPage list(@OptionalAuthUser CurrentUser user,
                                                    @RequestParam(required = false) String cursor,
                                                    @RequestParam(defaultValue = "20") int limit,
                                                    @RequestParam(required = false) String q) {
@@ -52,7 +53,7 @@ public class AnimationController {
     }
 
     @GetMapping("/animations/{id}")
-    public AnimationService.AnimationView detail(@AuthUser CurrentUser user, @PathVariable UUID id) {
+    public AnimationService.AnimationView detail(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         return animations.animationView(user, id);
     }
 
@@ -92,13 +93,13 @@ public class AnimationController {
     }
 
     @GetMapping("/animations/{id}/playback")
-    public AnimationService.Playback playback(@AuthUser CurrentUser user, @PathVariable UUID id) {
+    public AnimationService.Playback playback(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         return animations.playback(user, id);
     }
 
     @GetMapping("/chapter-revisions/{id}/animations")
     public List<AnimationService.PageAdaptationView> pageAdaptations(
-            @AuthUser CurrentUser user, @PathVariable UUID id,
+            @OptionalAuthUser CurrentUser user, @PathVariable UUID id,
             @RequestParam(required = false, defaultValue = "1") int page) {
         return animations.pageAdaptations(user, id, page);
     }

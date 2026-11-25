@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
+import { HeartIcon, InfoIcon, PlayIcon } from '../components/Icons'
+import { useToast } from '../components/Toast'
+import { useAuth } from '../auth'
 import SeasonSection from './SeasonSection'
 
 interface CalendarEntry {
@@ -32,7 +36,7 @@ interface MangaCard {
   chapterCount: number; latestOrdinal: number | null; coverUrl: string | null; updatedAt: string
 }
 interface MangaContinue {
-  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; title: string
+  chapterId: string; revisionId: string; pageOrdinal: number; workId: string; title: string; coverUrl: string | null
 }
 interface WorkCard {
   id: string; title: string; description: string; status: string; visibility: string
@@ -48,58 +52,91 @@ const CATEGORIES = [
   { id: 33, label: '海外动漫' },
 ]
 
-/** 首页（M14）：Banner 轮播 → 新番时刻表 → 继续观看 → 最近更新 → 高分榜 → 分类。 */
+/** 首页：骨架屏 → 液态玻璃 Hero 轮播 → 新番时刻表 → 继续观看/阅读（含进度条）→ 最近更新 → 高分榜 → 分类。 */
 export default function Home() {
+  const { me } = useAuth()
   const [calendar, setCalendar] = useState<CalendarEntry[]>([])
   const [updates, setUpdates] = useState<CatalogItem[]>([])
   const [continueList, setContinueList] = useState<ContinueRow[]>([])
   const [works, setWorks] = useState<WorkCard[]>([])
   const [manga, setManga] = useState<MangaCard[]>([])
   const [mangaContinue, setMangaContinue] = useState<MangaContinue[]>([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     void (async () => {
       try {
-        const [cal, cat, cont, page, mg] = await Promise.all([
+        const [cal, cat, page, mg] = await Promise.all([
           api.get<CalendarEntry[]>('/api/v1/calendar'),
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
-          api.get<ContinueRow[]>('/api/v1/me/continue?limit=12'),
           api.get<{ items: WorkCard[] }>('/api/v1/works?limit=12'),
           api.get<{ items: MangaCard[] }>('/api/v1/manga?limit=12'),
         ])
         setCalendar(cal)
         setUpdates(cat.items)
-        setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 6))
         setWorks(page.items)
         setManga(mg.items)
-        setMangaContinue(cont.filter(r => r.type === 'work-read' && r.chapterId && r.revisionId)
-          .slice(0, 6)
-          .map(r => ({
-            chapterId: r.chapterId as string, revisionId: r.revisionId as string,
-            pageOrdinal: r.pageOrdinal ?? 1, workId: r.workId as string, title: r.title,
-          })))
+        // 继续观看/阅读是私有数据；访客跳过，不影响公开首页。
+        if (me) {
+          try {
+            const cont = await api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
+            setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 6))
+            setMangaContinue(cont.filter(r => r.type === 'work-read' && r.chapterId && r.revisionId)
+              .slice(0, 6)
+              .map(r => ({
+                chapterId: r.chapterId as string, revisionId: r.revisionId as string,
+                pageOrdinal: r.pageOrdinal ?? 1, workId: r.workId as string, title: r.title,
+                coverUrl: r.coverUrl,
+              })))
+          } catch { /* 私有继续列表失败不影响首页 */ }
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
+      } finally {
+        setLoading(false)
       }
     })()
-  }, [])
+  }, [me])
 
   const topRated = [...calendar]
     .filter(i => (i.rating ?? 0) > 0)
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
     .slice(0, 10)
 
-  // banner 选片（M14→M27）：「当前可看窗口」= 昨天放送（周一深夜档今天已可看）
-  // + 今天已更新的放送番，按评分取前 4；窗口不足 4 时回退全周高分。
-  // 星期编码 1=周一..7=周日；getDay() 0=周日；昨天 = 今天回退一天再归一到 1..7
   const todayDow = new Date().getDay() || 7
   const yesterdayDow = (((todayDow) + 5) % 7) + 1
-  const recentWindow = calendar
-    .filter(i => (i.rating ?? 0) > 0
+  const recentCovered = calendar
+    .filter(i => i.covered && (i.rating ?? 0) > 0
                  && (i.airWeekday === yesterdayDow || i.airWeekday === todayDow))
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-  const bannerItems = (recentWindow.length >= 4 ? recentWindow : topRated).slice(0, 4)
+  const topCovered = [...calendar]
+    .filter(i => i.covered && (i.rating ?? 0) > 0)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+  const bannerPool = recentCovered.length >= 4
+    ? recentCovered
+    : (topCovered.length >= 4 ? topCovered : topRated)
+  const bannerItems = bannerPool.slice(0, 4)
+
+  if (loading) {
+    return (
+      <main className="home-page">
+        <div className="skeleton-box hero-skeleton" />
+        <section style={{ marginTop: 30 }}>
+          <div className="skeleton-box" style={{ width: 140, height: 22, marginBottom: 14, borderRadius: 8 }} />
+          <div className="card-grid">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i}>
+                <div className="skeleton-box card-skeleton-cover" />
+                <div className="skeleton-box card-skeleton-line" />
+                <div className="skeleton-box card-skeleton-line short" />
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main className="home-page">
@@ -116,27 +153,32 @@ export default function Home() {
             <Link to="/history" className="muted">观看历史 →</Link>
           </div>
           <div className="hscroll">
-            {continueList.map(r => (
-              <Link key={`${r.workId ?? r.catalogItemId}-${r.episodeId}`}
-                    to={r.workId
-                      ? `/works/${r.workId}/external/${r.episodeId}`
-                      : `/browse/${r.catalogItemId}/${r.episodeId}`}
-                    className="work-card">
-                <div className="cover">
-                  {r.coverUrl
-                    ? <img src={r.coverUrl} alt={r.title} loading="lazy" decoding="async"
-                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    : <span className="cover-initial">{r.title.slice(0, 1)}</span>}
-                  <span className="badge-anim">{r.durationMs && r.positionMs
-                    ? Math.min(99, Math.round(r.positionMs / r.durationMs * 100)) + '%'
-                    : '继续'}</span>
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{r.title}</div>
-                  <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
-                </div>
-              </Link>
-            ))}
+            {continueList.map(r => {
+              const pct = r.durationMs && r.positionMs
+                ? Math.min(99, Math.max(2, Math.round(r.positionMs / r.durationMs * 100)))
+                : null
+              return (
+                <Link key={`${r.workId ?? r.catalogItemId}-${r.episodeId}`}
+                      to={r.workId
+                        ? `/works/${r.workId}/external/${r.episodeId}`
+                        : `/browse/${r.catalogItemId}/${r.episodeId}`}
+                      className="work-card">
+                  <div className="cover">
+                    <CoverImage src={r.coverUrl} alt={r.title} />
+                    <span className="badge-anim">{pct !== null ? `${pct}%` : '继续'}</span>
+                    {pct !== null && (
+                      <div className="card-progress" aria-hidden="true">
+                        <div className="card-progress-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="work-card-body">
+                    <div className="work-card-title clamp">{r.title}</div>
+                    <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
         </section>
       )}
@@ -154,8 +196,11 @@ export default function Home() {
                       to={`/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal}`}
                       className="work-card">
                   <div className="cover">
-                    <span className="cover-initial">{r.title.slice(0, 1)}</span>
+                    <CoverImage src={r.coverUrl} alt={r.title} />
                     <span className="badge-anim">读到 {r.pageOrdinal} 页</span>
+                    <div className="card-progress" aria-hidden="true">
+                      <div className="card-progress-fill" style={{ width: `${Math.min(100, Math.max(12, r.pageOrdinal * 5))}%` }} />
+                    </div>
                   </div>
                   <div className="work-card-body">
                     <div className="work-card-title clamp">{r.title}</div>
@@ -169,10 +214,7 @@ export default function Home() {
             {manga.map(m => (
               <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
                 <div className="cover">
-                  {m.coverUrl
-                    ? <img src={m.coverUrl} alt={m.title} loading="lazy" decoding="async"
-                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    : <span className="cover-initial">{m.title.slice(0, 1)}</span>}
+                  <CoverImage src={m.coverUrl} alt={m.title} />
                 </div>
                 <div className="work-card-body">
                   <div className="work-card-title clamp">{m.title}</div>
@@ -209,9 +251,9 @@ export default function Home() {
             {topRated.map((it, i) => (
               <li key={it.subjectId} className="rank-item">
                 <span className={'rank-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
-                <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt=""
-                     loading="lazy" decoding="async"
-                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=small`} alt=""
+                     loading="lazy" decoding="async" referrerPolicy="no-referrer"
+                     onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }} />
                 <Link className="rank-name clamp"
                       to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}>
                   {it.nameCn || it.name}
@@ -241,10 +283,7 @@ export default function Home() {
             {works.map(w => (
               <Link key={w.id} to={`/works/${w.id}`} className="work-card">
                 <div className="cover">
-                  {w.posterUrl
-                    ? <img src={w.posterUrl} alt={w.title} loading="lazy" decoding="async"
-                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    : <span className="cover-initial">{w.title.slice(0, 1)}</span>}
+                  <CoverImage src={w.posterUrl} alt={w.title} />
                 </div>
                 <div className="work-card-body">
                   <div className="work-card-title clamp">{w.title}</div>
@@ -271,19 +310,20 @@ export default function Home() {
   )
 }
 
-/** 首屏 Banner：4 张轮播，右下缩略图切换（gugu 式）。 */
+/** 首屏 Banner：4 张淡入轮播，液态玻璃悬浮控件与缩略图托盘。 */
 function HeroBanner({ items }: { items: CalendarEntry[] }) {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [idx, setIdx] = useState(0)
+  const [paused, setPaused] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
-    if (items.length < 2) return
+    if (items.length < 2 || paused) return
     const t = setInterval(() => setIdx(i => (i + 1) % items.length), 7000)
     return () => clearInterval(t)
-  }, [items.length])
+  }, [items.length, paused])
 
-  // 播放直接进入浏览态，不创建作品（separate-favorites-and-history）。
   function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
     if (!it.catalogItemId) { navigate('/anime'); return }
@@ -291,11 +331,19 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
   }
 
   async function subscribe(it: CalendarEntry) {
-    if (!it.catalogItemId) return
+    if (!it.catalogItemId) {
+      showToast('该条目暂未收录到资源目录', 'info')
+      return
+    }
     setBusy(it.catalogItemId)
     try {
       await api.put(`/api/v1/me/favorites/catalog/${it.catalogItemId}`)
-    } catch { /* 保留在当前页 */ } finally { setBusy(null) }
+      showToast(`已追番「${it.nameCn || it.name}」`, 'success')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '追番失败', 'error')
+    } finally {
+      setBusy(null)
+    }
   }
 
   if (items.length === 0) {
@@ -312,10 +360,14 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
     )
   }
 
-  const it = items[idx]
+  const it = items[idx] ?? items[0]
+  const isBusy = busy !== null && busy === it.catalogItemId
+  const canPlay = Boolean(it.workId || it.catalogItemId)
   return (
-    <section className="hero-slide">
-      <div className="hero-bg"
+    <section className="hero-slide"
+             onMouseEnter={() => setPaused(true)}
+             onMouseLeave={() => setPaused(false)}>
+      <div key={it.subjectId} className="hero-bg"
            style={{ backgroundImage: `url(/api/v1/bangumi-covers/${it.subjectId}?size=large)` }} />
       <div className="hero-shade" />
 
@@ -335,26 +387,30 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
         </div>
         {it.summary && <p className="hero-desc">{it.summary}</p>}
         <div className="hero-actions">
-          <button className="pill hero-play" disabled={busy === it.catalogItemId}
-                  onClick={() => void play(it)}>
-            ▶ {busy === it.catalogItemId ? '处理中…' : (it.workId ? '立即播放' : '播放')}
+          <button type="button" className="pill hero-play" disabled={isBusy}
+                  onClick={() => play(it)}>
+            <PlayIcon size={15} />
+            {canPlay ? (it.workId ? '立即播放' : '播放') : '浏览番剧库'}
           </button>
-          <button className="pill hero-sub-btn" disabled={busy === it.catalogItemId}
+          <button type="button" className="pill hero-sub-btn" disabled={isBusy}
                   onClick={() => void subscribe(it)}>
-            ♡ 追番
+            <HeartIcon size={15} />
+            {isBusy ? '处理中…' : '追番'}
           </button>
           {it.catalogItemId && (
-            <Link to={`/catalog/${it.catalogItemId}`} className="hero-info" title="详情">i</Link>
+            <Link to={`/catalog/${it.catalogItemId}`} className="hero-info" title="详情" aria-label="查看详情">
+              <InfoIcon size={17} />
+            </Link>
           )}
         </div>
       </div>
 
       <div className="hero-thumbs">
         {items.map((x, i) => (
-          <button key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
+          <button type="button" key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
                   onClick={() => setIdx(i)} title={x.nameCn || x.name}>
-            <img src={`/api/v1/bangumi-covers/${x.subjectId}?size=large`} alt=""
-                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <CoverImage src={`/api/v1/bangumi-covers/${x.subjectId}?size=small`}
+                        alt={x.nameCn || x.name} loading="eager" />
             <span className="hero-thumb-title">{x.nameCn || x.name}</span>
           </button>
         ))}
@@ -384,7 +440,7 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
       </div>
       <div className="row-inline" style={{ marginBottom: 12 }}>
         {[1, 2, 3, 4, 5, 6, 7].map(d => (
-          <button key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
+          <button type="button" key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
             {WEEKDAYS[d]}
           </button>
         ))}
@@ -395,8 +451,7 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
                 to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime')}
                 className="work-card">
             <div className="cover">
-              <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} loading="lazy" decoding="async"
-                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=common`} alt={it.nameCn || it.name} />
               {it.covered && <span className="badge-anim">可看</span>}
             </div>
             <div className="work-card-body">
@@ -414,20 +469,17 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   )
 }
 
-/** 点卡片直接进播放页（M20 浏览态）：不创建作品；已入库则走作品播放页。 */
+/** 点卡片直接进播放页（浏览态）：不创建作品；已入库则走作品播放页。 */
 function CatalogCard({ it }: { it: CatalogItem }) {
   const navigate = useNavigate()
   return (
-    <button className="work-card ext-card"
+    <button type="button" className="work-card ext-card"
             onClick={() => navigate(it.workId ? `/works/${it.workId}` : `/browse/${it.id}`)}>
       <div className="cover">
-        {it.bangumiSubjectId
-          ? <img src={`/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large`} alt={it.name} loading="lazy" decoding="async"
-                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-          : it.coverUrl
-            ? <img src={it.coverUrl} alt={it.name} loading="lazy" decoding="async"
-                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-            : <span className="cover-initial">{it.name.slice(0, 1)}</span>}
+        <CoverImage
+          src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
+          alt={it.name}
+        />
         {it.workId
           ? <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>
           : <span className="badge-anim">可播</span>}

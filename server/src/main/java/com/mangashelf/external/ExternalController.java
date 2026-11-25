@@ -2,6 +2,7 @@ package com.mangashelf.external;
 
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
+import com.mangashelf.identity.OptionalAuthUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -34,12 +35,19 @@ public class ExternalController {
     private final ExternalService externals;
     private final ExternalCatalogService catalog;
     private final BangumiService bangumi;
+    private final CoverCacheService coverCache;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ExternalController(ExternalService externals, ExternalCatalogService catalog,
-                              BangumiService bangumi) {
+                              BangumiService bangumi, CoverCacheService coverCache) {
         this.externals = externals;
         this.catalog = catalog;
         this.bangumi = bangumi;
+        this.coverCache = coverCache;
+    }
+
+    ExternalController(ExternalService externals, ExternalCatalogService catalog, BangumiService bangumi) {
+        this(externals, catalog, bangumi, null);
     }
 
     // ── 规则源管理（管理员）──
@@ -60,7 +68,7 @@ public class ExternalController {
     }
 
     @GetMapping("/external-sources")
-    public List<ExternalSource> listSources(@AuthUser CurrentUser user,
+    public List<ExternalSource> listSources(@OptionalAuthUser CurrentUser user,
                                             @RequestParam(defaultValue = "true") boolean enabledOnly) {
         return externals.listSources(user, enabledOnly);
     }
@@ -144,19 +152,19 @@ public class ExternalController {
     }
 
     @GetMapping("/external-episodes/{id}/resolve")
-    public ExternalService.ResolveStatus resolveStatus(@AuthUser CurrentUser user,
+    public ExternalService.ResolveStatus resolveStatus(@OptionalAuthUser CurrentUser user,
                                                        @PathVariable UUID id) {
         return externals.resolveStatus(user, id);
     }
 
     // ── 资源目录（M8）──
 
-    public record SyncRequest(@NotNull UUID sourceId, List<Integer> categories, String mode) {}
+    public record SyncRequest(@NotNull UUID sourceId, List<Integer> categories, String mode, Integer hours) {}
 
     @PostMapping("/admin/catalog-sync")
     public ExternalCatalogService.SyncStarted triggerSync(@AuthUser CurrentUser user,
                                                           @Valid @RequestBody SyncRequest request) {
-        return catalog.triggerSync(user, request.sourceId(), request.categories(), request.mode());
+        return catalog.triggerSync(user, request.sourceId(), request.categories(), request.mode(), request.hours());
     }
 
     @GetMapping("/admin/catalog-sync")
@@ -166,7 +174,7 @@ public class ExternalController {
 
     @GetMapping("/catalog-items")
     public ExternalCatalogService.CatalogItemPage catalogItems(
-            @AuthUser CurrentUser user,
+            @OptionalAuthUser CurrentUser user,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "24") int limit,
             @RequestParam(required = false) String q,
@@ -183,7 +191,7 @@ public class ExternalController {
     // ── 弹幕（M13）──
 
     @GetMapping("/danmaku")
-    public List<DanmakuRepository.Danmaku> listDanmaku(@AuthUser CurrentUser user,
+    public List<DanmakuRepository.Danmaku> listDanmaku(@OptionalAuthUser CurrentUser user,
                                                        @RequestParam UUID workId,
                                                        @RequestParam int ordinal) {
         return externals.listDanmaku(user, workId, ordinal);
@@ -214,19 +222,39 @@ public class ExternalController {
         return catalog.bangumiSyncStatus(user);
     }
 
-    /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持 ETag / 304 条件校验。 */
+    /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持持久化缓存与 ETag/304。 */
     @GetMapping("/bangumi-covers/{subjectId}")
     public ResponseEntity<byte[]> bangumiCover(
-            @AuthUser CurrentUser user,
+            @OptionalAuthUser CurrentUser user,
             @PathVariable long subjectId,
-            @RequestParam(defaultValue = "medium") String size,
+            @RequestParam(defaultValue = "common") String size,
             @org.springframework.web.bind.annotation.RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch)
             throws Exception {
         BangumiService.Cover cover = bangumi.fetchCover(subjectId, size);
         if (cover == null) {
             return ResponseEntity.notFound().build();
         }
-        String etag = computeEtag(cover.bytes());
+        return serveCover(cover.bytes(), cover.contentType(), ifNoneMatch);
+    }
+
+    /** 目录条目封面代理：/catalog-covers/{itemId}（仅查库内 URL，防 SSRF），持久化缓存 + ETag/304。 */
+    @GetMapping("/catalog-covers/{itemId}")
+    public ResponseEntity<byte[]> catalogCover(
+            @OptionalAuthUser CurrentUser user,
+            @PathVariable UUID itemId,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        if (coverCache == null) {
+            return ResponseEntity.notFound().build();
+        }
+        CoverCacheService.CoverData cover = coverCache.fetchCatalogCover(itemId);
+        if (cover == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return serveCover(cover.bytes(), cover.contentType(), ifNoneMatch);
+    }
+
+    private static ResponseEntity<byte[]> serveCover(byte[] bytes, String contentType, String ifNoneMatch) {
+        String etag = computeEtag(bytes);
         if (etagMatches(ifNoneMatch, etag)) {
             return ResponseEntity.status(304)
                     .header("ETag", etag)
@@ -234,10 +262,10 @@ public class ExternalController {
                     .build();
         }
         return ResponseEntity.ok()
-                .header("Content-Type", cover.contentType())
+                .header("Content-Type", contentType)
                 .header("ETag", etag)
                 .header("Cache-Control", "public, max-age=604800")
-                .body(cover.bytes());
+                .body(bytes);
     }
 
     private static String computeEtag(byte[] bytes) {
@@ -264,24 +292,24 @@ public class ExternalController {
 
     /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），登录可见。 */
     @GetMapping("/calendar")
-    public List<BangumiService.CalendarEntry> calendar(@AuthUser CurrentUser user) {
+    public List<BangumiService.CalendarEntry> calendar(@OptionalAuthUser CurrentUser user) {
         return bangumi.calendar();
     }
 
     @GetMapping("/catalog-items/{id}/episodes")
-    public ExternalCatalogService.BrowseEpisodes browseEpisodes(@AuthUser CurrentUser user,
+    public ExternalCatalogService.BrowseEpisodes browseEpisodes(@OptionalAuthUser CurrentUser user,
                                                                 @PathVariable UUID id) {
         return catalog.browseEpisodes(user, id);
     }
 
     @GetMapping("/catalog-items/{id}/play-target")
-    public Map<String, Object> browsePlayTarget(@AuthUser CurrentUser user, @PathVariable UUID id) {
+    public Map<String, Object> browsePlayTarget(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         UUID episodeId = catalog.browsePlayTarget(user, id);
         return episodeId == null ? Map.of() : Map.of("episodeId", episodeId);
     }
 
     @GetMapping("/catalog-items/{id}")
-    public ExternalCatalogService.CatalogDetail catalogItemDetail(@AuthUser CurrentUser user,
+    public ExternalCatalogService.CatalogDetail catalogItemDetail(@OptionalAuthUser CurrentUser user,
                                                                   @PathVariable UUID id) {
         return catalog.itemDetail(user, id);
     }

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
   categoryId: number; categoryName: string; episodeCount: number
   workId: string | null
+  bangumiSubjectId?: number | null
 }
 
 // id 为数字（资源站分类）或 'season'（本季新番视图，anime-index-full-catalog）
@@ -147,11 +149,10 @@ export default function AnimeIndex() {
         {items.map(it => (
           <div key={it.id} className="work-card">
             <Link to={`/catalog/${it.id}`} className="cover">
-              {it.coverUrl
-                ? <img src={it.coverUrl} alt={it.name} loading="lazy"
-                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                : null}
-              <span className="cover-initial" style={it.coverUrl ? { display: 'none' } : {}}>{it.name.slice(0, 1)}</span>
+              <CoverImage
+                src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
+                alt={it.name}
+              />
               {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
             </Link>
             <div className="work-card-body">

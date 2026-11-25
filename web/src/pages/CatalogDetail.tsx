@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import CoverImage from '../components/CoverImage'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
   categoryId: number; categoryName: string; episodeCount: number; workId: string | null
+  bangumiSubjectId?: number | null
 }
 interface CatalogDetail {
   item: CatalogItem
@@ -77,9 +79,11 @@ export default function CatalogDetail() {
     <main className="watch-page">
       <div className="detail-hero">
         <div className="detail-cover">
-          {item.coverUrl
-            ? <img src={item.coverUrl} alt={item.name} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-            : <span className="cover-initial">{item.name.slice(0, 1)}</span>}
+          <CoverImage
+            src={item.bangumiSubjectId ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large` : item.coverUrl}
+            alt={item.name}
+            loading="eager"
+          />
         </div>
         <div className="detail-info">
           <h1>{detail.bangumiNameCn || item.name}</h1>
