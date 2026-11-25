@@ -184,8 +184,14 @@ public class ExternalController {
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String genre,
             @RequestParam(required = false) Boolean season,
+            @RequestParam(required = false) String year,
             @RequestParam(required = false) Integer page) {
-        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, page);
+        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, year, page);
+    }
+
+    @GetMapping("/catalog-items/genres")
+    public List<ExternalCatalogRepository.GenreStat> catalogGenres(@OptionalAuthUser CurrentUser user) {
+        return catalog.listGenres();
     }
 
     // ── 弹幕（M13）──

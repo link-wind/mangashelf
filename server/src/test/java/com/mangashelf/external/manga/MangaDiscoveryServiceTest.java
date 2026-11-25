@@ -127,6 +127,73 @@ class MangaDiscoveryServiceTest {
         assertEquals(1, zhCalls.get());
     }
 
+    @Test
+    void fuseDiversifiesConsecutiveSameAuthor() {
+        var a1 = new MangaSource.RankItem("tencent", "1", "作品甲", List.of("作者A"), null,
+                false, "", true, null, "tencent", "1");
+        var a2 = new MangaSource.RankItem("tencent", "2", "作品乙", List.of("作者A"), null,
+                false, "", true, null, "tencent", "2");
+        var b1 = new MangaSource.RankItem("tencent", "3", "作品丙", List.of("作者B"), null,
+                false, "", true, null, "tencent", "3");
+        var fused = MangaDiscoveryService.fuse(List.of(List.of(a1, a2, b1)), 10, Map.of("tencent", "腾讯动漫"));
+        assertEquals(3, fused.size());
+        assertEquals("作品甲", fused.get(0).title());
+        assertEquals("作品丙", fused.get(1).title());
+        assertEquals("作品乙", fused.get(2).title());
+    }
+
+    @Test
+    void searchAllStreamsMergesAcrossSourcesAndIsolatesFailures() {
+        var badCalls = new AtomicInteger();
+        MangaSource tencent = searchable("tencent", "腾讯动漫", true,
+                List.of(new MangaSource.SearchItem("tencent", "t1", "一人之下", "异人", "https://c/1", "2015")));
+        MangaSource baozi = searchable("baozimh", "包子漫画", true,
+                List.of(new MangaSource.SearchItem("baozimh", "b1", "一人之下!", "", "https://c/2", ""),
+                        new MangaSource.SearchItem("baozimh", "b2", "鬼灭之刃", "", "https://c/3", "")));
+        MangaSource broken = new MangaSource() {
+            @Override public String id() { return "broken"; }
+            @Override public String name() { return "故障源"; }
+            @Override public java.util.Set<Capability> capabilities() { return java.util.Set.of(Capability.SEARCH); }
+            @Override public List<SearchItem> search(String q, String lang, int limit) {
+                badCalls.incrementAndGet();
+                throw new RuntimeException("connection reset");
+            }
+        };
+        var registry = new MangaSourceRegistry(List.of(tencent, baozi, broken), null);
+        var service = new MangaDiscoveryService(registry, new MangaSectionsService(), null);
+
+        var res1 = service.searchAllStreams("一人之下", "all", 20, null);
+        assertEquals(2, res1.items().size());
+        assertEquals("一人之下", res1.items().getFirst().title());
+        assertEquals(2, res1.items().getFirst().sourceCount());
+        assertEquals(2, res1.items().getFirst().streams().size());
+        assertTrue(res1.sourceStatus().stream().anyMatch(s -> "broken".equals(s.source()) && !s.ok()));
+
+        // 第二次失败触发熔断，第三次搜索直接冷却跳过不再调上游
+        service.searchAllStreams("一人之下", "all", 20, null);
+        assertEquals(2, badCalls.get());
+        var res3 = service.searchAllStreams("一人之下", "all", 20, null);
+        assertEquals(2, badCalls.get());
+        assertTrue(res3.sourceStatus().stream()
+                .anyMatch(s -> "broken".equals(s.source()) && !s.ok() && s.error().contains("冷却")));
+    }
+
+    private static MangaSource searchable(String id, String name, boolean readable,
+                                          List<MangaSource.SearchItem> items) {
+        return new MangaSource() {
+            @Override public String id() { return id; }
+            @Override public String name() { return name; }
+            @Override public java.util.Set<Capability> capabilities() {
+                return readable
+                        ? java.util.Set.of(Capability.SEARCH, Capability.READ)
+                        : java.util.Set.of(Capability.SEARCH);
+            }
+            @Override public List<SearchItem> search(String q, String lang, int limit) {
+                return items;
+            }
+        };
+    }
+
     private static MangaSource fake(String id, String name, String lang,
                                     AtomicInteger calls, List<MangaSource.Section> sections) {
         return new MangaSource() {

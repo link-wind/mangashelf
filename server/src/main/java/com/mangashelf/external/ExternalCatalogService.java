@@ -110,53 +110,71 @@ public class ExternalCatalogService {
 
     // ── 目录浏览 ──
 
-    public record CatalogItemPage(List<ExternalCatalogItem> items, String nextCursor, long total) {}
+    public record CatalogItemPage(List<ExternalCatalogItem> items, String nextCursor, long total,
+                                  int page, int limit, int totalPages) {}
 
     public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
                                      Integer categoryId, String status, String sort, String genre,
                                      Boolean season, Integer page) {
+        return listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, null, page);
+    }
+
+    public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
+                                     Integer categoryId, String status, String sort, String genre,
+                                     Boolean season, String year, Integer page) {
         int effectiveLimit = Math.min(Math.max(limit, 1), 60);
         boolean hasQuery = q != null && !q.isBlank();
-        boolean byEpisodes = "episodes".equals(sort);
-        String countKey = "catalog-count:" + sourceId + ":" + categoryId + ":" + status + ":" + genre + ":" + season;
+        String effectiveSort = (sort == null || sort.isBlank()) ? "updated" : sort;
+        boolean pagedMode = page != null || "episodes".equals(effectiveSort) || "rating".equals(effectiveSort);
+        String countKey = "catalog-count:" + sourceId + ":" + categoryId + ":" + status + ":"
+                + genre + ":" + season + ":" + year + ":" + (hasQuery ? q.trim() : "");
 
-        if (!hasQuery && !byEpisodes && (cursor == null || cursor.isBlank())) {
+        if (!hasQuery && !pagedMode && (cursor == null || cursor.isBlank())) {
             String pageKey = "catalog-page:" + effectiveLimit + ":" + sourceId + ":" + categoryId
-                    + ":" + status + ":" + genre + ":" + season;
+                    + ":" + status + ":" + genre + ":" + season + ":" + year;
             return hotspotCache.getOrLoad("catalog_page", pageKey, Duration.ofSeconds(30), () -> {
                 Cursor c = decodeCursor(null);
-                List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, null, status, sort,
-                        genre, season, c.updatedAt, c.id, 0, effectiveLimit));
+                List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, null, status,
+                        effectiveSort, genre, season, year, c.updatedAt, c.id, null, effectiveLimit));
                 String next = items.size() == effectiveLimit
                         ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                                 items.getLast().id())
                         : null;
                 long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
-                        () -> catalogItems.count(sourceId, categoryId, status, genre, season));
-                return new CatalogItemPage(List.copyOf(items), next, total);
+                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year));
+                int totalPages = total == 0 ? 1 : (int) ((total + effectiveLimit - 1) / effectiveLimit);
+                return new CatalogItemPage(List.copyOf(items), next, total, 1, effectiveLimit, totalPages);
             });
         }
 
-        if (byEpisodes) {
-            int effectivePage = Math.max(page == null ? 0 : page, 0);
-            List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status, sort,
-                    genre, season, null, null, effectivePage * effectiveLimit, effectiveLimit));
-            String next = items.size() == effectiveLimit
-                    ? "page:" + (effectivePage + 1) : null;
-            long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
-                    () -> catalogItems.count(sourceId, categoryId, status, genre, season));
-            return new CatalogItemPage(items, next, total);
+        long total = hasQuery
+                ? catalogItems.count(sourceId, categoryId, q, status, genre, season, year)
+                : hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
+                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year));
+        int totalPages = total == 0 ? 1 : (int) ((total + effectiveLimit - 1) / effectiveLimit);
+
+        if (pagedMode) {
+            int currentPage = Math.max(page == null ? 1 : page, 1);
+            int offset = (currentPage - 1) * effectiveLimit;
+            List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status,
+                    effectiveSort, genre, season, year, null, null, offset, effectiveLimit));
+            String next = currentPage < totalPages ? "page:" + (currentPage + 1) : null;
+            return new CatalogItemPage(items, next, total, currentPage, effectiveLimit, totalPages);
         }
+
         Cursor c = decodeCursor(cursor);
-        List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status, sort,
-                genre, season, c.updatedAt, c.id, 0, effectiveLimit));
+        List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status,
+                effectiveSort, genre, season, year, c.updatedAt, c.id, null, effectiveLimit));
         String next = items.size() == effectiveLimit
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
                 : null;
-        long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
-                () -> catalogItems.count(sourceId, categoryId, status, genre, season));
-        return new CatalogItemPage(items, next, total);
+        return new CatalogItemPage(items, next, total, 1, effectiveLimit, totalPages);
+    }
+
+    public List<ExternalCatalogRepository.GenreStat> listGenres() {
+        return hotspotCache.getOrLoad("catalog_genres", "anime-top-genres", Duration.ofMinutes(5),
+                () -> catalogItems.topGenres(24));
     }
 
     private static List<ExternalCatalogItem> rewriteCovers(List<ExternalCatalogItem> items) {

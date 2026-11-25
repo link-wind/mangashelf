@@ -159,7 +159,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
         return objectMapper.readTree(resp.body()).path("results").path("list");
     }
 
-    /** 渐进式：rank/sections 可见条目入库（哔哩/腾讯/规则源通用路径）。 */
+    /** 渐进式：rank/sections + 题材页可见条目入库（哔哩/腾讯/规则源通用路径）。 */
     private int syncProgressive(JobContext ctx, MangaSource source) throws Exception {
         int saved = 0;
         try {
@@ -179,6 +179,29 @@ public class MangaCatalogSyncHandler implements JobHandler {
         } catch (Exception e) {
             ctx.progress().emit("sync", "分区抓取失败：" + e.getMessage());
         }
+        if (source.capabilities().contains(MangaSource.Capability.SEARCH) && !source.genres().isEmpty()) {
+            List<String> genres = source.genres().stream().limit(12).toList();
+            for (String genre : genres) {
+                try {
+                    for (MangaSource.SearchItem item : source.searchByGenre(genre, "zh", 24)) {
+                        if (item.id() == null || item.id().isBlank() || item.title() == null || item.title().isBlank()) {
+                            continue;
+                        }
+                        catalog.upsert(UUID.randomUUID(), source.id(), item.id(), item.title(),
+                                item.altTitle() == null ? "" : item.altTitle(),
+                                item.coverUrl() == null ? "" : item.coverUrl(),
+                                "", List.of(genre), null);
+                        saved++;
+                    }
+                    sleeper.sleep(PAGE_SLEEP_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                } catch (Exception e) {
+                    log.debug("catalog sync {} genre {} failed: {}", source.id(), genre, e.getMessage());
+                }
+            }
+        }
         return saved;
     }
 
@@ -186,11 +209,12 @@ public class MangaCatalogSyncHandler implements JobHandler {
         if (item.id() == null || item.id().isBlank() || item.title() == null || item.title().isBlank()) {
             return 0;
         }
-        List<String> tags = item.latestLabel() == null || item.latestLabel().isBlank()
-                ? List.of() : List.of(item.latestLabel());
+        String remarks = item.latestLabel() != null && !item.latestLabel().isBlank()
+                ? item.latestLabel().trim()
+                : (item.finished() ? "已完结" : "");
         catalog.upsert(UUID.randomUUID(), source.id(), item.id(), item.title(),
                 item.authors() == null ? "" : String.join(" / ", item.authors()),
-                item.coverUrl() == null ? "" : item.coverUrl(), "", tags, null);
+                item.coverUrl() == null ? "" : item.coverUrl(), remarks, List.of(), null);
         return 1;
     }
 }

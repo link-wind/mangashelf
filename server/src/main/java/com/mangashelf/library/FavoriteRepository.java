@@ -89,14 +89,18 @@ public class FavoriteRepository {
         if (type == null || type.isBlank() || "all".equals(type) || "manga".equals(type)) {
             rows.addAll(jdbc.query("""
                     SELECT 'manga' AS type,
-                           COALESCE(NULLIF(f.manga_title, ''), p.title, f.manga_id) AS title,
-                           p.cover_url, NULL::uuid AS work_id,
+                           COALESCE(NULLIF(f.manga_title, ''), NULLIF(p.title, ''), NULLIF(mc.name, ''), f.manga_id) AS title,
+                           COALESCE(NULLIF(p.cover_url, ''), NULLIF(mc.cover_url, '')) AS cover_url,
+                           NULL::uuid AS work_id,
                            f.manga_source, f.manga_id, NULL::uuid AS catalog_item_id, f.created_at
                       FROM favorites f
                       LEFT JOIN external_manga_progress p
                              ON p.user_id = f.user_id
                             AND p.source = f.manga_source
                             AND p.manga_id = f.manga_id
+                      LEFT JOIN manga_catalog_items mc
+                             ON mc.source = f.manga_source
+                            AND mc.source_item_id = f.manga_id
                      WHERE f.user_id = ? AND f.manga_id IS NOT NULL
                     """, (rs, i) -> new FavoriteRow(rs.getString("type"), rs.getString("title"),
                     rs.getString("cover_url"), null, rs.getString("manga_source"),

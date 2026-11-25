@@ -24,7 +24,8 @@ public class MangaCatalogController {
         this.catalog = catalog;
     }
 
-    public record CatalogPage(List<CatalogItemView> items, String nextCursor, long total) {}
+    public record CatalogPage(List<CatalogItemView> items, String nextCursor, long total,
+                              int page, int limit, int totalPages) {}
 
     public record CatalogItemView(String source, String sourceItemId, String name, String altTitle,
                                   String coverUrl, String remarks, List<String> tags,
@@ -32,17 +33,34 @@ public class MangaCatalogController {
 
     @GetMapping
     public CatalogPage page(@OptionalAuthUser CurrentUser user,
-                            @RequestParam String source,
+                            @RequestParam(required = false) String source,
                             @RequestParam(defaultValue = "24") int limit,
                             @RequestParam(required = false) String genre,
                             @RequestParam(required = false) String status,
+                            @RequestParam(required = false) String sort,
                             @RequestParam(required = false) String q,
+                            @RequestParam(required = false) Integer page,
                             @RequestParam(required = false) String cursor) {
+        int effectiveLimit = Math.min(Math.max(limit, 1), 60);
+        long total = catalog.count(source, genre, status, q);
+        int totalPages = total == 0 ? 1 : (int) ((total + effectiveLimit - 1) / effectiveLimit);
+
+        if (page != null || "episodes".equals(sort)) {
+            int currentPage = Math.max(page == null ? 1 : page, 1);
+            int offset = (currentPage - 1) * effectiveLimit;
+            List<MangaCatalogRepository.MangaCatalogItem> items =
+                    catalog.page(source, genre, status, q, sort, null, null, offset, effectiveLimit);
+            String next = currentPage < totalPages ? "page:" + (currentPage + 1) : null;
+            return new CatalogPage(items.stream().map(MangaCatalogController::view).toList(),
+                    next, total, currentPage, effectiveLimit, totalPages);
+        }
+
         Instant before = Instant.parse("9999-12-31T23:59:59Z");
         UUID beforeId = new UUID(Long.MAX_VALUE, Long.MAX_VALUE);
         if (cursor != null && !cursor.isBlank()) {
             try {
-                String[] parts = cursor.split("\\|", 2);
+                String decoded = new String(java.util.Base64.getUrlDecoder().decode(cursor));
+                String[] parts = decoded.split("\\|", 2);
                 before = Instant.parse(parts[0]);
                 beforeId = UUID.fromString(parts[1]);
             } catch (Exception e) {
@@ -50,18 +68,17 @@ public class MangaCatalogController {
             }
         }
         List<MangaCatalogRepository.MangaCatalogItem> items =
-                catalog.page(source, genre, status, q, before, beforeId,
-                        Math.min(Math.max(limit, 1), 60));
-        String next = items.size() == Math.min(Math.max(limit, 1), 60)
+                catalog.page(source, genre, status, q, sort, before, beforeId, null, effectiveLimit);
+        String next = items.size() == effectiveLimit
                 ? encode(items.getLast().syncedAt(), items.getLast().id())
                 : null;
-        return new CatalogPage(items.stream().map(MangaCatalogController::view).toList(), next,
-                catalog.count(source, genre, status, q));
+        return new CatalogPage(items.stream().map(MangaCatalogController::view).toList(),
+                next, total, 1, effectiveLimit, totalPages);
     }
 
     @GetMapping("/genres")
     public List<MangaCatalogRepository.GenreTag> genres(@OptionalAuthUser CurrentUser user,
-                                                        @RequestParam String source) {
+                                                        @RequestParam(required = false) String source) {
         return catalog.genres(source);
     }
 
