@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import CoverImage from '../components/CoverImage'
-import { BoltIcon, ChevronDownIcon, ClockIcon, HeartIcon, InfoIcon, MoonIcon, PlayIcon, SunIcon } from '../components/Icons'
+import { BoltIcon, ChevronDownIcon, HeartIcon, InfoIcon, MoonIcon, PlayIcon, SunIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 
 interface CalendarEntry {
@@ -32,7 +32,7 @@ interface SeasonOption {
 }
 
 type ScheduleFilter = 'all' | 'following' | 'unwatched'
-type TimeBand = 'prime' | 'midnight' | 'daytime' | 'untimed'
+type TimeBand = 'prime' | 'midnight' | 'daytime'
 
 const DAYS = [
   { id: 1, zh: '周一', en: 'MON' },
@@ -75,9 +75,9 @@ function parseMinutes(hhmm: string | null | undefined): number | null {
   return h * 60 + min
 }
 
-function classifyBand(airTime: string | null | undefined): TimeBand {
+function classifyBand(airTime: string | null | undefined): TimeBand | null {
   const mins = parseMinutes(airTime)
-  if (mins === null) return 'untimed'
+  if (mins === null) return null
   if (mins >= 21 * 60) return 'prime'
   if (mins < 3 * 60) return 'midnight'
   return 'daytime'
@@ -273,27 +273,24 @@ export default function Schedule() {
   }, [items, filter, favCatalogIds, unwatchedIds])
 
   const dayList = useMemo(() => {
-    return filteredAll.filter(it => (it.airWeekday ?? 0) === activeDay)
+    return filteredAll.filter(it => (it.airWeekday ?? 0) === activeDay && parseMinutes(it.airTime) !== null)
   }, [filteredAll, activeDay])
 
-  // 按精确时刻清晰分档：黄金夜档 / 深夜硬核档 / 日间与晚间档 / 今日更多更新（无精确时刻）
+  // 按精确时刻分三档：黄金夜档 / 深夜硬核档 / 日间与晚间档
   const bands = useMemo(() => {
     const prime: CalendarEntry[] = []
     const midnight: CalendarEntry[] = []
     const daytime: CalendarEntry[] = []
-    const untimed: CalendarEntry[] = []
     for (const it of dayList) {
       const b = classifyBand(it.airTime)
       if (b === 'prime') prime.push(it)
       else if (b === 'midnight') midnight.push(it)
       else if (b === 'daytime') daytime.push(it)
-      else untimed.push(it)
     }
     return {
       prime: sortByTimeAndRating(prime),
       midnight: sortByTimeAndRating(midnight),
       daytime: sortByTimeAndRating(daytime),
-      untimed: sortByTimeAndRating(untimed),
     }
   }, [dayList])
 
@@ -631,19 +628,6 @@ export default function Schedule() {
                     </div>
                     <div className="sched-featured-list">
                       {bands.daytime.map(renderDetailedCard)}
-                    </div>
-                  </section>
-                )}
-
-                {bands.untimed.length > 0 && (
-                  <section className="sched-group">
-                    <div className="sched-group-head">
-                      <span className="sched-slot-icon"><ClockIcon size={15} /></span>
-                      <h2>当日更多更新</h2>
-                      <span className="sched-slot-range">{weekdayName(activeDay)}不定时更新</span>
-                    </div>
-                    <div className="sched-compact-grid">
-                      {bands.untimed.map(renderCompactCard)}
                     </div>
                   </section>
                 )}

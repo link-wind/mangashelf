@@ -469,8 +469,9 @@ public class BangumiService {
         return calendar("current");
     }
 
-    /** 时刻表公共过滤条件：过滤儿童向与动态漫画（只保留正常番剧）。 */
+    /** 时刻表公共过滤条件：仅保留有明确播映时间、且非儿童向/动态漫画的正常番剧。 */
     private static final String SCHEDULE_CONTENT_FILTER = """
+            AND COALESCE(b.air_time, '') <> ''
             AND COALESCE(b.media_type, '') <> '动态漫画'
             AND NOT (b.tags && ARRAY['子供向', '儿童', '幼儿', '少儿', '幼教', '早教', '低幼', '动态漫画', '动态漫'])
             AND NOT (COALESCE(NULLIF(b.name_cn, ''), b.name) ~ '(屁屁侦探|熊出没|喜羊羊|汪汪队|小猪佩奇|巧虎|宝宝巴士|奥特曼|超级飞侠|猪猪侠|贝乐虎|面包超人|托马斯|大耳朵图图|动态漫画)')
