@@ -433,3 +433,14 @@ body.reader-open .nav, body.reader-open .site-footer, body.reader-open .nav-fab 
 @media (max-width: 720px) {
   .toast-viewport { left: 14px; right: 76px; bottom: 22px; max-width: none; }
 }
+
+/* 私有页面登录提示（原地展示，不跳转登录页） */
+.login-required {
+  max-width: 480px; margin: 12vh auto 0; text-align: center;
+  padding: 36px 28px; border-radius: var(--radius);
+  background: var(--card); border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft, 0 8px 24px rgba(0, 0, 0, .06));
+}
+.login-required h1 { font-size: 22px; margin: 0 0 10px; color: var(--ink); }
+.login-required p { font-size: 14px; line-height: 1.7; margin: 0 0 20px; }
+.login-required-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }

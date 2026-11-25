@@ -79,8 +79,12 @@
 - **安全错误语义**：新增认证入口 → **401 JSON**（`UNAUTHENTICATED`）、授权拒绝 → **403 JSON**
   （`FORBIDDEN`），前端据 401 在写操作时引导登录，403 作为真实权限错误呈现（不重定向）。
 - **前端**：公开路由始终可进；私有路由（收藏/历史/素材/设置）由 `RequireAuth` 守卫跳
-  `/login?next=<来源>`，登录后回跳。访客顶栏显示「登录」按钮；私有 `/me/*` GET 由页面按 `me` 门控跳过；
-  播放器进度保存、阅读进度保存对访客不提交；未解析剧集播放提示「登录后播放」。
+  登录后回跳。访客顶栏显示「登录」按钮；私有 `/me/*` GET 由页面按 `me` 门控跳过；
+  播放器进度保存、阅读进度保存对访客不提交。
+- **访客进入私有页不跳转**：`/shelf`、`/settings`、`/history` 等私有路由在未登录时**原地显示「需要登录」提示卡**
+  （含「去登录 / 返回首页」按钮），URL 保持不变，不硬跳 `/login`。
+- **访客可直接播放公开剧集**：外部集解析是公共操作，访客触发解析时后端以系统所有者（admin）承载解析任务
+  （满足 `jobs.owner_id` 外键），解析成功即返回直链，访客可直接观看；仅观看进度不保存。
 
 ### 3.2 放行清单（GET，访客可读）
 
@@ -88,7 +92,7 @@
 `/catalog-covers/**`、`/bangumi-covers/**`、`/calendar`、`/danmaku`、`/external-sources`；
 站内作品/章节：`/manga`、`/manga/**`、`/works`、`/works/*`、`/chapters/*`、`/chapter-revisions/*`、
 `/chapter-revisions/*/pages`、`/chapter-revisions/*/animations`；动画：`/animations`、`/animations/*`、
-`/animations/*/playback`；外来集状态：`/external-episodes/*/resolve`（GET，已解析可播）。
+`/animations/*/playback`；外来集状态与解析：`/external-episodes/*/resolve`（GET 查状态，POST 触发解析，访客均可）。
 站内检索：`POST /search`、`POST /search/documents`（只读语义，访客只召回公开内容）。
 
 ### 3.3 实测：端点矩阵（匿名，无 Cookie）
@@ -102,7 +106,7 @@
 | `/api/v1/catalog-items` | **200** |
 | `/api/v1/works` | **200** |
 | `/api/v1/manga` | **200** |
-| `/api/v1/external-episodes/{id}/resolve` | **200**（已解析可播；无效 id 为 4xx/500 属参数错误） |
+| `/api/v1/external-episodes/{id}/resolve`（GET / POST） | **200**（访客可查状态、可触发解析；解析任务以 admin 承载） |
 | `/api/v1/me/continue` | **401** `UNAUTHENTICATED` |
 | `/api/v1/me/favorites` | **401** |
 | `/api/v1/me/reading-progress/{id}` | **401** |
@@ -116,9 +120,10 @@
 | --- | --- |
 | 访客打开首页 | ✅ 完整渲染（Hero 航海王、时刻表、更新），右上角为蓝色「登录」按钮，导航仅含公开项 |
 | 访客打开番剧索引 / 漫画专区 / 漫画索引 / 搜索 | ✅ 均正常出图、可检索（仅召回公开内容） |
-| 访客打开 `/shelf`、`/settings`、`/history` | ✅ 重定向 `/login?next=%2Fshelf` 等 |
+| 访客打开 `/shelf`、`/settings`、`/history` | ✅ 原地显示「需要登录」提示卡，URL 不变（不跳登录页） |
 | 访客打开目录详情 `/catalog/:id` | ✅ 正常渲染，无脚本错误（私有收藏/进度探测静默跳过） |
-| 访客打开浏览态播放 `/browse/:item/:ep` | ✅ 正常渲染；未解析剧集显示「登录后播放」，不误跳转、不报错 |
+| 访客打开浏览态播放 `/browse/:item/:ep` | ✅ 正常渲染并可直接播放：解析状态「已就绪」，`<video>` 加载直链，无登录提示 |
+| 访客触发未解析剧集解析 | ✅ `POST resolve` 200；生成 `external.resolve` 任务 owner=admin 并 SUCCEEDED |
 | 登录后回跳 | ✅ 从 `/shelf` 被拦→登录→回到 `/shelf`（`next` 仅接受站内相对路径，防开放重定向） |
 
 ---
@@ -139,8 +144,8 @@
 ## 5. 已知限制
 
 1. 前端单块 JS 1.01 MB（gzip 312 kB）超 Vite 提示阈值，未做代码分割。
-2. 访客可读的外来集「已解析直链可播；未解析需登录触发解析」——这是刻意的边界（解析任务需真实 job 所有者），
-   避免访客以全零 ID 创建任务。
+2. 访客触发解析以系统所有者（admin）承载任务（`jobs.owner_id` 需真实用户外键）；解析为异步无头浏览器任务，
+   受外部源可用性影响，超时/失败会显式提示可重试。解析按剧集去重并缓存直链，已解析的不再重复触发。
 3. 基于作品（work）的外来剧集端点（`/works/{id}/external-*`）仍要求登录；访客浏览主要走目录条目
    （catalog-items / manga-sources）路径。
 4. 部分时间表/页脚文字链接视觉点击高 18–20px，未强制放大（保持排版紧凑）。

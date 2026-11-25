@@ -84,6 +84,10 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/api/v1/search", "/api/v1/search/documents")
                         .permitAll()
+                        // 外部集解析：访客也可触发公开剧集的直链解析（公共操作，以系统 owner 承载任务）
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                "/api/v1/external-episodes/*/resolve")
+                        .permitAll()
                         .anyRequest().authenticated())
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))

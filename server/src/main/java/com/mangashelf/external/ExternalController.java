@@ -146,7 +146,7 @@ public class ExternalController {
     // ── 播放解析（M7）──
 
     @PostMapping("/external-episodes/{id}/resolve")
-    public ExternalService.ResolveStatus resolve(@AuthUser CurrentUser user,
+    public ExternalService.ResolveStatus resolve(@OptionalAuthUser CurrentUser user,
                                                  @PathVariable UUID id) {
         return externals.resolvePlayback(user, id);
     }

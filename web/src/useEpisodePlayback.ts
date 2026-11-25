@@ -47,12 +47,7 @@ export function useEpisodePlayback(episodeId: string | undefined) {
     try {
       let st = await api.get<PlaybackStatus>(`/api/v1/external-episodes/${id}/resolve`)
       if (!st.playUrl) {
-        // 访客：已解析的剧集可直接播放；未解析的需登录触发解析（DESIGN 3.1）。
-        if (!meRef.current) {
-          setStatus({ jobId: null, jobState: 'NEED_LOGIN', playUrl: null, playKind: null,
-                      errorCode: 'NEED_LOGIN', errorMessage: '登录后可解析并播放该剧集' })
-          return
-        }
+        // 访客也可触发公开剧集的解析（后端以系统 owner 承载任务）；进度仍仅登录用户保存。
         await api.post(`/api/v1/external-episodes/${id}/resolve`, {})
         const started = Date.now()
         for (;;) {

@@ -18,16 +18,19 @@ public class ExternalService {
     private final RuleEngine ruleEngine;
     private final com.mangashelf.ingestion.JobCreationService jobCreation;
     private final DanmakuRepository danmaku;
+    private final com.mangashelf.config.MangaShelfProperties props;
 
     public ExternalService(ExternalRepository externals, CatalogService catalog,
                            RuleEngine ruleEngine,
                            com.mangashelf.ingestion.JobCreationService jobCreation,
-                           DanmakuRepository danmaku) {
+                           DanmakuRepository danmaku,
+                           com.mangashelf.config.MangaShelfProperties props) {
         this.externals = externals;
         this.catalog = catalog;
         this.ruleEngine = ruleEngine;
         this.jobCreation = jobCreation;
         this.danmaku = danmaku;
+        this.props = props;
     }
 
     // ── 规则源 ──
@@ -301,7 +304,10 @@ public class ExternalService {
                     || com.mangashelf.ingestion.Job.STATUS_RUNNING.equals(latest.get().status()));
         if (!active) {
             long window = java.time.Instant.now().getEpochSecond() / RESOLVE_DEDUP_WINDOW_SECONDS;
-            jobCreation.create(com.mangashelf.ingestion.Job.KIND_EXTERNAL_RESOLVE, user.id(),
+            // 访客触发解析时以系统所有者（admin）承载任务：外部集解析是公共操作，
+            // 不涉及用户私有数据，且 jobs.owner_id 有外键到 users（全零访客 ID 无法建任务）。
+            UUID jobOwner = user.isGuest() ? props.demoOwnerId() : user.id();
+            jobCreation.create(com.mangashelf.ingestion.Job.KIND_EXTERNAL_RESOLVE, jobOwner,
                     null, null, null, null, episodeId, null, null,
                     "ext.resolve:" + episodeId + ":" + window);
         }

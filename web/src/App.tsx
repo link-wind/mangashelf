@@ -269,12 +269,24 @@ export default function App() {
   )
 }
 
-/** 私有页面守卫：未登录跳转登录页，登录后回到原页面。 */
+/** 私有页面守卫：未登录时原地展示登录提示（不跳转），登录后回到原页面。 */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { me } = useAuth()
   const location = useLocation()
   if (!me) {
-    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+    const next = encodeURIComponent(location.pathname + location.search)
+    return (
+      <main className="page">
+        <div className="login-required">
+          <h1>需要登录</h1>
+          <p className="muted">该页面需要登录后才能访问（收藏、观看/阅读进度、我的素材与设置均为私有数据）。</p>
+          <div className="login-required-actions">
+            <NavLink to={`/login?next=${next}`} className="pill nav-login-btn">去登录</NavLink>
+            <NavLink to="/" className="ghost pill">返回首页</NavLink>
+          </div>
+        </div>
+      </main>
+    )
   }
   return <>{children}</>
 }

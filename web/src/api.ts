@@ -28,13 +28,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    // 访客浏览（DESIGN 3.1/3.2）：未登录的写操作命中 401 时引导去登录页，而非静默失败。
-    // 只对写请求重定向；读请求（如访客在公开页探测 /me/*）由页面按登录态自行跳过。
-    if (res.status === 401 && method !== 'GET' && typeof window !== 'undefined'
-        && !window.location.pathname.startsWith('/login')) {
-      const next = window.location.pathname + window.location.search
-      window.location.assign('/login?next=' + encodeURIComponent(next))
-    }
+    // 访客浏览（DESIGN 3.1/3.2）：不做任何自动跳转，保持访客停留当前页面；
+    // 401 由页面/组件就地提示「需登录」（如收藏按钮触发 Toast）。避免进入页面即被弹去登录页。
     throw new ApiError(data.code ?? 'UNKNOWN', data.message ?? `请求失败（${res.status}）`, res.status, data.details)
   }
   return data as T
