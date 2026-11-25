@@ -132,6 +132,10 @@ export JAVA_HOME="/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
   - **Stage 1（基线）**：`414.25 RPS`、p50/p95 `57.32 / 89.52 ms`、平均响应体 `295.60 KB`（列表返回 `play_groups` + `Seq Scan 2,228 pages`）；
   - **Stage 2（V29 复合/表达式索引 + 列表去 `play_groups` + 批量聚合，关闭缓存）**：`1,405.48 RPS`（`3.39×`）、p50/p95 `16.26 / 28.10 ms`、平均响应体 `16.21 KB`，首屏列表 SQL 由 `Seq Scan 2,228 pages / 3.03 ms` 降至 `Index Scan 24 pages / 0.05 ms`；
   - **Stage 3（叠加 `HotspotCache` 有界 TTL + 并发回源合并防击穿）**：`1,912.09 RPS`（`4.62×`）、p50/p95 `11.19 / 22.36 ms`，Prometheus 实测热点命中率 `99.98%`（23,376 hit / 5 miss）。
+- **媒体交付与缓存实测（SeaweedFS S3 直连 + Range + 304）**：使用本机合规自生成素材（20 页 `1080×1600` WebP 漫画 `16.94 MiB` + 10s `1280×720` H.264/AAC `faststart` MP4 `4.52 MiB`）在真实 PostgreSQL 18 + SeaweedFS 3.96 上完成对照实测：
+  - **100% 对象存储直连**：漫画页图与动画 MP4 字节完全绕过 Spring Boot（Java API 转发媒体字节恒为 `0 B`）；Nginx `/media/` 配置 HTTP/1.1 长连接、`proxy_buffering off` 与 `proxy_force_ranges on`；
+  - **漫画 30 次翻页会话（20 页顺序 + 跨秒后 10 页回看）**：消除 `/pages` 资产键 N+1（`41 → 2` SQL）、启用授权后短期签名窗口复用（`PresignService`）与分层 `Cache-Control: private, max-age=86400, immutable`、叠加 `Reader.tsx` 窗口复用与 2 页有限预加载后：API 请求由 `30 → 2` 次（`-93.3%`）、跨秒签名 URL 稳定率 `0% → 100%`、浏览器/预加载命中率 `0% → 96.7%`、对象存储下载流量由 `25.41 → 16.94 MiB`（回看流量 `-100%`）、翻页 p95 由 `18.05 → 4.72 ms`（`-73.9%`），对象存储与封面代理均验证 `ETag` / `If-None-Match` → `304 Not Modified`（`0 B`）；
+  - **动画 MP4 播放与实时权限**：首段 `Range: bytes=0-65535` 与中/后段随机拖动均返回 `206 Partial Content`（TTFB `0.76–1.05 ms`、`Accept-Ranges: bytes`、`Cache-Control: private, max-age=86400`），下架后 `/playback` 立即返回 `404`（签名复用绝不绕过实时权限校验）。
 - **异步任务可靠性（PostgreSQL + RabbitMQ）**：数据库 `jobs` 为状态唯一事实，RabbitMQ 仅作通知通道，不引入 Kafka/Redis Stream。通过 Transactional Outbox（互斥领取租约 + Publisher Confirm + 指数退避 jitter）、Worker `lease_token` Fencing（含 `ChapterParseHandler` / `AnimationVerifyHandler` 短事务校验）、单条独立事务恢复扫描、白名单 `TransientJobException` 有限重试与 `content.dlq` 毒消息隔离应对崩溃与重投。
 - **零 OCR 站内混合检索（`pg_trgm` + `pgvector`）**：基于站内作品、动画、番剧目录（含 Bangumi 元数据）与漫画目录构建 `search_documents`（V28），所有策略 SQL 前置权限过滤（`is_public = true OR owner_id = :viewerId`）。
   - 在 200 条向量化站内文档、120 条分级标注查询（40 dev / 80 test 盲测，本地 ONNX `e5-small-v2` 384 维）上实测：
@@ -141,15 +145,17 @@ export JAVA_HOME="/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
 - **一键复现命令**：
 
 ```bash
-cd server && ./mvnw test                                       # 55/55（45 单测 + 8 故障注入 IT + 2 Hybrid Search IT）
+cd server && ./mvnw test                                       # 58/58（48 单测 + 8 故障注入 IT + 2 Hybrid Search IT）
 python3 scripts/bench/run_load_bench.py --base http://127.0.0.1:8080 --vus 24 --duration 12
 # 或使用 k6：k6 run -e BASE_URL=http://127.0.0.1:8080 scripts/bench/k6-workload.js
+# 媒体交付实测（合规自生成素材）：processing/.venv/bin/python scripts/bench/run_media_bench.py --mode prepare --fixture /tmp/fx.json
 # 可选可观测看板：docker compose --profile full,obs up -d prometheus grafana
 ```
 
 详细实测报告与错例/执行计划分析见：
 - [性能基线报告（Stage 1）](docs/validation/benchmark-baseline.md)
 - [数据库读路径优化与热点缓存三阶段实测](docs/validation/benchmark-db-and-hotspot-cache.md)
+- [媒体交付链路审计与端到端实测](docs/validation/audit-and-measure-media-delivery.md)
 - [异步任务可靠性与故障注入验证](docs/validation/harden-reliable-jobs-and-fault-injection.md)
 - [站内混合检索基线与 Rerank 实测](docs/validation/benchmark-and-optimize-hybrid-search.md)
 

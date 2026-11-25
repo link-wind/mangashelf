@@ -395,17 +395,35 @@ public class AnimationService {
         if (revision.videoAssetId() == null) {
             throw new ApiException(404, "ANIMATION_NOT_FOUND", "动画不存在。");
         }
-        String videoKey = assets.findObjectKey(revision.videoAssetId()).orElseThrow();
-        var video = presign.presignGet(videoKey);
+        List<UUID> assetIds = new ArrayList<>(3);
+        assetIds.add(revision.videoAssetId());
+        if (revision.posterAssetId() != null) {
+            assetIds.add(revision.posterAssetId());
+        }
+        if (revision.subtitleAssetId() != null) {
+            assetIds.add(revision.subtitleAssetId());
+        }
+        Map<UUID, String> keysById = assets.findObjectKeysByIds(assetIds);
+        String videoKey = keysById.get(revision.videoAssetId());
+        if (videoKey == null) {
+            throw new ApiException(404, "ASSET_NOT_FOUND", "视频资产不存在。");
+        }
+        var video = presign.presignGet(videoKey, PresignService.MediaCacheProfile.IMMUTABLE_VIDEO);
         String posterUrl = null;
         if (revision.posterAssetId() != null) {
-            posterUrl = presign.presignGet(
-                    assets.findObjectKey(revision.posterAssetId()).orElseThrow()).url();
+            String posterKey = keysById.get(revision.posterAssetId());
+            if (posterKey == null) {
+                throw new ApiException(404, "ASSET_NOT_FOUND", "封面资产不存在。");
+            }
+            posterUrl = presign.presignGet(posterKey, PresignService.MediaCacheProfile.IMMUTABLE_IMAGE).url();
         }
         String subtitleUrl = null;
         if (revision.subtitleAssetId() != null) {
-            subtitleUrl = presign.presignGet(
-                    assets.findObjectKey(revision.subtitleAssetId()).orElseThrow()).url();
+            String subtitleKey = keysById.get(revision.subtitleAssetId());
+            if (subtitleKey == null) {
+                throw new ApiException(404, "ASSET_NOT_FOUND", "字幕资产不存在。");
+            }
+            subtitleUrl = presign.presignGet(subtitleKey, PresignService.MediaCacheProfile.IMMUTABLE_SUBTITLE).url();
         }
         var progress = animations.findWatchProgress(viewer.id(), animationId)
                 .map(p -> new WatchProgressView(p.revisionId(), p.positionMs(), p.version()))

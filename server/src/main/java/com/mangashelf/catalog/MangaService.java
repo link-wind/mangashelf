@@ -38,7 +38,8 @@ public class MangaService {
         List<MangaCard> items = rows.stream().map(r -> new MangaCard(
                 r.id(), r.title(), r.description(), r.visibility(), r.chapterCount(),
                 r.latestOrdinal(), r.latestTitle(),
-                r.coverKey() == null ? null : presign.presignGet(r.coverKey()).url(),
+                r.coverKey() == null ? null
+                        : presign.presignGet(r.coverKey(), PresignService.MediaCacheProfile.IMMUTABLE_IMAGE).url(),
                 r.updatedAt())).toList();
         String next = items.size() == effectiveLimit
                 ? encodeCursor(rows.getLast().updatedAt(), rows.getLast().id())
@@ -64,7 +65,8 @@ public class MangaService {
                         progress.get(c.id())))
                 .toList();
         String coverUrl = manga.coverKey(workId)
-                .map(k -> presign.presignGet(k).url()).orElse(null);
+                .map(k -> presign.presignGet(k, PresignService.MediaCacheProfile.IMMUTABLE_IMAGE).url())
+                .orElse(null);
         ContinueInfo cont = manga.continueTarget(viewer.id(), workId)
                 .map(t -> new ContinueInfo(t.chapterId(), t.revisionId(), t.pageOrdinal()))
                 .orElse(null);

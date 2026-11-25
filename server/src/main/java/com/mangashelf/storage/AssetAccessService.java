@@ -39,7 +39,7 @@ public class AssetAccessService {
             if (!owner && !publicReadable) {
                 throw new ApiException(404, "ASSET_NOT_FOUND", "资产不存在。");
             }
-            return presign.presignGet(asset.objectKey());
+            return presign.presignGet(asset.objectKey(), PresignService.MediaCacheProfile.IMMUTABLE_IMAGE);
         }
 
         // 2) 上传原件：会话所有者（或管理员）
@@ -49,13 +49,25 @@ public class AssetAccessService {
             if (!session.ownerId().equals(user.id()) && !user.isAdmin()) {
                 throw new ApiException(403, "FORBIDDEN", "无权访问该资产。");
             }
-            return presign.presignGet(asset.objectKey());
+            return presign.presignGet(asset.objectKey(), profileOf(asset.kind()));
         }
 
         // 3) 其余资产（任务产物等）：所有者判定
         if (!asset.ownerId().equals(user.id()) && !user.isAdmin()) {
             throw new ApiException(403, "FORBIDDEN", "无权访问该资产。");
         }
-        return presign.presignGet(asset.objectKey());
+        return presign.presignGet(asset.objectKey(), profileOf(asset.kind()));
+    }
+
+    private static PresignService.MediaCacheProfile profileOf(String kind) {
+        if (kind == null) {
+            return PresignService.MediaCacheProfile.DEFAULT;
+        }
+        return switch (kind) {
+            case "READER_IMAGE", "THUMBNAIL", Asset.KIND_POSTER -> PresignService.MediaCacheProfile.IMMUTABLE_IMAGE;
+            case Asset.KIND_VIDEO -> PresignService.MediaCacheProfile.IMMUTABLE_VIDEO;
+            case Asset.KIND_SUBTITLE -> PresignService.MediaCacheProfile.IMMUTABLE_SUBTITLE;
+            default -> PresignService.MediaCacheProfile.DEFAULT;
+        };
     }
 }

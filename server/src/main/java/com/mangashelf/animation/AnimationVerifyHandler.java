@@ -240,10 +240,14 @@ public class AnimationVerifyHandler implements JobHandler {
         }
         String objectKey = StorageKeys.animationArtifact(revisionId,
                 "poster.jpg".equals(artifactPath.getFileName().toString()) ? "poster.jpg" : "subtitles.vtt");
+        String cacheControl = "POSTER".equals(role)
+                ? com.mangashelf.storage.PresignService.MediaCacheProfile.IMMUTABLE_IMAGE.headerValue()
+                : com.mangashelf.storage.PresignService.MediaCacheProfile.IMMUTABLE_SUBTITLE.headerValue();
         s3.putObject(PutObjectRequest.builder()
                 .bucket(props.storage().bucket())
                 .key(objectKey)
                 .contentType(contentType)
+                .cacheControl(cacheControl)
                 .build(), RequestBody.fromBytes(content));
         String kind = "POSTER".equals(role) ? Asset.KIND_POSTER : Asset.KIND_SUBTITLE;
         return tx.execute(status -> assets.insertVerified(job.ownerId(), objectKey, kind,

@@ -211,6 +211,7 @@ public class ChapterParseHandler implements JobHandler {
                 .bucket(props.storage().bucket())
                 .key(objectKey)
                 .contentType(contentType)
+                .cacheControl(com.mangashelf.storage.PresignService.MediaCacheProfile.IMMUTABLE_IMAGE.headerValue())
                 .build(), RequestBody.fromBytes(content));
         String kind = fileName.startsWith("thumbnail") ? "THUMBNAIL" : "READER_IMAGE";
         return tx.execute(status -> assets.insertVerified(job.ownerId(), objectKey, kind,

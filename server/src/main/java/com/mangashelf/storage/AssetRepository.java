@@ -5,7 +5,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -58,6 +61,24 @@ public class AssetRepository {
     public Optional<String> findObjectKey(UUID id) {
         return jdbc.query("SELECT object_key FROM assets WHERE id = ?",
                 (rs, i) -> rs.getString("object_key"), id).stream().findFirst();
+    }
+
+    /** 批量读取资产对象键（消除阅读清单与播放详情的 N+1 SQL）。 */
+    public Map<UUID, String> findObjectKeysByIds(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        UUID[] idArray = ids.stream().filter(java.util.Objects::nonNull).distinct().toArray(UUID[]::new);
+        if (idArray.length == 0) {
+            return Map.of();
+        }
+        Map<UUID, String> result = new HashMap<>(idArray.length * 2);
+        jdbc.query("SELECT id, object_key FROM assets WHERE id = ANY(?)",
+                ps -> ps.setArray(1, ps.getConnection().createArrayOf("uuid", idArray)),
+                rs -> {
+                    result.put(rs.getObject("id", UUID.class), rs.getString("object_key"));
+                });
+        return result;
     }
 
     /** 页面资产追溯到内容链（DESIGN 6.1：访问授权属 storage 模块，跨表只读）。 */

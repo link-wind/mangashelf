@@ -214,20 +214,52 @@ public class ExternalController {
         return catalog.bangumiSyncStatus(user);
     }
 
-    /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）。 */
+    /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持 ETag / 304 条件校验。 */
     @GetMapping("/bangumi-covers/{subjectId}")
-    public ResponseEntity<byte[]> bangumiCover(@AuthUser CurrentUser user,
-                                               @PathVariable long subjectId,
-                                               @RequestParam(defaultValue = "medium") String size)
+    public ResponseEntity<byte[]> bangumiCover(
+            @AuthUser CurrentUser user,
+            @PathVariable long subjectId,
+            @RequestParam(defaultValue = "medium") String size,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch)
             throws Exception {
         BangumiService.Cover cover = bangumi.fetchCover(subjectId, size);
         if (cover == null) {
             return ResponseEntity.notFound().build();
         }
+        String etag = computeEtag(cover.bytes());
+        if (etagMatches(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304)
+                    .header("ETag", etag)
+                    .header("Cache-Control", "public, max-age=604800")
+                    .build();
+        }
         return ResponseEntity.ok()
                 .header("Content-Type", cover.contentType())
+                .header("ETag", etag)
                 .header("Cache-Control", "public, max-age=604800")
                 .body(cover.bytes());
+    }
+
+    private static String computeEtag(byte[] bytes) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            return "\"" + java.util.HexFormat.of().formatHex(digest, 0, 16) + "\"";
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static boolean etagMatches(String ifNoneMatch, String etag) {
+        if (ifNoneMatch == null || ifNoneMatch.isBlank()) {
+            return false;
+        }
+        for (String candidate : ifNoneMatch.split(",")) {
+            String trimmed = candidate.trim();
+            if ("*".equals(trimmed) || etag.equals(trimmed) || trimmed.equals("W/" + etag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），登录可见。 */

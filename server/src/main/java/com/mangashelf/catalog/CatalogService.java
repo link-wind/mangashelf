@@ -104,7 +104,8 @@ public class CatalogService {
         var decor = catalog.decorations(items.stream().map(Work::id).toList());
         List<WorkCard> cards = items.stream().map(w -> {
             var d = decor.getOrDefault(w.id(), new CatalogRepository.Decor(0, 0, null));
-            String posterUrl = d.posterKey() == null ? null : presign.presignGet(d.posterKey()).url();
+            String posterUrl = d.posterKey() == null ? null
+                    : presign.presignGet(d.posterKey(), PresignService.MediaCacheProfile.IMMUTABLE_IMAGE).url();
             return new WorkCard(w.id(), w.title(), w.description(), w.visibility(), w.status(),
                     w.createdAt(), w.updatedAt(), d.animations(), d.episodes(), posterUrl);
         }).toList();
@@ -329,10 +330,28 @@ public class CatalogService {
         int after = decodeOrdinal(cursor);
         int effectiveLimit = Math.min(limit, MAX_PAGE_LIMIT);
         List<Page> pages = catalog.listPages(revisionId, after, effectiveLimit);
+        List<UUID> assetIds = new java.util.ArrayList<>(pages.size() * 2);
+        for (Page p : pages) {
+            assetIds.add(p.imageAssetId());
+            if (p.thumbnailAssetId() != null) {
+                assetIds.add(p.thumbnailAssetId());
+            }
+        }
+        Map<UUID, String> keysById = assets.findObjectKeysByIds(assetIds);
         List<PageView> views = pages.stream().map(p -> {
-            var image = presign.presignGet(objectKeyOfAsset(p.imageAssetId()));
-            String thumb = p.thumbnailAssetId() == null ? null
-                    : presign.presignGet(objectKeyOfAsset(p.thumbnailAssetId())).url();
+            String imageKey = keysById.get(p.imageAssetId());
+            if (imageKey == null) {
+                throw new ApiException(404, "ASSET_NOT_FOUND", "页面资产不存在。");
+            }
+            var image = presign.presignGet(imageKey, PresignService.MediaCacheProfile.IMMUTABLE_IMAGE);
+            String thumb = null;
+            if (p.thumbnailAssetId() != null) {
+                String thumbKey = keysById.get(p.thumbnailAssetId());
+                if (thumbKey == null) {
+                    throw new ApiException(404, "ASSET_NOT_FOUND", "页面资产不存在。");
+                }
+                thumb = presign.presignGet(thumbKey, PresignService.MediaCacheProfile.IMMUTABLE_IMAGE).url();
+            }
             return new PageView(p.id(), p.ordinal(), p.width(), p.height(),
                     image.url(), thumb, image.expiresAt());
         }).toList();
@@ -340,11 +359,6 @@ public class CatalogService {
                 ? encodeOrdinal(pages.getLast().ordinal()) : null;
         return new PagesPage(revisionId, revision.status(), revision.pageCount(),
                 revision.editVersion(), next, views);
-    }
-
-    private String objectKeyOfAsset(UUID assetId) {
-        return assets.findObjectKey(assetId).orElseThrow(() ->
-                new ApiException(404, "ASSET_NOT_FOUND", "页面资产不存在。"));
     }
 
     // ── 游标（created_at, id 稳定键；页序游标为 ordinal）──

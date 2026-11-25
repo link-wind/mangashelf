@@ -8,7 +8,14 @@ interface PageView {
   width: number
   height: number
   imageUrl: string
+  thumbnailUrl?: string | null
+  imageExpiresAt?: string
 }
+
+/** 窗口拉取大小与有限预加载页数（DESIGN 14.1：不一次请求整本原图）。 */
+const WINDOW_LIMIT = 10
+const PREFETCH_AHEAD = 2
+const REFRESH_MARGIN_MS = 60_000
 
 interface PagesPage {
   revisionId: string
@@ -38,10 +45,10 @@ interface WorkChapter {
   id: string; ordinal: number; title: string; currentRevisionId: string | null
 }
 
-/** 阅读器（DESIGN 14.1/14.3/4.1）：固定版本页面窗口 + 进度防覆盖同步 + 续读 + 页级动画入口。 */
+/** 阅读器（DESIGN 14.1/14.3/4.1）：固定版本页面窗口复用 + 有限预加载 + 进度防覆盖同步 + 续读 + 页级动画入口。 */
 export default function Reader() {
   const { revisionId } = useParams()
-  const [windowPages, setWindowPages] = useState<PageView[]>([])
+  const [pagesByOrdinal, setPagesByOrdinal] = useState<Record<number, PageView>>({})
   const [pageCount, setPageCount] = useState(0)
   const [current, setCurrent] = useState(0) // 1 起页序
   const [version, setVersion] = useState(0)
@@ -54,30 +61,88 @@ export default function Reader() {
   const [chapters, setChapters] = useState<WorkChapter[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [tocAsc, setTocAsc] = useState(true)
-  const cursorRef = useRef<string | null>(null)
   const loadedRef = useRef(false)
   const wheelLockRef = useRef(0)
+  const pagesRef = useRef<Record<number, PageView>>({})
+  const prefetchedUrlsRef = useRef<Set<string>>(new Set())
+  const inflightCursorsRef = useRef<Set<number>>(new Set())
 
-  // 拉取首页窗口；有续读进度则跳到上次位置
+  const isFresh = useCallback((p: PageView | undefined) => {
+    if (!p) return false
+    if (!p.imageExpiresAt) return true
+    const exp = Date.parse(p.imageExpiresAt)
+    return Number.isNaN(exp) || exp - Date.now() > REFRESH_MARGIN_MS
+  }, [])
+
+  const fetchWindow = useCallback(async (startOrdinal: number) => {
+    if (!revisionId) return
+    const cursor = Math.max(0, startOrdinal - 1)
+    if (inflightCursorsRef.current.has(cursor)) return
+    inflightCursorsRef.current.add(cursor)
+    try {
+      const page = await api.get<PagesPage>(
+        `/api/v1/chapter-revisions/${revisionId}/pages?limit=${WINDOW_LIMIT}&cursor=${cursor}`)
+      setPageCount(page.pageCount)
+      setPagesByOrdinal(prev => {
+        const next = { ...prev }
+        for (const item of page.pages) {
+          next[item.ordinal] = item
+        }
+        pagesRef.current = next
+        return next
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      inflightCursorsRef.current.delete(cursor)
+    }
+  }, [revisionId])
+
+  // 按需补齐窗口：当前页或前方 PREFETCH_AHEAD 页未缓存/临近过期时才请求 API
+  const ensureWindow = useCallback(async (targetOrdinal: number, totalCount?: number) => {
+    const knownTotal = totalCount ?? pageCount
+    const cache = pagesRef.current
+    if (!isFresh(cache[targetOrdinal])) {
+      await fetchWindow(targetOrdinal)
+      return
+    }
+    const maxLookahead = knownTotal > 0 ? Math.min(knownTotal, targetOrdinal + PREFETCH_AHEAD) : targetOrdinal + PREFETCH_AHEAD
+    for (let ord = targetOrdinal + 1; ord <= maxLookahead; ord++) {
+      if (!isFresh(cache[ord])) {
+        void fetchWindow(ord)
+        break
+      }
+    }
+  }, [fetchWindow, isFresh, pageCount])
+
+  // 拉取首页窗口（支持 URL ?resume= 与 ?chapter=）
   useEffect(() => {
     let cancelled = false
+    pagesRef.current = {}
+    prefetchedUrlsRef.current.clear()
+    setPagesByOrdinal({})
+    const params = new URLSearchParams(window.location.search)
+    const resume = Number(params.get('resume') || '0')
+    const chapter = params.get('chapter')
+    if (chapter) setChapterId(chapter)
+    const startOrdinal = resume > 0 ? resume : 1
     ;(async () => {
       try {
-        // 先取章节 id（用于进度接口）
-        // 简化：从 work 详情不可得；进度按 chapter 保存——这里通过页面接口首载，
-        // chapter_id 在保存进度时由服务端 409 快照/首次成功返回路径间接获得。
-        const page = await api.get<PagesPage>(`/api/v1/chapter-revisions/${revisionId}/pages?limit=5`)
+        const page = await api.get<PagesPage>(
+          `/api/v1/chapter-revisions/${revisionId}/pages?limit=${WINDOW_LIMIT}&cursor=${Math.max(0, startOrdinal - 1)}`)
         if (cancelled) return
-        setWindowPages(page.pages)
+        const map: Record<number, PageView> = {}
+        for (const item of page.pages) {
+          map[item.ordinal] = item
+        }
+        pagesRef.current = map
+        setPagesByOrdinal(map)
         setPageCount(page.pageCount)
-        cursorRef.current = page.nextCursor
-        const first = page.pages[0]?.ordinal ?? 1
-        setCurrent(first)
-        // 续读：进度 revision 匹配则跳转
-        try {
-          // 进度查询需要 chapterId；Reader 通过 window.__lastProgress 由详情页传递不现实，
-          // 直接用服务端最近进度接口不可行（需要 chapterId）——以 URL ?resume=ordinal 支持。
-        } catch { /* 无进度 */ }
+        const initial = resume > 0 && resume <= page.pageCount
+          ? resume
+          : (page.pages[0]?.ordinal ?? 1)
+        loadedRef.current = true
+        setCurrent(initial)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
       }
@@ -85,29 +150,21 @@ export default function Reader() {
     return () => { cancelled = true }
   }, [revisionId])
 
-  // 解析 ?resume= 与 ?chapter= 参数
+  // 有限预加载下一页/下两页（DESIGN 14.1：不预加载整本原图）
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const resume = params.get('resume')
-    const chapter = params.get('chapter')
-    if (chapter) setChapterId(chapter)
-    if (resume && !loadedRef.current) {
-      loadedRef.current = true
-      setCurrent(Number(resume))
+    if (!current) return
+    const maxOrd = pageCount > 0 ? Math.min(pageCount, current + PREFETCH_AHEAD) : current + PREFETCH_AHEAD
+    for (let ord = current + 1; ord <= maxOrd; ord++) {
+      const p = pagesByOrdinal[ord]
+      if (!p || !isFresh(p)) continue
+      const url = mediaUrl(p.imageUrl)
+      if (prefetchedUrlsRef.current.has(url)) continue
+      prefetchedUrlsRef.current.add(url)
+      const img = new Image()
+      img.decoding = 'async'
+      img.src = url
     }
-  }, [])
-
-  // 当前页窗口：向前/向后翻页时按需拉取
-  const loadWindow = useCallback(async (aroundOrdinal: number) => {
-    try {
-      const page = await api.get<PagesPage>(
-        `/api/v1/chapter-revisions/${revisionId}/pages?limit=5&cursor=${Math.max(0, aroundOrdinal - 1)}`)
-      setWindowPages(page.pages)
-      cursorRef.current = page.nextCursor
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    }
-  }, [revisionId])
+  }, [current, pageCount, pagesByOrdinal, isFresh])
 
   // 作品名与章节名（阅读器顶栏）
   useEffect(() => {
@@ -188,16 +245,20 @@ export default function Reader() {
     }
   }, [chapterId, revisionId, version])
 
-  async function go(delta: number) {
-    const next = Math.min(Math.max(1, current + delta), pageCount)
+  async function jumpTo(target: number) {
+    const next = Math.min(Math.max(1, target), pageCount)
     if (next === current) return
     setCurrent(next)
-    await loadWindow(next)
+    await ensureWindow(next)
     void saveProgress(next)
   }
 
-  const currentUrl = windowPages.find(p => p.ordinal === current)?.imageUrl
-    ?? windowPages[0]?.imageUrl
+  async function go(delta: number) {
+    await jumpTo(current + delta)
+  }
+
+  const currentUrl = pagesByOrdinal[current]?.imageUrl
+    ?? Object.values(pagesByOrdinal)[0]?.imageUrl
 
   // 阅读时隐藏站点导航（与外部漫画阅读器一致）
   useEffect(() => {
@@ -261,7 +322,7 @@ export default function Reader() {
         <div className="rf-progress">
           <span className="rf-page">{current} / {pageCount}</span>
           <input type="range" min={1} max={Math.max(pageCount, 1)} value={current}
-                 onChange={e => { setCurrent(Number(e.target.value)) }} />
+                 onChange={e => { void jumpTo(Number(e.target.value)) }} />
         </div>
         <button className="rf-text-btn" onClick={() => void go(1)} disabled={current >= pageCount}>下一页</button>
       </footer>
