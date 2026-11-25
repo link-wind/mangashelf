@@ -130,3 +130,20 @@ export function ChevronDownIcon({ size = 14, ...p }: IconProps) {
     </svg>
   )
 }
+
+export function BoltIcon({ size = 15, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M13 2 4.5 13.5h6L9.5 22 19.5 10.5h-6L13 2Z" />
+    </svg>
+  )
+}
+
+export function ClockIcon({ size = 15, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}

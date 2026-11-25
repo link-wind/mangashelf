@@ -228,14 +228,15 @@ public class ExternalController {
         return catalog.bangumiSyncStatus(user);
     }
 
-    /** 按需补齐 Bangumi v0 条目详情元数据（tags / air_date / summary）。 */
+    /** 按需补齐 Bangumi v0 条目详情元数据（tags / air_date / air_time / studio / media_type / summary）。 */
     @PostMapping("/admin/bangumi-enrich")
     public BangumiService.EnrichStats enrichBangumi(@AuthUser CurrentUser user,
-                                                    @RequestParam(defaultValue = "80") int limit) {
+                                                    @RequestParam(defaultValue = "80") int limit,
+                                                    @RequestParam(defaultValue = "false") boolean force) {
         if (!user.isAdmin()) {
             throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行元数据补齐。");
         }
-        return bangumi.enrichSubjectsMetadata(limit);
+        return bangumi.enrichSubjectsMetadata(limit, force);
     }
 
     /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持持久化缓存与 ETag/304。 */
@@ -306,10 +307,17 @@ public class ExternalController {
         return false;
     }
 
-    /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），公开可读。 */
+    /** 新番时刻表（支持按季度筛选），公开可读。 */
     @GetMapping("/calendar")
-    public List<BangumiService.CalendarEntry> calendar(@OptionalAuthUser CurrentUser user) {
-        return bangumi.calendar();
+    public List<BangumiService.CalendarEntry> calendar(@OptionalAuthUser CurrentUser user,
+                                                       @RequestParam(required = false) String season) {
+        return bangumi.calendar(season);
+    }
+
+    /** 可选季度列表，公开可读。 */
+    @GetMapping("/calendar/seasons")
+    public List<BangumiService.SeasonOption> calendarSeasons() {
+        return bangumi.calendarSeasons();
     }
 
     /** 追番日历 .ics 订阅（RFC 5545）：支持全本季或登录态 onlyMine=true（仅本人收藏的本季追番）。 */

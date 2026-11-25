@@ -459,53 +459,146 @@ public class BangumiService {
     public record CalendarEntry(long subjectId, String name, String nameCn, String coverUrl,
                                 Double rating, Integer airWeekday, boolean covered,
                                 String catalogItemId, String workId, String summary,
-                                String remarks, Integer episodeCount, String categoryName) {}
+                                String remarks, Integer episodeCount, String categoryName,
+                                LocalDate airDate, String airTime, String studio, String mediaType) {}
 
-    /** 本季新番（含资源覆盖标记），按星期分组供前端展示；经热点缓存（TTL 60s）加速高频首页读。 */
+    public record SeasonOption(String code, String label) {}
+
+    /** 本季新番（默认 current），兼容既有调用。 */
     public List<CalendarEntry> calendar() {
-        return hotspotCache.getOrLoad("calendar", "calendar", Duration.ofSeconds(60), () -> jdbc.query("""
-                SELECT DISTINCT ON (b.subject_id)
-                       b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
-                       (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
-                       c.remarks, c.episode_count, c.category_name
-                FROM bangumi_subjects b
-                LEFT JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
-                WHERE b.in_calendar
-                ORDER BY b.subject_id, c.episode_count DESC NULLS LAST
-                """, rs -> {
-            List<CalendarEntry> out = new ArrayList<>();
-            while (rs.next()) {
-                var rating = rs.getBigDecimal(5);
-                out.add(new CalendarEntry(rs.getLong(1), rs.getString(2), rs.getString(3),
-                        rs.getString(4), rating == null ? null : rating.doubleValue(),
-                        (Integer) rs.getObject(6),
-                        rs.getBoolean(7), rs.getString(8), rs.getString(9), rs.getString(10),
-                        rs.getString(11), (Integer) rs.getObject(12), rs.getString(13)));
+        return calendar("current");
+    }
+
+    /**
+     * 新番时刻表查询：支持 season = current（默认本季）/ all（全部已定档）/ YYYYQ[1-4]（指定季度）。
+     * 经热点缓存（TTL 60s）加速高频读。
+     */
+    public List<CalendarEntry> calendar(String season) {
+        String key = (season == null || season.isBlank()) ? "current" : season.trim();
+        return hotspotCache.getOrLoad("calendar", "calendar:" + key, Duration.ofSeconds(60), () -> {
+            String whereClause;
+            Object[] args;
+            if ("all".equalsIgnoreCase(key)) {
+                whereClause = "WHERE b.air_weekday IS NOT NULL";
+                args = new Object[0];
+            } else {
+                LocalDate[] range = parseSeasonRange(key);
+                if (range != null) {
+                    whereClause = "WHERE b.air_date BETWEEN ? AND ? AND b.air_weekday IS NOT NULL";
+                    args = new Object[]{java.sql.Date.valueOf(range[0]), java.sql.Date.valueOf(range[1])};
+                } else {
+                    whereClause = "WHERE b.in_calendar";
+                    args = new Object[0];
+                }
             }
+            String sql = """
+                    SELECT DISTINCT ON (b.subject_id)
+                           b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
+                           (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
+                           c.remarks, c.episode_count, c.category_name,
+                           b.air_date, b.air_time, b.studio, b.media_type
+                    FROM bangumi_subjects b
+                    LEFT JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
+                    """ + whereClause + "\n" + """
+                    ORDER BY b.subject_id, c.episode_count DESC NULLS LAST
+                    """;
+            List<CalendarEntry> out = jdbc.query(sql, rs -> {
+                List<CalendarEntry> list = new ArrayList<>();
+                while (rs.next()) {
+                    var rating = rs.getBigDecimal(5);
+                    var airDateSql = rs.getDate(14);
+                    list.add(new CalendarEntry(
+                            rs.getLong(1), rs.getString(2), rs.getString(3),
+                            rs.getString(4), rating == null ? null : rating.doubleValue(),
+                            (Integer) rs.getObject(6),
+                            rs.getBoolean(7), rs.getString(8), rs.getString(9), rs.getString(10),
+                            rs.getString(11), (Integer) rs.getObject(12), rs.getString(13),
+                            airDateSql == null ? null : airDateSql.toLocalDate(),
+                            rs.getString(15), rs.getString(16), rs.getString(17)));
+                }
+                return list;
+            }, args);
             out.sort(java.util.Comparator
                     .comparing((CalendarEntry e) -> e.airWeekday() == null ? 99 : e.airWeekday())
                     .thenComparing(e -> e.rating() == null ? -1 : e.rating(), java.util.Comparator.reverseOrder()));
             return List.copyOf(out);
-        }));
+        });
     }
 
-    // ── Bangumi v0 条目详情元数据补齐（tags / air_date / summary / rating）──
+    /** 列出库内可选季度（基于 bangumi_subjects.air_date 真实统计）。 */
+    public List<SeasonOption> calendarSeasons() {
+        return hotspotCache.getOrLoad("calendar", "calendar_seasons", Duration.ofMinutes(5), () -> {
+            List<SeasonOption> options = new ArrayList<>();
+            options.add(new SeasonOption("current", "本季新番"));
+            List<SeasonOption> quarters = jdbc.query("""
+                    SELECT EXTRACT(YEAR FROM air_date)::int AS y,
+                           CEIL(EXTRACT(MONTH FROM air_date) / 3.0)::int AS q
+                      FROM bangumi_subjects
+                     WHERE air_date IS NOT NULL AND air_weekday IS NOT NULL
+                     GROUP BY y, q
+                     ORDER BY y DESC, q DESC
+                     LIMIT 12
+                    """, (rs, i) -> {
+                int y = rs.getInt(1);
+                int q = rs.getInt(2);
+                String name = switch (q) {
+                    case 1 -> "冬季新番";
+                    case 2 -> "春季新番";
+                    case 3 -> "夏季新番";
+                    default -> "秋季新番";
+                };
+                return new SeasonOption(y + "Q" + q, y + "年 " + name);
+            });
+            options.addAll(quarters);
+            if (quarters.size() > 1) {
+                options.add(new SeasonOption("all", "全部季度"));
+            }
+            return List.copyOf(options);
+        });
+    }
+
+    static LocalDate[] parseSeasonRange(String season) {
+        if (season == null) return null;
+        var m = java.util.regex.Pattern.compile("^(\\d{4})Q([1-4])$").matcher(season.trim().toUpperCase(java.util.Locale.ROOT));
+        if (!m.matches()) return null;
+        int year = Integer.parseInt(m.group(1));
+        int q = Integer.parseInt(m.group(2));
+        int startMonth = (q - 1) * 3 + 1;
+        LocalDate start = LocalDate.of(year, startMonth, 1);
+        LocalDate end = start.plusMonths(3).minusDays(1);
+        return new LocalDate[]{start, end};
+    }
+
+    // ── Bangumi v0 条目详情元数据补齐（tags / air_date / air_time / studio / media_type / summary / rating）──
 
     public record EnrichStats(int checked, int enriched, int failed) {}
 
-    /**
-     * 通过 Bangumi v0 条目接口礼貌限速补齐缺失的 tags / air_date / summary：
-     * 优先补齐本季日历条目，再补已关联目录的条目；单条失败隔离不中断整批。
-     */
     public EnrichStats enrichSubjectsMetadata(int maxSubjects) {
-        int limit = Math.min(Math.max(maxSubjects, 1), 120);
-        List<Long> subjectIds = jdbc.query("""
-                SELECT subject_id
-                  FROM bangumi_subjects
-                 WHERE cardinality(tags) = 0 OR air_date IS NULL OR summary = ''
-                 ORDER BY in_calendar DESC, rating DESC NULLS LAST, subject_id DESC
-                 LIMIT ?
-                """, (rs, i) -> rs.getLong(1), limit);
+        return enrichSubjectsMetadata(maxSubjects, false);
+    }
+
+    /**
+     * 通过 Bangumi v0 条目接口礼貌限速补齐缺失的元数据：
+     * 优先补齐本季日历条目，再补已关联目录的条目；单条失败隔离不中断整批。
+     * force=true 时对本季条目执行全量刷新（用于补齐新增字段如 air_time/studio/media_type）。
+     */
+    public EnrichStats enrichSubjectsMetadata(int maxSubjects, boolean force) {
+        int limit = Math.min(Math.max(maxSubjects, 1), 150);
+        String sql = force
+                ? """
+                  SELECT subject_id
+                    FROM bangumi_subjects
+                   ORDER BY in_calendar DESC, rating DESC NULLS LAST, subject_id DESC
+                   LIMIT ?
+                  """
+                : """
+                  SELECT subject_id
+                    FROM bangumi_subjects
+                   WHERE cardinality(tags) = 0 OR air_date IS NULL OR summary = '' OR media_type = ''
+                   ORDER BY in_calendar DESC, rating DESC NULLS LAST, subject_id DESC
+                   LIMIT ?
+                  """;
+        List<Long> subjectIds = jdbc.query(sql, (rs, i) -> rs.getLong(1), limit);
         int enriched = 0;
         int failed = 0;
         for (int i = 0; i < subjectIds.size(); i++) {
@@ -520,6 +613,9 @@ public class BangumiService {
                                air_date = COALESCE(?, air_date),
                                rating = COALESCE(?, rating),
                                tags = CASE WHEN cardinality(?) > 0 THEN ? ELSE tags END,
+                               air_time = COALESCE(?, air_time),
+                               studio = CASE WHEN ? <> '' THEN ? ELSE studio END,
+                               media_type = CASE WHEN ? <> '' THEN ? ELSE media_type END,
                                synced_at = now()
                          WHERE subject_id = ?
                         """,
@@ -528,6 +624,9 @@ public class BangumiService {
                         parsed.airDate() == null ? null : java.sql.Date.valueOf(parsed.airDate()),
                         parsed.rating(),
                         parsed.tags().toArray(new String[0]), parsed.tags().toArray(new String[0]),
+                        parsed.airTime(),
+                        parsed.studio(), parsed.studio(),
+                        parsed.mediaType(), parsed.mediaType(),
                         sid);
                 enriched++;
             } catch (Exception e) {
@@ -543,17 +642,110 @@ public class BangumiService {
                 }
             }
         }
-        if (enriched > 0) {
+        int timedUpdated = syncAirTimesFromBangumiDataQuietly();
+        if (enriched > 0 || timedUpdated > 0) {
             hotspotCache.invalidate("calendar");
             hotspotCache.invalidate("catalog_genres");
         }
         return new EnrichStats(subjectIds.size(), enriched, failed);
     }
 
-    record EnrichedDetail(String nameCn, String summary, LocalDate airDate, Double rating, List<String> tags) {}
+    private static final String[] BANGUMI_DATA_URLS = {
+            "https://cdn.jsdelivr.net/npm/bangumi-data@0.3/dist/data.json",
+            "https://unpkg.com/bangumi-data@0.3/dist/data.json"
+    };
+    private static final java.time.ZoneId SHANGHAI = java.time.ZoneId.of("Asia/Shanghai");
+    private static final java.time.format.DateTimeFormatter HHMM =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm");
+
+    /**
+     * 从开源社区数据集 bangumi-data（MIT）一次拉取精确首播 UTC 时间戳，
+     * 换算为北京时间 HH:mm 批量回填 bangumi_subjects.air_time。
+     */
+    public int syncAirTimesFromBangumiDataQuietly() {
+        try {
+            return syncAirTimesFromBangumiData();
+        } catch (Exception e) {
+            log.warn("bangumi-data air_time sync skipped: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    public int syncAirTimesFromBangumiData() throws Exception {
+        List<Long> existingIds = jdbc.query(
+                "SELECT subject_id FROM bangumi_subjects", (rs, i) -> rs.getLong(1));
+        if (existingIds.isEmpty()) return 0;
+        java.util.Set<Long> idSet = new java.util.HashSet<>(existingIds);
+
+        JsonNode root = null;
+        Exception lastErr = null;
+        for (String url : BANGUMI_DATA_URLS) {
+            try {
+                root = get(url);
+                break;
+            } catch (Exception e) {
+                lastErr = e;
+            }
+        }
+        if (root == null) {
+            throw lastErr != null ? lastErr : new IllegalStateException("bangumi-data fetch failed");
+        }
+
+        java.util.Map<Long, String> times = parseBangumiDataAirTimes(root);
+        List<Object[]> batch = new ArrayList<>();
+        for (var entry : times.entrySet()) {
+            if (idSet.contains(entry.getKey())) {
+                batch.add(new Object[]{entry.getValue(), entry.getKey()});
+            }
+        }
+        if (!batch.isEmpty()) {
+            jdbc.batchUpdate("UPDATE bangumi_subjects SET air_time = ? WHERE subject_id = ?", batch);
+            hotspotCache.invalidate("calendar");
+            log.info("bangumi-data air_time synced for {}/{} subjects", batch.size(), existingIds.size());
+        }
+        return batch.size();
+    }
+
+    /** 解析 bangumi-data data.json → { bangumiSubjectId: "HH:mm" (Asia/Shanghai) }。 */
+    static java.util.Map<Long, String> parseBangumiDataAirTimes(JsonNode root) {
+        java.util.Map<Long, String> out = new java.util.HashMap<>();
+        JsonNode items = root.path("items");
+        if (!items.isArray()) return out;
+        for (JsonNode item : items) {
+            String begin = item.path("begin").asText("").trim();
+            if (begin.isBlank()) continue;
+            String hhmm;
+            try {
+                hhmm = java.time.Instant.parse(begin).atZone(SHANGHAI).format(HHMM);
+            } catch (Exception ignored) {
+                continue;
+            }
+            JsonNode sites = item.path("sites");
+            if (!sites.isArray()) continue;
+            for (JsonNode site : sites) {
+                if (!"bangumi".equals(site.path("site").asText(""))) continue;
+                String rawId = site.path("id").asText("").trim();
+                try {
+                    long sid = Long.parseLong(rawId);
+                    out.put(sid, hhmm);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return out;
+    }
+
+    record EnrichedDetail(String nameCn, String summary, LocalDate airDate, Double rating, List<String> tags,
+                          String airTime, String studio, String mediaType) {}
+
+    private static final java.util.regex.Pattern TIME_PATTERN =
+            java.util.regex.Pattern.compile("(?<!\\d)(\\d{1,2})[:：](\\d{2})(?!\\d)");
+    private static final java.util.regex.Pattern JAPANESE_KANA =
+            java.util.regex.Pattern.compile("[\\u3040-\\u30FF]");
 
     /** 解析 Bangumi v0 /subjects/{id} 响应（公开包级供单元测试直接校验）。 */
     static EnrichedDetail parseV0SubjectDetail(JsonNode detail) {
+        String name = detail.path("name").asText("").trim();
         String nameCn = detail.path("name_cn").asText("").trim();
         String summary = detail.path("summary").asText("").trim();
         LocalDate airDate = parseDate(detail.path("date").asText(""));
@@ -575,7 +767,127 @@ public class BangumiService {
                     String v = t.path("name").asText("").trim();
                     if (!v.isBlank()) tags.add(v);
                 });
-        return new EnrichedDetail(nameCn, summary, airDate, rating, List.copyOf(tags));
+
+        String mediaType = detail.path("platform").asText("").trim();
+        if (mediaType.length() > 24) mediaType = mediaType.substring(0, 24);
+
+        boolean isLikelyChinese = tags.contains("国产") || tags.contains("中国") || tags.contains("国漫");
+        boolean isLikelyJapanese = !isLikelyChinese && (JAPANESE_KANA.matcher(name).find() || tags.contains("日本"));
+
+        String studio = extractStudio(detail.path("infobox"));
+        String airTime = extractAirTime(detail.path("infobox"), isLikelyJapanese);
+
+        return new EnrichedDetail(nameCn, summary, airDate, rating, List.copyOf(tags), airTime, studio, mediaType);
+    }
+
+    private static String extractStudio(JsonNode infobox) {
+        if (!infobox.isArray()) return "";
+        String fallback = "";
+        for (JsonNode item : infobox) {
+            String key = item.path("key").asText("").trim();
+            if ("动画制作".equals(key)) {
+                String v = formatInfoboxValue(item.path("value"), 2);
+                if (!v.isBlank()) return truncate(v, 120);
+            } else if (fallback.isBlank() && ("制作".equals(key) || "出品".equals(key))) {
+                String v = formatInfoboxValue(item.path("value"), 2);
+                if (!v.isBlank()) fallback = truncate(v, 120);
+            }
+        }
+        return fallback;
+    }
+
+    private static String extractAirTime(JsonNode infobox, boolean isLikelyJapanese) {
+        if (!infobox.isArray()) return null;
+        String[] priorityKeys = {"放送时间", "播放时间", "播出时间", "放送星期", "放送开始"};
+        for (String targetKey : priorityKeys) {
+            for (JsonNode item : infobox) {
+                if (!targetKey.equals(item.path("key").asText("").trim())) continue;
+                String parsed = parseInfoboxTime(item.path("value"), isLikelyJapanese);
+                if (parsed != null) return parsed;
+            }
+        }
+        return null;
+    }
+
+    private static String parseInfoboxTime(JsonNode valueNode, boolean isLikelyJapanese) {
+        if (valueNode.isString()) {
+            return parseTimeFromText(valueNode.asText(""), isLikelyJapanese);
+        }
+        if (valueNode.isArray()) {
+            // 优先匹配明确标注为中国/北京时间的条目
+            for (JsonNode entry : valueNode) {
+                String k = entry.path("k").asText("");
+                String v = entry.path("v").asText("");
+                if (containsChinaMarker(k) || containsChinaMarker(v)) {
+                    String t = parseTimeFromText(v, false);
+                    if (t != null) return t;
+                }
+            }
+            for (JsonNode entry : valueNode) {
+                String k = entry.path("k").asText("");
+                String v = entry.path("v").asText("");
+                boolean jst = containsJapanMarker(k) || containsJapanMarker(v) || isLikelyJapanese;
+                String t = parseTimeFromText(v, jst);
+                if (t != null) return t;
+            }
+        }
+        return null;
+    }
+
+    static String parseTimeFromText(String raw, boolean assumeJst) {
+        if (raw == null || raw.isBlank()) return null;
+        var m = TIME_PATTERN.matcher(raw);
+        if (!m.find()) return null;
+        int hour = Integer.parseInt(m.group(1));
+        int minute = Integer.parseInt(m.group(2));
+        if (minute < 0 || minute > 59 || hour < 0 || hour > 30) return null;
+
+        boolean convertJst;
+        if (containsChinaMarker(raw)) {
+            convertJst = false;
+        } else if (hour >= 24 || containsJapanMarker(raw)) {
+            convertJst = true;
+        } else {
+            convertJst = assumeJst;
+        }
+        int totalMin = hour * 60 + minute;
+        if (convertJst) {
+            totalMin -= 60;
+        }
+        totalMin = ((totalMin % 1440) + 1440) % 1440;
+        return String.format(java.util.Locale.ROOT, "%02d:%02d", totalMin / 60, totalMin % 60);
+    }
+
+    private static boolean containsChinaMarker(String s) {
+        if (s == null || s.isBlank()) return false;
+        return s.contains("中国") || s.contains("北京") || s.contains("CST") || s.contains("UTC+8")
+                || s.contains("哔哩") || s.contains("B站") || s.contains("腾讯") || s.contains("优酷") || s.contains("爱奇艺");
+    }
+
+    private static boolean containsJapanMarker(String s) {
+        if (s == null || s.isBlank()) return false;
+        return s.contains("日本") || s.contains("JST") || s.contains("UTC+9") || s.contains("TOKYO")
+                || s.contains("東京") || s.contains("东京") || s.contains("MX") || s.contains("TBS");
+    }
+
+    private static String formatInfoboxValue(JsonNode valueNode, int maxItems) {
+        if (valueNode.isString()) return valueNode.asText("").trim();
+        if (valueNode.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode entry : valueNode) {
+                String v = entry.path("v").asText("").trim();
+                if (!v.isBlank()) {
+                    parts.add(v);
+                    if (parts.size() >= maxItems) break;
+                }
+            }
+            return String.join(" / ", parts);
+        }
+        return "";
+    }
+
+    private static String truncate(String s, int maxLen) {
+        return s.length() <= maxLen ? s : s.substring(0, maxLen);
     }
 
     // ── 追番日历 .ics 导出（RFC 5545）──
@@ -603,14 +915,14 @@ public class BangumiService {
             String dateStr = firstDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
             String title = (e.nameCn() != null && !e.nameCn().isBlank()) ? e.nameCn() : e.name();
             StringBuilder desc = new StringBuilder();
-            if (e.rating() != null && e.rating() > 0) desc.append("Bangumi ★ ").append(String.format(java.util.Locale.ROOT, "%.1f", e.rating()));
+            if (e.airTime() != null && !e.airTime().isBlank()) desc.append(e.airTime());
+            if (e.rating() != null && e.rating() > 0) {
+                if (!desc.isEmpty()) desc.append(" · ");
+                desc.append("Bangumi ★ ").append(String.format(java.util.Locale.ROOT, "%.1f", e.rating()));
+            }
             if (e.remarks() != null && !e.remarks().isBlank()) {
                 if (!desc.isEmpty()) desc.append(" · ");
                 desc.append(e.remarks());
-            }
-            if (e.covered()) {
-                if (!desc.isEmpty()) desc.append(" · ");
-                desc.append("站内可播");
             }
 
             sb.append("BEGIN:VEVENT\r\n");
