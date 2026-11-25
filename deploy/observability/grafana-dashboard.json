@@ -1,0 +1,67 @@
+{
+  "title": "MangaShelf Performance & Reliability Overview",
+  "uid": "mangashelf-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "API Request Rate (RPS)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (uri)", "legendFormat": "{{uri}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "API Latency p95 (s)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[1m])) by (le, uri))", "legendFormat": "{{uri}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Hotspot Cache Hit vs Miss Rate",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(mangashelf_hotspot_cache_requests_total[1m])) by (name, result)", "legendFormat": "{{name}} ({{result}})" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "HikariCP Active & Pending Connections",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "hikaricp_connections_active", "legendFormat": "active" },
+        { "expr": "hikaricp_connections_pending", "legendFormat": "pending" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Outbox Pending & Oldest Age (s)",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "mangashelf_outbox_pending", "legendFormat": "pending" },
+        { "expr": "mangashelf_outbox_oldest_pending_seconds", "legendFormat": "oldest_age_s" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Jobs Outcomes & Lease Fencing",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(mangashelf_jobs_total[1m])) by (kind, outcome)", "legendFormat": "{{kind}} ({{outcome}})" },
+        { "expr": "rate(mangashelf_jobs_lease_stale_rejected_total[1m])", "legendFormat": "stale_rejected" },
+        { "expr": "rate(mangashelf_jobs_dlq_routed_total[1m])", "legendFormat": "dlq_routed" }
+      ]
+    }
+  ]
+}

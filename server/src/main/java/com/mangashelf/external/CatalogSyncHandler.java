@@ -1,5 +1,6 @@
 package com.mangashelf.external;
 
+import com.mangashelf.config.HotspotCache;
 import com.mangashelf.ingestion.Job;
 import com.mangashelf.ingestion.JobContext;
 import com.mangashelf.ingestion.JobHandler;
@@ -32,14 +33,16 @@ public class CatalogSyncHandler implements JobHandler {
     private final ExternalRepository externals;
     private final CatalogItemWriter itemWriter;
     private final ObjectMapper objectMapper;
+    private final HotspotCache hotspotCache;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(HTTP_TIMEOUT).build();
 
     public CatalogSyncHandler(ExternalRepository externals, CatalogItemWriter itemWriter,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper, HotspotCache hotspotCache) {
         this.externals = externals;
         this.itemWriter = itemWriter;
         this.objectMapper = objectMapper;
+        this.hotspotCache = hotspotCache;
     }
 
     @Override
@@ -71,6 +74,7 @@ public class CatalogSyncHandler implements JobHandler {
                 total += syncCategory(ctx, source, c.asInt(), c.asText());
             }
         }
+        hotspotCache.invalidatePrefix("catalog-");
         String summary = (incremental ? "增量" : "全量") + "同步完成，共 " + total + " 条";
         ctx.progress().emit("sync", summary);
         log.info("job {} catalog sync {}: {}", job.id(), source.name(), summary);

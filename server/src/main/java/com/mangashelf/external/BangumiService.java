@@ -1,5 +1,6 @@
 package com.mangashelf.external;
 
+import com.mangashelf.config.HotspotCache;
 import com.mangashelf.config.MangaShelfProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,14 +38,17 @@ public class BangumiService {
 
     private final CatalogItemWriter itemWriter;
     private final ExternalCatalogRepository catalogItems;
+    private final HotspotCache hotspotCache;
 
     public BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper,
-                          CatalogItemWriter itemWriter, ExternalCatalogRepository catalogItems) {
+                          CatalogItemWriter itemWriter, ExternalCatalogRepository catalogItems,
+                          HotspotCache hotspotCache) {
         this.props = props;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.itemWriter = itemWriter;
         this.catalogItems = catalogItems;
+        this.hotspotCache = hotspotCache;
         var cfg = props.bangumi();
         var builder = HttpClient.newBuilder().connectTimeout(TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL);
@@ -88,6 +92,7 @@ public class BangumiService {
                 n++;
             }
         }
+        hotspotCache.invalidate("calendar");
         return n;
     }
 
@@ -261,6 +266,7 @@ public class BangumiService {
                 }
             }
         }
+        hotspotCache.invalidate("calendar");
         return new MatchStats(updates.size(), viaSearch);
     }
 
@@ -335,9 +341,9 @@ public class BangumiService {
                                 String catalogItemId, String workId, String summary,
                                 String remarks, Integer episodeCount, String categoryName) {}
 
-    /** 本季新番（含资源覆盖标记），按星期分组供前端展示。 */
+    /** 本季新番（含资源覆盖标记），按星期分组供前端展示；经热点缓存（TTL 60s）加速高频首页读。 */
     public List<CalendarEntry> calendar() {
-        return jdbc.query("""
+        return hotspotCache.getOrLoad("calendar", "calendar", Duration.ofSeconds(60), () -> jdbc.query("""
                 SELECT DISTINCT ON (b.subject_id)
                        b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
                        (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
@@ -359,8 +365,8 @@ public class BangumiService {
             out.sort(java.util.Comparator
                     .comparing((CalendarEntry e) -> e.airWeekday() == null ? 99 : e.airWeekday())
                     .thenComparing(e -> e.rating() == null ? -1 : e.rating(), java.util.Comparator.reverseOrder()));
-            return out;
-        });
+            return List.copyOf(out);
+        }));
     }
 
     // ── 内部 ──

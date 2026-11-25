@@ -2,6 +2,7 @@ package com.mangashelf.external;
 
 import com.mangashelf.catalog.CatalogRepository;
 import com.mangashelf.config.ApiException;
+import com.mangashelf.config.HotspotCache;
 import com.mangashelf.identity.CurrentUser;
 import com.mangashelf.ingestion.Job;
 import com.mangashelf.ingestion.JobCreationService;
@@ -10,6 +11,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,11 +30,13 @@ public class ExternalCatalogService {
     private final TransactionTemplate tx;
     private final ObjectMapper objectMapper;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final HotspotCache hotspotCache;
 
     public ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
                                   CatalogRepository catalog, JobCreationService jobCreation,
                                   TransactionTemplate tx, ObjectMapper objectMapper,
-                                  org.springframework.jdbc.core.JdbcTemplate jdbc) {
+                                  org.springframework.jdbc.core.JdbcTemplate jdbc,
+                                  HotspotCache hotspotCache) {
         this.catalogItems = catalogItems;
         this.externals = externals;
         this.catalog = catalog;
@@ -40,6 +44,7 @@ public class ExternalCatalogService {
         this.tx = tx;
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
+        this.hotspotCache = hotspotCache;
     }
 
     // ── 同步 ──
@@ -104,16 +109,36 @@ public class ExternalCatalogService {
                                      Integer categoryId, String status, String sort, String genre,
                                      Boolean season, Integer page) {
         int effectiveLimit = Math.min(Math.max(limit, 1), 60);
+        boolean hasQuery = q != null && !q.isBlank();
         boolean byEpisodes = "episodes".equals(sort);
+        String countKey = "catalog-count:" + sourceId + ":" + categoryId + ":" + status + ":" + genre + ":" + season;
+
+        if (!hasQuery && !byEpisodes && (cursor == null || cursor.isBlank())) {
+            String pageKey = "catalog-page:" + effectiveLimit + ":" + sourceId + ":" + categoryId
+                    + ":" + status + ":" + genre + ":" + season;
+            return hotspotCache.getOrLoad("catalog_page", pageKey, Duration.ofSeconds(30), () -> {
+                Cursor c = decodeCursor(null);
+                List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, null, status, sort,
+                        genre, season, c.updatedAt, c.id, 0, effectiveLimit);
+                String next = items.size() == effectiveLimit
+                        ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
+                                items.getLast().id())
+                        : null;
+                long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
+                        () -> catalogItems.count(sourceId, categoryId, status, genre, season));
+                return new CatalogItemPage(List.copyOf(items), next, total);
+            });
+        }
+
         if (byEpisodes) {
-            // 集数排序：偏移分页（键集游标按更新时间，不适用集数序）
             int effectivePage = Math.max(page == null ? 0 : page, 0);
             List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
                     genre, season, null, null, effectivePage * effectiveLimit, effectiveLimit);
             String next = items.size() == effectiveLimit
                     ? "page:" + (effectivePage + 1) : null;
-            return new CatalogItemPage(items, next,
-                    catalogItems.count(sourceId, categoryId, status, genre, season));
+            long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
+                    () -> catalogItems.count(sourceId, categoryId, status, genre, season));
+            return new CatalogItemPage(items, next, total);
         }
         Cursor c = decodeCursor(cursor);
         List<ExternalCatalogItem> items = catalogItems.page(sourceId, categoryId, q, status, sort,
@@ -122,7 +147,9 @@ public class ExternalCatalogService {
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
                 : null;
-        return new CatalogItemPage(items, next, catalogItems.count(sourceId, categoryId, status, genre, season));
+        long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
+                () -> catalogItems.count(sourceId, categoryId, status, genre, season));
+        return new CatalogItemPage(items, next, total);
     }
 
     // ── 目录条目详情（M11）──

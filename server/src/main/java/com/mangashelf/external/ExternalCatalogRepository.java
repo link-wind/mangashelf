@@ -42,10 +42,18 @@ public class ExternalCatalogRepository {
                 categoryName, playFrom, playGroups, episodeCount, JdbcTime.t(resourceUpdatedAt));
     }
 
-    /** 目录浏览：resource_updated_at 降序（最近更新在前），(updated,id) 游标。 */
+    /** 列表页精简投影：跳过平均 ~20KB/行的 play_groups 巨型 JSONB（详情接口 findItem 仍返回完整列）。 */
+    private static final String LIST_COLUMNS = """
+            id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
+            play_from, '' AS play_groups, episode_count, work_id, bangumi_subject_id,
+            resource_updated_at, synced_at
+            """;
+
     /**
-     * 目录分页（mobile-ui-index-and-reader）：status 依据 remarks/category_name 过滤，
-     * sort=episodes 用集数排序 + 偏移分页（键集游标按更新时间，不适用集数序）。
+     * 目录分页（benchmark-db-and-hotspot-cache）：
+     * - 精简列投影消除列表页巨型 JSONB 传输与序列化放大；
+     * - genre 使用 tags @> ARRAY[?] 命中 bangumi_subjects GIN 索引；
+     * - 排序键命中 V29 表达式复合索引与集数降序索引。
      */
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
                                           String status, String sort, String genre, Boolean season,
@@ -58,8 +66,7 @@ public class ExternalCatalogRepository {
             args.add(sourceId);
         }
         if (genre != null && !genre.isBlank()) {
-            // 经条目关联的 Bangumi 标签过滤（mobile-nav-genre-remove-mangadex）
-            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE EXISTS (SELECT 1 FROM unnest(tags) t WHERE t = ?)) ");
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE tags @> ARRAY[?]::text[]) ");
             args.add(genre);
         }
         if (categoryId != null) {
@@ -67,7 +74,6 @@ public class ExternalCatalogRepository {
             args.add(categoryId);
         }
         if (Boolean.TRUE.equals(season)) {
-            // 本季新番视图（anime-index-full-catalog）：Bangumi 日历关联的条目
             where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE in_calendar) ");
         }
         if (q != null && !q.isBlank()) {
@@ -89,18 +95,19 @@ public class ExternalCatalogRepository {
             args.add(offset);
             args.add(limit);
             return jdbc.query(
-                    "SELECT * FROM external_catalog_items %s".formatted(where), mapper, args.toArray());
+                    "SELECT %s FROM external_catalog_items %s".formatted(LIST_COLUMNS, where),
+                    mapper, args.toArray());
         }
         where.append(" AND (COALESCE(resource_updated_at, synced_at), id) < (?, ?) ");
         args.add(JdbcTime.t(beforeUpdated));
         args.add(beforeId);
         args.add(limit);
         return jdbc.query("""
-                SELECT * FROM external_catalog_items
+                SELECT %s FROM external_catalog_items
                 %s
                 ORDER BY COALESCE(resource_updated_at, synced_at) DESC, id DESC
                 LIMIT ?
-                """.formatted(where), mapper, args.toArray());
+                """.formatted(LIST_COLUMNS, where), mapper, args.toArray());
     }
 
     public long count(UUID sourceId, Integer categoryId, String status, String genre, Boolean season) {
@@ -111,7 +118,7 @@ public class ExternalCatalogRepository {
             args.add(sourceId);
         }
         if (genre != null && !genre.isBlank()) {
-            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE EXISTS (SELECT 1 FROM unnest(tags) t WHERE t = ?)) ");
+            where.append(" AND bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE tags @> ARRAY[?]::text[]) ");
             args.add(genre);
         }
         if (Boolean.TRUE.equals(season)) {

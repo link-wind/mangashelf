@@ -68,33 +68,60 @@ public class CatalogRepository {
     public record Decor(long animations, long episodes, String posterKey) {
     }
 
+    /**
+     * 批量聚合作品装饰信息（benchmark-db-and-hotspot-cache）：
+     * 拆改为 3 条按 work_id IN (...) 聚合查询，消除原逐行 3 层嵌套关联子查询。
+     */
     public java.util.Map<UUID, Decor> decorations(java.util.Collection<UUID> workIds) {
         if (workIds.isEmpty()) return java.util.Map.of();
         String in = workIds.stream().map(x -> "?").reduce((a, b) -> a + "," + b).orElse("");
-        String sql = """
-                SELECT w.id,
-                       (SELECT count(DISTINCT a2.id) FROM animations a2
-                          JOIN animation_revisions ar ON ar.animation_id = a2.id AND ar.status = 'PUBLISHED'
-                          JOIN animation_sources src ON src.animation_revision_id = ar.id
-                          JOIN chapter_revisions cr ON cr.id = src.chapter_revision_id
-                          JOIN chapters c ON c.id = cr.chapter_id
-                         WHERE c.work_id = w.id) AS animations,
-                       (SELECT count(*) FROM external_episodes e WHERE e.work_id = w.id) AS episodes,
-                       (SELECT ast.object_key FROM animation_revisions ar
-                          JOIN animations a2 ON a2.id = ar.animation_id
-                          JOIN animation_sources src ON src.animation_revision_id = ar.id
-                          JOIN chapter_revisions cr ON cr.id = src.chapter_revision_id
-                          JOIN chapters c ON c.id = cr.chapter_id
-                          JOIN assets ast ON ast.id = ar.poster_asset_id
-                         WHERE c.work_id = w.id AND ar.status = 'PUBLISHED'
-                         ORDER BY ar.revision_no DESC LIMIT 1) AS poster_key
-                FROM works w WHERE w.id IN (%s)
-                """.formatted(in);
+        Object[] args = workIds.toArray();
+
+        java.util.Map<UUID, Long> animCounts = new java.util.HashMap<>();
+        jdbc.query("""
+                SELECT c.work_id, count(DISTINCT a2.id) AS cnt
+                  FROM chapters c
+                  JOIN chapter_revisions cr ON cr.chapter_id = c.id
+                  JOIN animation_sources src ON src.chapter_revision_id = cr.id
+                  JOIN animation_revisions ar ON ar.id = src.animation_revision_id AND ar.status = 'PUBLISHED'
+                  JOIN animations a2 ON a2.id = ar.animation_id
+                 WHERE c.work_id IN (%s)
+                 GROUP BY c.work_id
+                """.formatted(in), rs -> {
+            animCounts.put(rs.getObject("work_id", UUID.class), rs.getLong("cnt"));
+        }, args);
+
+        java.util.Map<UUID, Long> epCounts = new java.util.HashMap<>();
+        jdbc.query("""
+                SELECT work_id, count(*) AS cnt
+                  FROM external_episodes
+                 WHERE work_id IN (%s)
+                 GROUP BY work_id
+                """.formatted(in), rs -> {
+            epCounts.put(rs.getObject("work_id", UUID.class), rs.getLong("cnt"));
+        }, args);
+
+        java.util.Map<UUID, String> posters = new java.util.HashMap<>();
+        jdbc.query("""
+                SELECT DISTINCT ON (c.work_id) c.work_id, ast.object_key
+                  FROM chapters c
+                  JOIN chapter_revisions cr ON cr.chapter_id = c.id
+                  JOIN animation_sources src ON src.chapter_revision_id = cr.id
+                  JOIN animation_revisions ar ON ar.id = src.animation_revision_id AND ar.status = 'PUBLISHED'
+                  JOIN assets ast ON ast.id = ar.poster_asset_id
+                 WHERE c.work_id IN (%s)
+                 ORDER BY c.work_id, ar.revision_no DESC
+                """.formatted(in), rs -> {
+            posters.put(rs.getObject("work_id", UUID.class), rs.getString("object_key"));
+        }, args);
+
         java.util.Map<UUID, Decor> out = new java.util.HashMap<>();
-        jdbc.query(sql, rs -> {
-            Decor d = new Decor(rs.getLong("animations"), rs.getLong("episodes"), rs.getString("poster_key"));
-            out.put(rs.getObject("id", UUID.class), d);
-        }, workIds.toArray());
+        for (UUID wid : workIds) {
+            out.put(wid, new Decor(
+                    animCounts.getOrDefault(wid, 0L),
+                    epCounts.getOrDefault(wid, 0L),
+                    posters.get(wid)));
+        }
         return out;
     }
 

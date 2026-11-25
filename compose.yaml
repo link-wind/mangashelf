@@ -193,6 +193,26 @@ services:
     ports:
       - "${MANGASHELF_WEB_PORT:-5173}:80"
 
+  # ── 可选可观测栈（benchmark-db-and-hotspot-cache）：--profile obs 本地压测抓图 ──
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v3.2.1
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana-oss:11.5.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   db-data:
   rabbitmq-data:
