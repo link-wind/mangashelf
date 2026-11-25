@@ -1,62 +1,133 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../auth'
 import CoverImage from '../components/CoverImage'
+import { HeartIcon, PlayIcon } from '../components/Icons'
+import { useToast } from '../components/Toast'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
   categoryId: number; categoryName: string; episodeCount: number; workId: string | null
   bangumiSubjectId?: number | null
 }
-interface CatalogDetail {
+interface CatalogDetailData {
   item: CatalogItem
+  bangumiName: string | null
   bangumiNameCn: string | null
   rating: number | null
   summary: string | null
   airWeekday: number | null
+  airDate: string | null
+  tags: string[]
   lines: { name: string; episodeCount: number }[]
+}
+interface BrowseEpisode {
+  id: string; title: string; ordinal: number; lineName: string
+  lineRank: number; episodeType: 'MAIN' | 'EXTRA'
+}
+interface BrowseLine { name: string; rank: number; episodes: BrowseEpisode[] }
+interface SimilarAnime {
+  catalogItemId: string; workId: string | null; title: string
+  coverUrl: string; rating: number | null; reason: string; remarks: string
 }
 
 const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const NOISE_TAGS = new Set(['TV', '日本', '中国', 'OVA', 'WEB', '动画', '番剧'])
+const EP_CHUNK = 24
 
-/** 目录条目详情（M11）：播放不创建作品；收藏是独立操作，导入仅用于编辑或发布。 */
+/**
+ * 番剧资料详情页（P2 重构）：
+ * 面包屑 + 高清双栏头图 + 可点击题材标签 + 4 KPI 指标 + 收藏/已看完状态 + 吸顶分区锚点 + 内嵌选集 + 相似推荐。
+ */
 export default function CatalogDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [detail, setDetail] = useState<CatalogDetail | null>(null)
+  const { me } = useAuth()
+  const { showToast } = useToast()
+
+  const [detail, setDetail] = useState<CatalogDetailData | null>(null)
+  const [browseLines, setBrowseLines] = useState<BrowseLine[]>([])
+  const [activeLine, setActiveLine] = useState('')
+  const [epReverse, setEpReverse] = useState(false)
+  const [epChunk, setEpChunk] = useState(0)
+  const [similar, setSimilar] = useState<SimilarAnime[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [favorited, setFavorited] = useState(false)
+  const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
 
   const load = useCallback(async () => {
     if (!id) return
+    setError('')
     try {
-      setDetail(await api.get<CatalogDetail>(`/api/v1/catalog-items/${id}`))
+      const d = await api.get<CatalogDetailData>(`/api/v1/catalog-items/${id}`)
+      setDetail(d)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
     }
   }, [id])
+
   useEffect(() => { void load() }, [load])
 
   useEffect(() => {
     if (!id) return
-    void api.get<{ catalogItemId: string | null }[]>('/api/v1/me/favorites?type=catalog')
-      .then(list => setFavorited(list.some(f => f.catalogItemId === id)))
-      .catch(() => { /* 收藏状态不可用不影响详情 */ })
+    void api.get<{ lines: BrowseLine[] }>(`/api/v1/catalog-items/${id}/episodes`)
+      .then(res => {
+        setBrowseLines(res.lines ?? [])
+        if (res.lines?.length) setActiveLine(res.lines[0].name)
+      })
+      .catch(() => setBrowseLines([]))
+    void api.get<SimilarAnime[]>(`/api/v1/recommendations/anime/${id}/similar?limit=7`)
+      .then(setSimilar)
+      .catch(() => setSimilar([]))
   }, [id])
+
+  useEffect(() => {
+    if (!id || !me) { setFavorited(false); setFavStatus('WATCHING'); return }
+    void api.get<{ catalogItemId: string | null; status?: 'WATCHING' | 'COMPLETED' }[]>('/api/v1/me/favorites?type=catalog')
+      .then(list => {
+        const hit = list.find(f => f.catalogItemId === id)
+        setFavorited(Boolean(hit))
+        setFavStatus(hit?.status === 'COMPLETED' ? 'COMPLETED' : 'WATCHING')
+      })
+      .catch(() => { /* 收藏状态不可用不影响详情 */ })
+  }, [id, me])
 
   async function toggleFavorite() {
     if (!id) return
+    if (!me) { showToast('请先登录后再收藏', 'info'); return }
     try {
       if (favorited) {
         await api.delete(`/api/v1/me/favorites/catalog/${id}`)
         setFavorited(false)
+        setFavStatus('WATCHING')
+        showToast('已取消收藏', 'info')
       } else {
         await api.put(`/api/v1/me/favorites/catalog/${id}`)
         setFavorited(true)
+        setFavStatus('WATCHING')
+        showToast('已加入「我的」追番', 'success')
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '收藏操作失败')
+      const msg = e instanceof Error ? e.message : '收藏操作失败'
+      setError(msg)
+      showToast(msg, 'error')
+    }
+  }
+
+  async function toggleCompleted() {
+    if (!id) return
+    if (!me) { showToast('请先登录后再标记观看状态', 'info'); return }
+    const nextStatus = favStatus === 'COMPLETED' ? 'WATCHING' : 'COMPLETED'
+    try {
+      await api.put(`/api/v1/me/favorites/catalog/${id}/status?status=${nextStatus}`)
+      setFavorited(true)
+      setFavStatus(nextStatus)
+      showToast(nextStatus === 'COMPLETED' ? '已标记为「已看完」' : '已改回「在追」', 'success')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '更新状态失败'
+      showToast(msg, 'error')
     }
   }
 
@@ -71,54 +142,214 @@ export default function CatalogDetail() {
     } finally { setBusy(false) }
   }
 
+  const lineEpisodes = useMemo(() => {
+    const raw = browseLines.find(l => l.name === activeLine)?.episodes ?? []
+    const sorted = [...raw].sort((a, b) => a.ordinal - b.ordinal)
+    return epReverse ? sorted.reverse() : sorted
+  }, [browseLines, activeLine, epReverse])
+
+  const useChunks = lineEpisodes.length > 30
+  const safeChunk = useChunks ? Math.min(epChunk, Math.floor((lineEpisodes.length - 1) / EP_CHUNK)) : 0
+  const visibleEpisodes = useChunks
+    ? lineEpisodes.slice(safeChunk * EP_CHUNK, (safeChunk + 1) * EP_CHUNK)
+    : lineEpisodes
+
   if (error) return <main className="watch-page"><p className="error">{error}</p></main>
   if (!detail) return <main className="watch-page page-center">加载中…</main>
 
   const { item } = detail
+  const displayTitle = detail.bangumiNameCn || item.name
+  const cleanTags = (detail.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 10 && !NOISE_TAGS.has(t) && !/^\d/.test(t)).slice(0, 10)
+
   return (
     <main className="watch-page">
-      <div className="detail-hero">
-        <div className="detail-cover">
-          <CoverImage
-            src={item.bangumiSubjectId ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large` : item.coverUrl}
-            alt={item.name}
-            loading="eager"
-          />
-        </div>
-        <div className="detail-info">
-          <h1>{detail.bangumiNameCn || item.name}</h1>
-          <div className="watch-meta" style={{ margin: '4px 0 10px' }}>
-            {typeof detail.rating === 'number' && detail.rating > 0 && <span className="star">★ {detail.rating.toFixed(1)}</span>}
-            {detail.airWeekday && <span>{WEEKDAYS[detail.airWeekday]}放送</span>}
-            <span>{item.categoryName}</span>
-            <span>{item.remarks || `${item.episodeCount} 集`}</span>
-          </div>
-          {detail.lines.length > 0 && (
-            <p className="muted">
-              线路：{detail.lines.map(l => `${l.name}（${l.episodeCount} 集）`).join(' · ')}
-            </p>
-          )}
-          {detail.summary && <p className="detail-summary">{detail.summary}</p>}
-          <div className="row-inline" style={{ marginTop: 14 }}>
-            <Link className="btn" to={`/browse/${item.id}`}>立即播放</Link>
-            <button className="ghost" onClick={() => void toggleFavorite()}>
-              {favorited ? '已收藏' : '收藏'}
-            </button>
-            {item.workId && <Link className="btn ghost" to={`/works/${item.workId}`}>打开作品</Link>}
-            {!item.workId && (
-              <button className="ghost" disabled={busy} onClick={() => void materialize()}
-                      title="仅用于编辑或发布：创建作品并收编剧集">
-                {busy ? '处理中…' : '导入为我的作品'}
-              </button>
-            )}
-            <Link className="btn ghost" to="/anime">返回索引</Link>
-          </div>
-        </div>
+      {/* 面包屑 */}
+      <nav className="breadcrumb" aria-label="面包屑">
+        <Link to="/">首页</Link>
+        <span>/</span>
+        <Link to="/anime">番剧索引</Link>
+        {item.categoryId ? (
+          <>
+            <span>/</span>
+            <Link to={`/anime?category=${item.categoryId}`}>{item.categoryName}</Link>
+          </>
+        ) : null}
+        <span>/</span>
+        <span className="breadcrumb-cur">{displayTitle}</span>
+      </nav>
+
+      {/* 吸顶分区锚点条 */}
+      <div className="detail-anchor-bar">
+        <a href="#overview" className="mini ghost btn">总览介绍</a>
+        <a href="#episodes" className="mini ghost btn">线路与选集（{lineEpisodes.length || item.episodeCount}）</a>
+        {similar.length > 0 && <a href="#similar" className="mini ghost btn">相似推荐</a>}
       </div>
 
-      <p className="muted" style={{ marginTop: 18 }}>
-        资源标题：{item.name}
-      </p>
+      {/* 双栏头图卡 */}
+      <section id="overview" className="detail-hero card" style={{ padding: 20, borderRadius: 16 }}>
+        <div className="detail-cover-col">
+          <div className="detail-cover">
+            <CoverImage
+              src={item.bangumiSubjectId ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large` : item.coverUrl}
+              alt={displayTitle}
+              loading="eager"
+              fetchPriority="high"
+            />
+          </div>
+          {typeof detail.rating === 'number' && detail.rating > 0 && (
+            <div className="detail-rating-box">
+              <span className="muted">Bangumi 评分</span>
+              <strong className="tabular-nums">★ {detail.rating.toFixed(1)}</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="detail-info">
+          <div className="row-inline" style={{ marginBottom: 6 }}>
+            <span className="tag pub">{item.categoryName || '番剧'}</span>
+            {detail.airWeekday && <span className="sched-ep-tag">每{WEEKDAYS[detail.airWeekday]}放送</span>}
+            {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已看完</span>}
+          </div>
+          <h1>{displayTitle}</h1>
+          {detail.bangumiName && detail.bangumiName !== displayTitle && (
+            <p className="muted" style={{ margin: '4px 0 10px' }}>{detail.bangumiName}</p>
+          )}
+
+          {cleanTags.length > 0 && (
+            <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
+              {cleanTags.map(t => (
+                <Link key={t} to={`/anime?genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
+                  #{t}
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="detail-kpi-strip">
+            <div className="detail-kpi">
+              <span className="muted">更新状态</span>
+              <strong>{item.remarks || `共 ${item.episodeCount} 集`}</strong>
+            </div>
+            <div className="detail-kpi">
+              <span className="muted">首播日期</span>
+              <strong className="tabular-nums">{detail.airDate || (detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}` : '—')}</strong>
+            </div>
+            <div className="detail-kpi">
+              <span className="muted">可用线路</span>
+              <strong className="tabular-nums">{detail.lines.length || browseLines.length} 条</strong>
+            </div>
+            <div className="detail-kpi">
+              <span className="muted">资源站名</span>
+              <strong className="clamp" style={{ fontSize: 13 }}>{item.name}</strong>
+            </div>
+          </div>
+
+          <p className="detail-summary" style={{ marginTop: 14 }}>
+            {detail.summary || '暂未收录详细简介——可直接点击下方「立即播放」或选择任意线路分集观看。'}
+          </p>
+
+          <div className="row-inline" style={{ marginTop: 16 }}>
+            <Link className="btn pill" to={`/browse/${item.id}`}>
+              <PlayIcon size={15} />立即播放
+            </Link>
+            <button type="button" className={'pill ' + (favorited ? '' : 'ghost')}
+                    onClick={() => void toggleFavorite()}>
+              <HeartIcon size={15} />{favorited ? '已收藏' : '收藏'}
+            </button>
+            <button type="button" className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
+                    onClick={() => void toggleCompleted()}>
+              {favStatus === 'COMPLETED' ? '✓ 已看完' : '标记已看完'}
+            </button>
+            {item.workId
+              ? <Link className="btn ghost pill" to={`/works/${item.workId}`}>打开已导入作品</Link>
+              : (
+                <button type="button" className="ghost pill" disabled={busy} onClick={() => void materialize()}
+                        title="仅用于编辑或发布：创建作品并收编剧集">
+                  {busy ? '处理中…' : '导入为我的作品'}
+                </button>
+              )}
+          </div>
+        </div>
+      </section>
+
+      {/* 内嵌多线路分集选集 */}
+      <section id="episodes" className="card" style={{ marginTop: 24, padding: 18, borderRadius: 16 }}>
+        <div className="section-head">
+          <h2>线路与选集 <span className="muted tabular-nums" style={{ fontSize: 13, fontWeight: 400 }}>{lineEpisodes.length} 集</span></h2>
+          {lineEpisodes.length > 1 && (
+            <button type="button" className="mini ghost"
+                    onClick={() => { setEpReverse(v => !v); setEpChunk(0) }}>
+              {epReverse ? '倒序 ↓' : '正序 ↑'}
+            </button>
+          )}
+        </div>
+        {browseLines.length > 0 && (
+          <div className="row-inline" style={{ marginBottom: 12 }}>
+            {browseLines.map(l => (
+              <button key={l.name} type="button"
+                      className={'mini ' + (l.name === activeLine ? '' : 'ghost')}
+                      onClick={() => { setActiveLine(l.name); setEpChunk(0) }}>
+                {l.name}（{l.episodes.length}）
+              </button>
+            ))}
+          </div>
+        )}
+        {useChunks && (
+          <div className="row-inline ep-chunks" style={{ marginBottom: 12 }}>
+            {Array.from({ length: Math.ceil(lineEpisodes.length / EP_CHUNK) }, (_, idx) => {
+              const slice = lineEpisodes.slice(idx * EP_CHUNK, (idx + 1) * EP_CHUNK)
+              return (
+                <button key={idx} type="button"
+                        className={'mini tabular-nums ' + (idx === safeChunk ? '' : 'ghost')}
+                        onClick={() => setEpChunk(idx)}>
+                  {String(slice[0].ordinal).padStart(2, '0')}–{String(slice[slice.length - 1].ordinal).padStart(2, '0')}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {visibleEpisodes.length > 0 ? (
+          <div className="episode-grid">
+            {visibleEpisodes.map(e => (
+              <Link key={e.id} to={`/browse/${item.id}/${e.id}`} className="episode-cell" style={{ textDecoration: 'none' }}>
+                <div className="no tabular-nums">{String(e.ordinal).padStart(2, '0')}</div>
+                <div className="name">{e.title}</div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>暂未解析出剧集，点击上方「立即播放」尝试加载。</p>
+        )}
+      </section>
+
+      {/* 相似推荐 */}
+      {similar.length > 0 && (
+        <section id="similar" style={{ marginTop: 28 }}>
+          <div className="section-head">
+            <h2>相似推荐</h2>
+            <Link to="/anime" className="muted">浏览更多 →</Link>
+          </div>
+          <div className="card-grid">
+            {similar.map(s => (
+              <Link key={s.catalogItemId}
+                    to={s.workId ? `/works/${s.workId}` : `/catalog/${s.catalogItemId}`}
+                    className="work-card">
+                <div className="cover">
+                  <CoverImage src={s.coverUrl} alt={s.title} />
+                  {typeof s.rating === 'number' && s.rating > 0 && (
+                    <span className="badge-tr badge-score tabular-nums">★ {s.rating.toFixed(1)}</span>
+                  )}
+                  {s.remarks && <span className="badge-br">{s.remarks}</span>}
+                </div>
+                <div className="work-card-body">
+                  <div className="work-card-title">{s.title}</div>
+                  <div className="work-card-meta"><span className="rec-reason">{s.reason}</span></div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   )
 }

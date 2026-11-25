@@ -991,3 +991,92 @@
   .sched-card-title { font-size: 15px; }
   .sched-card-desc { -webkit-line-clamp: 2; }
 }
+
+
+/* ── P2：详情页面包屑/锚点/KPI、已看完按钮、时刻表 .ics 卡片 ── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.breadcrumb a { color: var(--muted); text-decoration: none; }
+.breadcrumb a:hover { color: var(--accent-strong); }
+.breadcrumb-cur { color: var(--ink); font-weight: 600; }
+
+.detail-anchor-bar {
+  position: sticky;
+  top: 64px;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-subtle);
+}
+.detail-cover-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.detail-rating-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.detail-rating-box strong { font-size: 16px; color: #e11d48; }
+.detail-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.detail-kpi {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.detail-kpi strong { font-size: 13.5px; color: var(--ink); }
+
+.fav-status-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+}
+.fav-status-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.sched-ics-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .detail-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

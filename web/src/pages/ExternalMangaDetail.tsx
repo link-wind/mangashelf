@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import CoverImage from '../components/CoverImage'
+import { useToast } from '../components/Toast'
 
 
 interface ExtManga {
@@ -47,6 +48,7 @@ export default function ExternalMangaDetail() {
   const { mangaId } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const source = params.get('source') ?? 'copymanga'
   const [detail, setDetail] = useState<Detail | null>(null)
   const [lang, setLang] = useState('zh')
@@ -65,6 +67,7 @@ export default function ExternalMangaDetail() {
   const [switchError, setSwitchError] = useState('')
   const [sourceNames, setSourceNames] = useState<Record<string, string>>({})
   const [favorited, setFavorited] = useState(false)
+  const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
 
   const load = useCallback(async (language: string) => {
     if (!mangaId) return
@@ -81,8 +84,12 @@ export default function ExternalMangaDetail() {
 
   useEffect(() => {
     if (!mangaId) return
-    void api.get<{ source: string | null; mangaId: string | null }[]>('/api/v1/me/favorites?type=manga')
-      .then(list => setFavorited(list.some(f => f.source === source && f.mangaId === mangaId)))
+    void api.get<{ source: string | null; mangaId: string | null; status?: 'WATCHING' | 'COMPLETED' }[]>('/api/v1/me/favorites?type=manga')
+      .then(list => {
+        const hit = list.find(f => f.source === source && f.mangaId === mangaId)
+        setFavorited(Boolean(hit))
+        setFavStatus(hit?.status === 'COMPLETED' ? 'COMPLETED' : 'WATCHING')
+      })
       .catch(() => { /* 收藏状态不可用不影响详情 */ })
   }, [source, mangaId])
 
@@ -94,12 +101,34 @@ export default function ExternalMangaDetail() {
       if (favorited) {
         await api.delete(base)
         setFavorited(false)
+        setFavStatus('WATCHING')
+        showToast('已取消收藏', 'info')
       } else {
         await api.put(`${base}&title=${encodeURIComponent(detail?.manga.title ?? '')}`)
         setFavorited(true)
+        setFavStatus('WATCHING')
+        showToast('已加入「我的」收藏', 'success')
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '收藏操作失败')
+      const msg = e instanceof Error ? e.message : '收藏操作失败'
+      setError(msg)
+      showToast(msg, 'error')
+    }
+  }
+
+  async function toggleCompleted() {
+    if (!mangaId) return
+    const nextStatus = favStatus === 'COMPLETED' ? 'WATCHING' : 'COMPLETED'
+    const qs = new URLSearchParams({
+      source, mangaId, title: detail?.manga.title ?? '', status: nextStatus,
+    })
+    try {
+      await api.put(`/api/v1/me/favorites/manga/status?${qs}`)
+      setFavorited(true)
+      setFavStatus(nextStatus)
+      showToast(nextStatus === 'COMPLETED' ? '已标记为「已读完」' : '已改回「在追」', 'success')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '更新阅读状态失败', 'error')
     }
   }
 
@@ -200,6 +229,10 @@ export default function ExternalMangaDetail() {
               : <span className="muted">暂无可读章节</span>}
             <button className="btn ghost pill" onClick={() => void toggleFavorite()}>
               {favorited ? '已收藏' : '收藏'}
+            </button>
+            <button className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
+                    onClick={() => void toggleCompleted()}>
+              {favStatus === 'COMPLETED' ? '✓ 已读完' : '标记已读完'}
             </button>
             {officialLink}
             <Link className="btn ghost pill" to={officialBiliUrl ? '/manga' : '/manga-ext'}>

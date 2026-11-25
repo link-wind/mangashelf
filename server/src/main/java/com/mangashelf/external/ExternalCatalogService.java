@@ -177,6 +177,13 @@ public class ExternalCatalogService {
                 () -> catalogItems.topGenres(24));
     }
 
+    /** 查询用户在追的收藏番剧目录 ID 集合（供 .ics 个人追番日历过滤）。 */
+    public java.util.Set<String> listFavoriteCatalogIds(UUID userId) {
+        return new java.util.HashSet<>(jdbc.query(
+                "SELECT catalog_item_id::text FROM favorites WHERE user_id = ? AND catalog_item_id IS NOT NULL AND status = 'WATCHING'",
+                (rs, i) -> rs.getString(1), userId));
+    }
+
     private static List<ExternalCatalogItem> rewriteCovers(List<ExternalCatalogItem> items) {
         return items.stream().map(ExternalCatalogService::rewriteCover).toList();
     }
@@ -195,20 +202,27 @@ public class ExternalCatalogService {
 
     public record LineInfo(String name, int episodeCount) {}
 
-    public record CatalogDetail(ExternalCatalogItem item, String bangumiNameCn, Double rating,
-                                String summary, Integer airWeekday, List<LineInfo> lines) {}
+    public record CatalogDetail(ExternalCatalogItem item, String bangumiName, String bangumiNameCn,
+                                Double rating, String summary, Integer airWeekday,
+                                java.time.LocalDate airDate, List<String> tags, List<LineInfo> lines) {}
 
     public CatalogDetail itemDetail(CurrentUser user, UUID itemId) {
         ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
                 () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
         // Bangumi 元数据（若已桥接）
-        record B(String cn, Double rating, String summary, Integer weekday) {}
+        record B(String orig, String cn, Double rating, String summary, Integer weekday,
+                 java.time.LocalDate airDate, List<String> tags) {}
         List<B> rows = jdbc.query(
-                "SELECT name_cn, rating, summary, air_weekday FROM bangumi_subjects WHERE subject_id = ?",
+                "SELECT name, name_cn, rating, summary, air_weekday, air_date, tags FROM bangumi_subjects WHERE subject_id = ?",
                 (rs, i) -> {
                     var r = rs.getBigDecimal("rating");
-                    return new B(rs.getString("name_cn"), r == null ? null : r.doubleValue(),
-                            rs.getString("summary"), (Integer) rs.getObject("air_weekday"));
+                    var d = rs.getDate("air_date");
+                    var arr = rs.getArray("tags");
+                    List<String> tagList = arr == null ? List.of() : List.of((String[]) arr.getArray());
+                    return new B(rs.getString("name"), rs.getString("name_cn"),
+                            r == null ? null : r.doubleValue(), rs.getString("summary"),
+                            (Integer) rs.getObject("air_weekday"),
+                            d == null ? null : d.toLocalDate(), tagList);
                 }, item.bangumiSubjectId() == null ? -1L : item.bangumiSubjectId());
         B b = rows.isEmpty() ? null : rows.get(0);
         List<LineInfo> lines = new ArrayList<>();
@@ -223,8 +237,15 @@ public class ExternalCatalogService {
         } catch (Exception ignored) {
             // 线路解析失败只影响详情展示
         }
-        return new CatalogDetail(rewriteCover(item), b == null ? null : b.cn(), b == null ? null : b.rating(),
-                b == null ? null : b.summary(), b == null ? null : b.weekday(), lines);
+        return new CatalogDetail(rewriteCover(item),
+                b == null ? null : b.orig(),
+                b == null ? null : b.cn(),
+                b == null ? null : b.rating(),
+                b == null ? null : b.summary(),
+                b == null ? null : b.weekday(),
+                b == null ? null : b.airDate(),
+                b == null ? List.of() : b.tags(),
+                lines);
     }
 
     // ── 浏览态播放（M20）：剧集挂目录条目，不建作品 ──

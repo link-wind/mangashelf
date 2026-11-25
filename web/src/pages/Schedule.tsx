@@ -436,6 +436,32 @@ export default function Schedule() {
                 </ul>
               )}
             </section>
+
+            {/* 追番日历 .ics 订阅 */}
+            <section className="card sched-side-card">
+              <div className="sched-side-head">
+                <h3>追番日历订阅 (.ics)</h3>
+                <span className="muted">UTC+8</span>
+              </div>
+              <p className="muted" style={{ margin: '0 0 12px', fontSize: 12.5 }}>
+                标准 RFC 5545 周循环日历，可直接导入 Apple 日历、Google 日历或 Outlook。
+              </p>
+              <div className="sched-ics-actions">
+                <a className="btn mini" href={me && myWeekly.length > 0 ? '/api/v1/calendar/ics?onlyMine=true' : '/api/v1/calendar/ics?coveredOnly=true'}
+                   download="mangashelf-schedule.ics">
+                  {me && myWeekly.length > 0 ? '下载我的追番 .ics' : '下载可播新番 .ics'}
+                </a>
+                <button type="button" className="mini ghost" onClick={() => {
+                  const path = me && myWeekly.length > 0 ? '/api/v1/calendar/ics?onlyMine=true' : '/api/v1/calendar/ics?coveredOnly=true'
+                  const full = `${window.location.origin}${path}`
+                  void navigator.clipboard?.writeText(full)
+                    .then(() => showToast('已复制 .ics 订阅链接', 'success'))
+                    .catch(() => showToast(full, 'info'))
+                }}>
+                  复制订阅地址
+                </button>
+              </div>
+            </section>
           </aside>
         </div>
       )}

@@ -67,4 +67,44 @@ public class FavoritesService {
     public void removeCatalog(CurrentUser user, UUID itemId) {
         favorites.removeCatalog(user.id(), itemId);
     }
+
+    public String setWorkStatus(CurrentUser user, UUID workId, String rawStatus) {
+        String status = normalizeStatus(rawStatus);
+        catalog.requireVisibleWork(user, workId);
+        favorites.setWorkStatus(user.id(), workId, status);
+        return status;
+    }
+
+    public String setMangaStatus(CurrentUser user, String source, String mangaId, String title, String rawStatus) {
+        String status = normalizeStatus(rawStatus);
+        if (source == null || source.isBlank() || mangaId == null || mangaId.isBlank()) {
+            throw new ApiException(400, "INVALID_ARGUMENT", "缺少 source 或 mangaId。");
+        }
+        String safeTitle = title == null || title.isBlank() ? null : title.trim();
+        if (safeTitle != null && safeTitle.length() > MAX_TITLE) {
+            safeTitle = safeTitle.substring(0, MAX_TITLE);
+        }
+        favorites.setMangaStatus(user.id(), source.trim(), mangaId.trim(), safeTitle, status);
+        return status;
+    }
+
+    public String setCatalogStatus(CurrentUser user, UUID itemId, String rawStatus) {
+        String status = normalizeStatus(rawStatus);
+        if (!favorites.catalogItemExists(itemId)) {
+            throw new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。");
+        }
+        favorites.setCatalogStatus(user.id(), itemId, status);
+        return status;
+    }
+
+    private static String normalizeStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new ApiException(400, "INVALID_ARGUMENT", "缺少状态参数 status（WATCHING 或 COMPLETED）。");
+        }
+        String up = raw.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!FavoriteRepository.STATUS_WATCHING.equals(up) && !FavoriteRepository.STATUS_COMPLETED.equals(up)) {
+            throw new ApiException(400, "INVALID_ARGUMENT", "不支持的收藏状态：" + raw);
+        }
+        return up;
+    }
 }

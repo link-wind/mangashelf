@@ -228,6 +228,16 @@ public class ExternalController {
         return catalog.bangumiSyncStatus(user);
     }
 
+    /** 按需补齐 Bangumi v0 条目详情元数据（tags / air_date / summary）。 */
+    @PostMapping("/admin/bangumi-enrich")
+    public BangumiService.EnrichStats enrichBangumi(@AuthUser CurrentUser user,
+                                                    @RequestParam(defaultValue = "80") int limit) {
+        if (!user.isAdmin()) {
+            throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行元数据补齐。");
+        }
+        return bangumi.enrichSubjectsMetadata(limit);
+    }
+
     /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持持久化缓存与 ETag/304。 */
     @GetMapping("/bangumi-covers/{subjectId}")
     public ResponseEntity<byte[]> bangumiCover(
@@ -296,10 +306,38 @@ public class ExternalController {
         return false;
     }
 
-    /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），登录可见。 */
+    /** 本季新番日历（Bangumi 元数据 + 资源覆盖标记），公开可读。 */
     @GetMapping("/calendar")
     public List<BangumiService.CalendarEntry> calendar(@OptionalAuthUser CurrentUser user) {
         return bangumi.calendar();
+    }
+
+    /** 追番日历 .ics 订阅（RFC 5545）：支持全本季或登录态 onlyMine=true（仅本人收藏的本季追番）。 */
+    @GetMapping(value = "/calendar/ics", produces = "text/calendar; charset=utf-8")
+    public ResponseEntity<String> calendarIcs(@OptionalAuthUser CurrentUser user,
+                                              @RequestParam(defaultValue = "false") boolean onlyMine,
+                                              @RequestParam(defaultValue = "false") boolean coveredOnly) {
+        List<BangumiService.CalendarEntry> entries = bangumi.calendar();
+        String calName = "MangaShelf 新番时刻表";
+        if (onlyMine) {
+            if (user == null || user.isGuest()) {
+                throw new com.mangashelf.config.ApiException(401, "UNAUTHENTICATED", "导出个人追番日历需要登录或携带 API Token。");
+            }
+            java.util.Set<String> favIds = catalog.listFavoriteCatalogIds(user.id());
+            entries = entries.stream()
+                    .filter(e -> e.catalogItemId() != null && favIds.contains(e.catalogItemId()))
+                    .toList();
+            calName = "MangaShelf 我的追番表";
+        } else if (coveredOnly) {
+            entries = entries.stream().filter(BangumiService.CalendarEntry::covered).toList();
+            calName = "MangaShelf 可播新番表";
+        }
+        String ics = BangumiService.buildCalendarIcs(entries, calName);
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/calendar; charset=utf-8")
+                .header("Content-Disposition", "inline; filename=\"mangashelf-schedule.ics\"")
+                .header("Cache-Control", onlyMine ? "private, max-age=300" : "public, max-age=1800")
+                .body(ics);
     }
 
     @GetMapping("/catalog-items/{id}/episodes")

@@ -25,14 +25,28 @@ public class FavoriteRepository {
         this.jdbc = jdbc;
     }
 
+    public static final String STATUS_WATCHING = "WATCHING";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+
     public record FavoriteRow(String type, String title, String coverUrl, UUID workId,
-                              String source, String mangaId, UUID catalogItemId, Instant createdAt) {}
+                              String source, String mangaId, UUID catalogItemId,
+                              String status, Instant createdAt) {}
 
     public void addWork(UUID userId, UUID workId) {
         jdbc.update("""
                 INSERT INTO favorites (id, user_id, work_id) VALUES (?, ?, ?)
                 ON CONFLICT (user_id, work_id) WHERE work_id IS NOT NULL DO NOTHING
                 """, UUID.randomUUID(), userId, workId);
+    }
+
+    public void setWorkStatus(UUID userId, UUID workId, String status) {
+        jdbc.update("""
+                INSERT INTO favorites (id, user_id, work_id, status, completed_at)
+                VALUES (?, ?, ?, ?, CASE WHEN ? = 'COMPLETED' THEN now() ELSE NULL END)
+                ON CONFLICT (user_id, work_id) WHERE work_id IS NOT NULL DO UPDATE SET
+                    status = EXCLUDED.status,
+                    completed_at = EXCLUDED.completed_at
+                """, UUID.randomUUID(), userId, workId, status, status);
     }
 
     public void removeWork(UUID userId, UUID workId) {
@@ -47,6 +61,17 @@ public class FavoriteRepository {
                 """, UUID.randomUUID(), userId, source, mangaId, title);
     }
 
+    public void setMangaStatus(UUID userId, String source, String mangaId, String title, String status) {
+        jdbc.update("""
+                INSERT INTO favorites (id, user_id, manga_source, manga_id, manga_title, status, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'COMPLETED' THEN now() ELSE NULL END)
+                ON CONFLICT (user_id, manga_source, manga_id) WHERE manga_id IS NOT NULL DO UPDATE SET
+                    manga_title = COALESCE(NULLIF(EXCLUDED.manga_title, ''), favorites.manga_title),
+                    status = EXCLUDED.status,
+                    completed_at = EXCLUDED.completed_at
+                """, UUID.randomUUID(), userId, source, mangaId, title, status, status);
+    }
+
     public void removeManga(UUID userId, String source, String mangaId) {
         jdbc.update("DELETE FROM favorites WHERE user_id = ? AND manga_source = ? AND manga_id = ?",
                 userId, source, mangaId);
@@ -57,6 +82,16 @@ public class FavoriteRepository {
                 INSERT INTO favorites (id, user_id, catalog_item_id) VALUES (?, ?, ?)
                 ON CONFLICT (user_id, catalog_item_id) WHERE catalog_item_id IS NOT NULL DO NOTHING
                 """, UUID.randomUUID(), userId, itemId);
+    }
+
+    public void setCatalogStatus(UUID userId, UUID itemId, String status) {
+        jdbc.update("""
+                INSERT INTO favorites (id, user_id, catalog_item_id, status, completed_at)
+                VALUES (?, ?, ?, ?, CASE WHEN ? = 'COMPLETED' THEN now() ELSE NULL END)
+                ON CONFLICT (user_id, catalog_item_id) WHERE catalog_item_id IS NOT NULL DO UPDATE SET
+                    status = EXCLUDED.status,
+                    completed_at = EXCLUDED.completed_at
+                """, UUID.randomUUID(), userId, itemId, status, status);
     }
 
     public void removeCatalog(UUID userId, UUID itemId) {
@@ -77,13 +112,14 @@ public class FavoriteRepository {
             rows.addAll(jdbc.query("""
                     SELECT 'work' AS type, w.title, NULL::text AS cover_url, f.work_id,
                            NULL::text AS manga_source, NULL::text AS manga_id,
-                           NULL::uuid AS catalog_item_id, f.created_at
+                           NULL::uuid AS catalog_item_id, f.status, f.created_at
                       FROM favorites f
                       JOIN works w ON w.id = f.work_id
                      WHERE f.user_id = ? AND f.work_id IS NOT NULL
                     """, (rs, i) -> new FavoriteRow(rs.getString("type"), rs.getString("title"),
                     rs.getString("cover_url"), rs.getObject("work_id", UUID.class),
-                    null, null, null, toInstant(rs.getObject("created_at", OffsetDateTime.class))),
+                    null, null, null, rs.getString("status"),
+                    toInstant(rs.getObject("created_at", OffsetDateTime.class))),
                     userId));
         }
         if (type == null || type.isBlank() || "all".equals(type) || "manga".equals(type)) {
@@ -92,7 +128,7 @@ public class FavoriteRepository {
                            COALESCE(NULLIF(f.manga_title, ''), NULLIF(p.title, ''), NULLIF(mc.name, ''), f.manga_id) AS title,
                            COALESCE(NULLIF(p.cover_url, ''), NULLIF(mc.cover_url, '')) AS cover_url,
                            NULL::uuid AS work_id,
-                           f.manga_source, f.manga_id, NULL::uuid AS catalog_item_id, f.created_at
+                           f.manga_source, f.manga_id, NULL::uuid AS catalog_item_id, f.status, f.created_at
                       FROM favorites f
                       LEFT JOIN external_manga_progress p
                              ON p.user_id = f.user_id
@@ -104,7 +140,7 @@ public class FavoriteRepository {
                      WHERE f.user_id = ? AND f.manga_id IS NOT NULL
                     """, (rs, i) -> new FavoriteRow(rs.getString("type"), rs.getString("title"),
                     rs.getString("cover_url"), null, rs.getString("manga_source"),
-                    rs.getString("manga_id"), null,
+                    rs.getString("manga_id"), null, rs.getString("status"),
                     toInstant(rs.getObject("created_at", OffsetDateTime.class))),
                     userId));
         }
@@ -118,13 +154,13 @@ public class FavoriteRepository {
                            END AS cover_url,
                            NULL::uuid AS work_id,
                            NULL::text AS manga_source, NULL::text AS manga_id,
-                           f.catalog_item_id, f.created_at
+                           f.catalog_item_id, f.status, f.created_at
                       FROM favorites f
                       JOIN external_catalog_items c ON c.id = f.catalog_item_id
                      WHERE f.user_id = ? AND f.catalog_item_id IS NOT NULL
                     """, (rs, i) -> new FavoriteRow(rs.getString("type"), rs.getString("title"),
                     rs.getString("cover_url"), null, null, null,
-                    rs.getObject("catalog_item_id", UUID.class),
+                    rs.getObject("catalog_item_id", UUID.class), rs.getString("status"),
                     toInstant(rs.getObject("created_at", OffsetDateTime.class))),
                     userId));
         }

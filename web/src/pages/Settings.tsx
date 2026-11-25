@@ -248,6 +248,7 @@ function ExternalSourceAdmin() {
 function BangumiSyncCard() {
   const [job, setJob] = useState<{ status: string; stage: string | null; errorMessage: string | null } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [enrichMsg, setEnrichMsg] = useState('')
 
   const load = useCallback(async () => {
     try { setJob(await api.get('/api/v1/admin/bangumi-sync')) } catch { /* 无任务记录 */ }
@@ -255,23 +256,39 @@ function BangumiSyncCard() {
   useEffect(() => { void load() }, [load])
 
   async function trigger() {
-    setBusy(true)
+    setBusy(true); setEnrichMsg('')
     try {
       await api.post('/api/v1/admin/bangumi-sync')
       await load()
     } catch { /* 卡片展示状态 */ } finally { setBusy(false) }
   }
 
+  async function enrich() {
+    setBusy(true); setEnrichMsg('正在通过 Bangumi v0 补齐本季题材、简介与首播年份…')
+    try {
+      const res = await api.post<{ checked: number; enriched: number; failed: number }>('/api/v1/admin/bangumi-enrich?limit=80')
+      setEnrichMsg(`补齐完成：检查 ${res.checked} 部，更新 ${res.enriched} 部${res.failed > 0 ? `，失败 ${res.failed} 部` : ''}`)
+    } catch (e) {
+      setEnrichMsg(e instanceof Error ? `补齐失败：${e.message}` : '补齐失败')
+    } finally { setBusy(false) }
+  }
+
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      <strong>Bangumi 本季新番</strong>
+      <strong>Bangumi 本季新番与题材元数据</strong>
       <p className="muted" style={{ margin: '6px 0' }}>
-        从 api.bgm.tv 拉取本季日历（封面/评分/放送星期），并自动匹配资源目录；
+        从 api.bgm.tv 拉取本季日历（封面/评分/放送星期）并补齐题材标签、首播年份与简介；
         最近一次：{job ? `${job.status}${job.errorMessage ? ' — ' + job.errorMessage : ''}` : '未同步'}
       </p>
-      <button onClick={() => void trigger()} disabled={busy}>
-        {busy ? '同步中…' : '同步本季新番'}
-      </button>
+      {enrichMsg && <p className="muted" style={{ margin: '4px 0 8px' }}>{enrichMsg}</p>}
+      <div className="row-inline">
+        <button onClick={() => void trigger()} disabled={busy}>
+          {busy ? '处理中…' : '同步本季新番'}
+        </button>
+        <button className="ghost" onClick={() => void enrich()} disabled={busy}>
+          补齐题材与年份
+        </button>
+      </div>
     </div>
   )
 }

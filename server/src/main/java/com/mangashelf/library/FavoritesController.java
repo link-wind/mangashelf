@@ -71,4 +71,27 @@ public class FavoritesController {
         favorites.removeCatalog(user, itemId);
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/work/{workId}/status")
+    public java.util.Map<String, String> setWorkStatus(@AuthUser CurrentUser user,
+                                                       @PathVariable UUID workId,
+                                                       @RequestParam String status) {
+        return java.util.Map.of("status", favorites.setWorkStatus(user, workId, status));
+    }
+
+    @PutMapping("/manga/status")
+    public java.util.Map<String, String> setMangaStatus(@AuthUser CurrentUser user,
+                                                        @RequestParam String source,
+                                                        @RequestParam String mangaId,
+                                                        @RequestParam(required = false) String title,
+                                                        @RequestParam String status) {
+        return java.util.Map.of("status", favorites.setMangaStatus(user, source, mangaId, title, status));
+    }
+
+    @PutMapping("/catalog/{itemId}/status")
+    public java.util.Map<String, String> setCatalogStatus(@AuthUser CurrentUser user,
+                                                          @PathVariable UUID itemId,
+                                                          @RequestParam String status) {
+        return java.util.Map.of("status", favorites.setCatalogStatus(user, itemId, status));
+    }
 }

@@ -223,7 +223,7 @@ public class RecommendationService {
     private List<AnimeCatchUpItem> findAnimeCatchUp(UUID userId) {
         Map<UUID, AnimeCatchUpItem> merged = new LinkedHashMap<>();
 
-        // 1. 浏览态观看进度 vs 目录最新集数
+        // 1. 浏览态观看进度 vs 目录最新集数（排除用户已标记 COMPLETED 的番）
         jdbc.query("""
                 SELECT DISTINCT ON (p.catalog_item_id)
                        c.id AS catalog_item_id, c.work_id, c.name, c.remarks,
@@ -232,6 +232,10 @@ public class RecommendationService {
                   FROM catalog_watch_progress p
                   JOIN external_catalog_items c ON c.id = p.catalog_item_id
                  WHERE p.user_id = ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM favorites f
+                        WHERE f.user_id = p.user_id AND f.catalog_item_id = c.id AND f.status = 'COMPLETED'
+                   )
                  ORDER BY p.catalog_item_id, p.ordinal DESC, p.updated_at DESC
                 """, (rs, i) -> {
             UUID cid = rs.getObject("catalog_item_id", UUID.class);
@@ -292,9 +296,9 @@ public class RecommendationService {
                                       Set<UUID> excludedIds) {
         Instant recentCutoff = Instant.now().minus(Duration.ofDays(14));
 
-        // 收藏的番剧：高权重 + 排除出"新番推荐"
+        // 收藏的番剧：已看完（COMPLETED）赋予更高偏好权重（3.6），普通收藏 3.0，并排除出"新番推荐"
         jdbc.query("""
-                SELECT c.id, c.category_id, b.tags, f.created_at
+                SELECT c.id, c.category_id, b.tags, f.status, f.created_at
                   FROM favorites f
                   JOIN external_catalog_items c ON c.id = f.catalog_item_id
                   LEFT JOIN bangumi_subjects b ON b.subject_id = c.bangumi_subject_id
@@ -303,7 +307,7 @@ public class RecommendationService {
                 """, (rs, i) -> {
             UUID id = rs.getObject("id", UUID.class);
             excludedIds.add(id);
-            double w = 3.0;
+            double w = "COMPLETED".equals(rs.getString("status")) ? 3.6 : 3.0;
             Instant ts = toInstant(rs.getObject("created_at", OffsetDateTime.class));
             if (ts != null && ts.isAfter(recentCutoff)) w *= 1.3;
             addWeights(tagWeights, categoryWeights, extractTags(rs.getArray("tags")),
@@ -573,9 +577,9 @@ public class RecommendationService {
     }
 
     private void loadMangaUserProfile(UUID userId, Map<String, Double> tagWeights, Set<String> excludedKeys) {
-        // 收藏的外部漫画
+        // 收藏的外部漫画（已读完权重 3.6，普通收藏 3.0）
         jdbc.query("""
-                SELECT f.manga_source, f.manga_id,
+                SELECT f.manga_source, f.manga_id, f.status,
                        COALESCE(NULLIF(f.manga_title, ''), NULLIF(mc.name, ''), f.manga_id) AS title,
                        mc.tags
                   FROM favorites f
@@ -588,8 +592,9 @@ public class RecommendationService {
             excludedKeys.add(src + ":" + mid);
             String norm = normalizeMangaKey(rs.getString("title"));
             if (!norm.isEmpty()) excludedKeys.add(norm);
+            double w = "COMPLETED".equals(rs.getString("status")) ? 3.6 : 3.0;
             for (String t : extractTags(rs.getArray("tags"))) {
-                tagWeights.merge(t, 3.0, Double::sum);
+                tagWeights.merge(t, w, Double::sum);
             }
             return null;
         }, userId);

@@ -489,6 +489,154 @@ public class BangumiService {
         }));
     }
 
+    // ── Bangumi v0 条目详情元数据补齐（tags / air_date / summary / rating）──
+
+    public record EnrichStats(int checked, int enriched, int failed) {}
+
+    /**
+     * 通过 Bangumi v0 条目接口礼貌限速补齐缺失的 tags / air_date / summary：
+     * 优先补齐本季日历条目，再补已关联目录的条目；单条失败隔离不中断整批。
+     */
+    public EnrichStats enrichSubjectsMetadata(int maxSubjects) {
+        int limit = Math.min(Math.max(maxSubjects, 1), 120);
+        List<Long> subjectIds = jdbc.query("""
+                SELECT subject_id
+                  FROM bangumi_subjects
+                 WHERE cardinality(tags) = 0 OR air_date IS NULL OR summary = ''
+                 ORDER BY in_calendar DESC, rating DESC NULLS LAST, subject_id DESC
+                 LIMIT ?
+                """, (rs, i) -> rs.getLong(1), limit);
+        int enriched = 0;
+        int failed = 0;
+        for (int i = 0; i < subjectIds.size(); i++) {
+            long sid = subjectIds.get(i);
+            try {
+                JsonNode detail = get("https://api.bgm.tv/v0/subjects/" + sid);
+                EnrichedDetail parsed = parseV0SubjectDetail(detail);
+                jdbc.update("""
+                        UPDATE bangumi_subjects
+                           SET name_cn = CASE WHEN ? <> '' THEN ? ELSE name_cn END,
+                               summary = CASE WHEN ? <> '' THEN ? ELSE summary END,
+                               air_date = COALESCE(?, air_date),
+                               rating = COALESCE(?, rating),
+                               tags = CASE WHEN cardinality(?) > 0 THEN ? ELSE tags END,
+                               synced_at = now()
+                         WHERE subject_id = ?
+                        """,
+                        parsed.nameCn(), parsed.nameCn(),
+                        parsed.summary(), parsed.summary(),
+                        parsed.airDate() == null ? null : java.sql.Date.valueOf(parsed.airDate()),
+                        parsed.rating(),
+                        parsed.tags().toArray(new String[0]), parsed.tags().toArray(new String[0]),
+                        sid);
+                enriched++;
+            } catch (Exception e) {
+                failed++;
+                log.warn("bangumi v0 enrich failed for {}: {}", sid, e.getMessage());
+            }
+            if (i + 1 < subjectIds.size()) {
+                try {
+                    Thread.sleep(220);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        if (enriched > 0) {
+            hotspotCache.invalidate("calendar");
+            hotspotCache.invalidate("catalog_genres");
+        }
+        return new EnrichStats(subjectIds.size(), enriched, failed);
+    }
+
+    record EnrichedDetail(String nameCn, String summary, LocalDate airDate, Double rating, List<String> tags) {}
+
+    /** 解析 Bangumi v0 /subjects/{id} 响应（公开包级供单元测试直接校验）。 */
+    static EnrichedDetail parseV0SubjectDetail(JsonNode detail) {
+        String nameCn = detail.path("name_cn").asText("").trim();
+        String summary = detail.path("summary").asText("").trim();
+        LocalDate airDate = parseDate(detail.path("date").asText(""));
+        Double rating = detail.path("rating").path("score").isNumber()
+                ? detail.path("rating").path("score").asDouble() : null;
+        if (rating != null && rating <= 0) rating = null;
+
+        java.util.LinkedHashSet<String> tags = new java.util.LinkedHashSet<>();
+        detail.path("meta_tags").forEach(t -> {
+            String v = t.asText("").trim();
+            if (!v.isBlank()) tags.add(v);
+        });
+        List<JsonNode> rawTags = new ArrayList<>();
+        detail.path("tags").forEach(rawTags::add);
+        rawTags.stream()
+                .sorted((a, b) -> Integer.compare(b.path("count").asInt(0), a.path("count").asInt(0)))
+                .limit(12)
+                .forEach(t -> {
+                    String v = t.path("name").asText("").trim();
+                    if (!v.isBlank()) tags.add(v);
+                });
+        return new EnrichedDetail(nameCn, summary, airDate, rating, List.copyOf(tags));
+    }
+
+    // ── 追番日历 .ics 导出（RFC 5545）──
+
+    private static final String[] ICS_BYDAY = {"", "MO", "TU", "WE", "TH", "FR", "SA", "SU"};
+
+    /** 生成标准 RFC 5545 周循环 iCalendar 日历文本（支持全本季或个人追番子集）。 */
+    public static String buildCalendarIcs(List<CalendarEntry> entries, String calendarName) {
+        LocalDate today = LocalDate.now();
+        String stamp = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("BEGIN:VCALENDAR\r\n");
+        sb.append("VERSION:2.0\r\n");
+        sb.append("PRODID:-//MangaShelf//Anime Schedule//ZH\r\n");
+        sb.append("CALSCALE:GREGORIAN\r\n");
+        sb.append("METHOD:PUBLISH\r\n");
+        sb.append("X-WR-CALNAME:").append(escapeIcs(calendarName == null ? "MangaShelf 新番时刻表" : calendarName)).append("\r\n");
+        sb.append("X-WR-TIMEZONE:Asia/Shanghai\r\n");
+
+        for (CalendarEntry e : entries) {
+            Integer dow = e.airWeekday();
+            if (dow == null || dow < 1 || dow > 7) continue;
+            LocalDate firstDate = today.with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.of(dow)));
+            String dateStr = firstDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+            String title = (e.nameCn() != null && !e.nameCn().isBlank()) ? e.nameCn() : e.name();
+            StringBuilder desc = new StringBuilder();
+            if (e.rating() != null && e.rating() > 0) desc.append("Bangumi ★ ").append(String.format(java.util.Locale.ROOT, "%.1f", e.rating()));
+            if (e.remarks() != null && !e.remarks().isBlank()) {
+                if (!desc.isEmpty()) desc.append(" · ");
+                desc.append(e.remarks());
+            }
+            if (e.covered()) {
+                if (!desc.isEmpty()) desc.append(" · ");
+                desc.append("站内可播");
+            }
+
+            sb.append("BEGIN:VEVENT\r\n");
+            sb.append("UID:mangashelf-bgm-").append(e.subjectId()).append("@mangashelf.local\r\n");
+            sb.append("DTSTAMP:").append(stamp).append("\r\n");
+            sb.append("DTSTART;VALUE=DATE:").append(dateStr).append("\r\n");
+            sb.append("RRULE:FREQ=WEEKLY;BYDAY=").append(ICS_BYDAY[dow]).append("\r\n");
+            sb.append("SUMMARY:").append(escapeIcs("【新番】" + title)).append("\r\n");
+            if (!desc.isEmpty()) {
+                sb.append("DESCRIPTION:").append(escapeIcs(desc.toString())).append("\r\n");
+            }
+            sb.append("END:VEVENT\r\n");
+        }
+        sb.append("END:VCALENDAR\r\n");
+        return sb.toString();
+    }
+
+    private static String escapeIcs(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\r\n", "\\n")
+                .replace("\n", "\\n")
+                .replace(",", "\\,")
+                .replace(";", "\\;");
+    }
+
     // ── 内部 ──
 
     /** 优先大图（Banner 需要），回退 medium/common。 */
@@ -501,19 +649,25 @@ public class BangumiService {
     }
 
     private void upsertSubject(Subject s, boolean inCalendar) {
+        String[] tagArr = s.tags().toArray(new String[0]);
         jdbc.update("""
                 INSERT INTO bangumi_subjects
                     (subject_id, name, name_cn, cover_url, rating, air_date, air_weekday, summary,
                      in_calendar, tags)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (subject_id) DO UPDATE SET
-                    name = EXCLUDED.name, name_cn = EXCLUDED.name_cn, cover_url = EXCLUDED.cover_url,
-                    rating = EXCLUDED.rating, air_date = EXCLUDED.air_date,
-                    air_weekday = EXCLUDED.air_weekday, summary = EXCLUDED.summary,
-                    in_calendar = EXCLUDED.in_calendar, tags = EXCLUDED.tags, synced_at = now()
+                    name = EXCLUDED.name,
+                    name_cn = CASE WHEN EXCLUDED.name_cn <> '' THEN EXCLUDED.name_cn ELSE bangumi_subjects.name_cn END,
+                    cover_url = CASE WHEN EXCLUDED.cover_url <> '' THEN EXCLUDED.cover_url ELSE bangumi_subjects.cover_url END,
+                    rating = COALESCE(EXCLUDED.rating, bangumi_subjects.rating),
+                    air_date = COALESCE(EXCLUDED.air_date, bangumi_subjects.air_date),
+                    air_weekday = COALESCE(EXCLUDED.air_weekday, bangumi_subjects.air_weekday),
+                    summary = CASE WHEN EXCLUDED.summary <> '' THEN EXCLUDED.summary ELSE bangumi_subjects.summary END,
+                    in_calendar = EXCLUDED.in_calendar,
+                    tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE bangumi_subjects.tags END,
+                    synced_at = now()
                 """, s.subjectId(), s.name(), s.nameCn(), s.coverUrl(), s.rating(), s.airDate(),
-                s.airWeekday(), s.summary(), inCalendar,
-                s.tags().toArray(new String[0]));
+                s.airWeekday(), s.summary(), inCalendar, tagArr);
     }
 
     private HttpRequest.Builder requestBuilder(String url) {

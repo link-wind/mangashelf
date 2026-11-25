@@ -13,6 +13,7 @@ interface Favorite {
   source: string | null
   mangaId: string | null
   catalogItemId: string | null
+  status?: 'WATCHING' | 'COMPLETED'
   createdAt: string
 }
 
@@ -130,6 +131,7 @@ export default function Me() {
   const kind: MediaKind = rawKind === 'anime' || rawKind === 'manga' ? rawKind : 'all'
 
   const [favorites, setFavorites] = useState<Favorite[]>([])
+  const [favStatusFilter, setFavStatusFilter] = useState<'all' | 'WATCHING' | 'COMPLETED'>('all')
   const [continueList, setContinueList] = useState<Activity[]>([])
   const [historyList, setHistoryList] = useState<Activity[]>([])
   const [catchUp, setCatchUp] = useState<CatchUpItem[]>([])
@@ -185,9 +187,32 @@ export default function Me() {
     }
   }
 
+  async function toggleFavoriteStatus(f: Favorite) {
+    const nextStatus: 'WATCHING' | 'COMPLETED' = f.status === 'COMPLETED' ? 'WATCHING' : 'COMPLETED'
+    let url: string
+    if (f.type === 'work') {
+      url = `/api/v1/me/favorites/work/${f.workId}/status?status=${nextStatus}`
+    } else if (f.type === 'manga') {
+      url = `/api/v1/me/favorites/manga/status?${new URLSearchParams({
+        source: f.source ?? '', mangaId: f.mangaId ?? '', title: f.title, status: nextStatus,
+      })}`
+    } else {
+      url = `/api/v1/me/favorites/catalog/${f.catalogItemId}/status?status=${nextStatus}`
+    }
+    try {
+      await api.put(url)
+      setFavorites(prev => prev.map(item => favKey(item) === favKey(f) ? { ...item, status: nextStatus } : item))
+      showToast(nextStatus === 'COMPLETED' ? `已标记「${f.title}」为已看完` : `已改回在追「${f.title}」`, 'success')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '更新状态失败', 'error')
+    }
+  }
+
   const shownFavs = favorites.filter(f => {
-    if (kind === 'anime') return f.type === 'catalog'
-    if (kind === 'manga') return f.type === 'work' || f.type === 'manga'
+    if (kind === 'anime' && f.type !== 'catalog') return false
+    if (kind === 'manga' && f.type === 'catalog') return false
+    const st = f.status ?? 'WATCHING'
+    if (favStatusFilter !== 'all' && st !== favStatusFilter) return false
     return true
   })
 
@@ -331,35 +356,57 @@ export default function Me() {
         </div>
       ) : tab === 'favorites' ? (
         <div style={{ marginTop: 18 }}>
+          <div className="row-inline" style={{ marginBottom: 14 }}>
+            <button type="button" className={'mini ' + (favStatusFilter === 'all' ? '' : 'ghost')}
+                    onClick={() => setFavStatusFilter('all')}>全部状态 · {favorites.length}</button>
+            <button type="button" className={'mini ' + (favStatusFilter === 'WATCHING' ? '' : 'ghost')}
+                    onClick={() => setFavStatusFilter('WATCHING')}>
+              在追 · {favorites.filter(f => (f.status ?? 'WATCHING') === 'WATCHING').length}
+            </button>
+            <button type="button" className={'mini ' + (favStatusFilter === 'COMPLETED' ? '' : 'ghost')}
+                    onClick={() => setFavStatusFilter('COMPLETED')}>
+              已看完 · {favorites.filter(f => f.status === 'COMPLETED').length}
+            </button>
+          </div>
           {shownFavs.length === 0 ? (
             <p className="muted">
-              还没有收藏{kind === 'anime' ? '动画' : kind === 'manga' ? '漫画' : '内容'}——在详情页或播放页点击「收藏」。
+              当前筛选下暂无收藏——在详情页或播放页点击「收藏」或「标记已看完」。
             </p>
           ) : (
             <div className="card-grid">
-              {shownFavs.map(f => (
-                <div key={favKey(f)} className="shelf-card-wrap">
-                  <Link to={favLink(f)} className="work-card">
-                    <div className="cover">
-                      <CoverImage src={f.coverUrl} alt={f.title} />
-                      <span className="badge-anim" style={f.type === 'work' ? { background: 'var(--pub)' } : undefined}>
-                        {f.type === 'work' ? '本地' : f.type === 'manga' ? (f.source || '漫画') : '动画'}
-                      </span>
-                    </div>
-                    <div className="work-card-body">
-                      <div className="work-card-title clamp">{f.title}</div>
-                      <div className="work-card-meta">
-                        <span>{f.type === 'work' ? '本地作品' : f.type === 'manga' ? `漫画 · ${f.source}` : '番剧目录'}</span>
+              {shownFavs.map(f => {
+                const done = f.status === 'COMPLETED'
+                return (
+                  <div key={favKey(f)} className="shelf-card-wrap">
+                    <Link to={favLink(f)} className="work-card">
+                      <div className="cover">
+                        <CoverImage src={f.coverUrl} alt={f.title} />
+                        <span className="badge-tl" style={f.type === 'work' ? { background: 'var(--pub)' } : undefined}>
+                          {f.type === 'work' ? '本地' : f.type === 'manga' ? (f.source || '漫画') : '动画'}
+                        </span>
+                        {done && <span className="badge-br is-pub" style={{ background: 'var(--pub)' }}>✓ 已看完</span>}
                       </div>
-                    </div>
-                  </Link>
-                  <button type="button" className="shelf-unfav"
-                          aria-label={`取消收藏 ${f.title}`} title="取消收藏"
-                          onClick={() => void removeFavorite(f)}>
-                    <CloseIcon size={14} />
-                  </button>
-                </div>
-              ))}
+                      <div className="work-card-body">
+                        <div className="work-card-title">{f.title}</div>
+                        <div className="row-between" style={{ marginTop: 6 }}>
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            {f.type === 'work' ? '本地' : f.type === 'manga' ? (f.source ?? '漫画') : '番剧'}
+                          </span>
+                          <button type="button" className="fav-status-btn"
+                                  onClick={e => { e.preventDefault(); void toggleFavoriteStatus(f) }}>
+                            {done ? '改回在追' : '标已看完'}
+                          </button>
+                        </div>
+                      </div>
+                    </Link>
+                    <button type="button" className="shelf-unfav"
+                            aria-label={`取消收藏 ${f.title}`} title="取消收藏"
+                            onClick={() => void removeFavorite(f)}>
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

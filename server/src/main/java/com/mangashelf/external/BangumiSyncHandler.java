@@ -40,9 +40,12 @@ public class BangumiSyncHandler implements JobHandler {
                 .flatMap(externals::findSource)
                 .orElseGet(() -> externals.listSources(true).stream().findFirst().orElse(null));
         var stats = bangumi.matchCalendarToCatalog(source);
-        log.info("job {}: bangumi calendar {} subjects, matched local {} + search {}",
-                ctx.job().id(), subjects, stats.local(), stats.viaSearch());
+        ctx.progress().emit("bangumi", "补齐本季条目详情标签与首播日期");
+        var enriched = bangumi.enrichSubjectsMetadata(60);
+        log.info("job {}: bangumi calendar {} subjects, matched local {} + search {}, enriched {}/{}",
+                ctx.job().id(), subjects, stats.local(), stats.viaSearch(), enriched.enriched(), enriched.checked());
         return JobResult.success("bangumi:" + subjects
-                + ",local:" + stats.local() + ",search:" + stats.viaSearch());
+                + ",local:" + stats.local() + ",search:" + stats.viaSearch()
+                + ",enriched:" + enriched.enriched());
     }
 }
