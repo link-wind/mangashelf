@@ -137,6 +137,12 @@ function Nav() {
           <span className="nav-search-icon"><SearchIcon size={15} /></span>
           <input value={kw} onChange={e => setKw(e.target.value)}
                  placeholder="搜索番剧、全流漫画、对白…" aria-label="全站搜索" />
+          {kw && (
+            <button type="button" className="nav-search-clear" aria-label="清空搜索词"
+                    onClick={() => setKw('')}>
+              <CloseIcon size={13} />
+            </button>
+          )}
           <button type="submit" className="pill">搜索</button>
         </form>
         <span className="spacer" />

@@ -78,7 +78,8 @@ interface GenreTag { tag: string; items: number }
 const SOURCE_KEY = 'ms-manga-source'
 const ALL = 'all'
 const CACHE_TTL_MS = 10 * 60 * 1000
-const INDEX_PAGE_SIZE = 24
+const INDEX_PAGE_SIZE = 28
+const MANGA_VIEW_KEY = 'ms-index-view'
 
 interface SectionCache { ts: number; sections: SourceSection[]; warnings: string[] }
 
@@ -669,11 +670,19 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
 
   const [genres, setGenres] = useState<GenreTag[]>([])
+  const [expandGenres, setExpandGenres] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(
+    () => (localStorage.getItem(MANGA_VIEW_KEY) === 'list' ? 'list' : 'grid'))
   const [items, setItems] = useState<CatalogEntry[]>([])
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  function switchView(next: 'grid' | 'list') {
+    setViewMode(next)
+    localStorage.setItem(MANGA_VIEW_KEY, next)
+  }
 
   useEffect(() => {
     const qs = source && source !== 'all' ? `?source=${encodeURIComponent(source)}` : ''
@@ -750,13 +759,19 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
             <div className="filter-pills">
               <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
                       onClick={() => updateFilter({ genre: '' })}>全部</button>
-              {genres.slice(0, 18).map(g => (
+              {(expandGenres ? genres : genres.slice(0, 12)).map(g => (
                 <button key={g.tag} type="button"
                         className={'mini ' + (genre === g.tag ? '' : 'ghost')}
                         onClick={() => updateFilter({ genre: g.tag })}>
-                  {g.tag}
+                  {g.tag} {g.items > 0 ? `(${g.items})` : ''}
                 </button>
               ))}
+              {genres.length > 12 && (
+                <button type="button" className="mini ghost"
+                        onClick={() => setExpandGenres(v => !v)}>
+                  {expandGenres ? '收起' : `更多 (+${genres.length - 12})`}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -784,17 +799,25 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
             <button type="button" className={'mini ' + (sort === 'episodes' ? '' : 'ghost')}
                     onClick={() => updateFilter({ sort: 'episodes' })}>话数最多</button>
           </div>
-          {(source !== 'all' || genre || status || sort !== 'updated') && (
-            <button type="button" className="mini ghost"
-                    onClick={() => setParams(new URLSearchParams({ tab: 'index' }))}>重置</button>
-          )}
+          <div className="row-inline" style={{ marginLeft: 'auto' }}>
+            <div className="view-toggle" role="group" aria-label="视图切换">
+              <button type="button" className={'mini ' + (viewMode === 'grid' ? '' : 'ghost')}
+                      onClick={() => switchView('grid')}>网格</button>
+              <button type="button" className={'mini ' + (viewMode === 'list' ? '' : 'ghost')}
+                      onClick={() => switchView('list')}>列表</button>
+            </div>
+            {(source !== 'all' || genre || status || sort !== 'updated') && (
+              <button type="button" className="mini ghost"
+                      onClick={() => setParams(new URLSearchParams({ tab: 'index' }))}>重置</button>
+            )}
+          </div>
         </div>
       </div>
 
       {error && <p className="error">{error}</p>}
       {loading && items.length === 0 ? (
         <div className="card-grid">
-          {Array.from({ length: 12 }).map((_, i) => (
+          {Array.from({ length: 14 }).map((_, i) => (
             <div key={i}>
               <div className="skeleton-box card-skeleton-cover" />
               <div className="skeleton-box card-skeleton-line" />
@@ -804,6 +827,32 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
         </div>
       ) : items.length === 0 ? (
         <p className="muted">目录库在当前筛选下暂无条目——可以使用上方「全流搜索」实时检索各漫画源（命中条目会自动沉淀进索引）。</p>
+      ) : viewMode === 'list' ? (
+        <>
+          <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
+            {items.map(r => (
+              <Link key={`${r.source}-${r.sourceItemId}`}
+                    to={mangaLink(r.source, r.sourceItemId, r.name)}
+                    className="index-list-card card" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div className="index-list-poster">
+                  <CoverImage src={r.coverUrl} alt={r.name} />
+                  <span className="badge-tl">{sourceNames.get(r.source) ?? r.source}</span>
+                </div>
+                <div className="index-list-body">
+                  <div className="index-list-title">{r.name}</div>
+                  {r.altTitle && <div className="muted clamp">{r.altTitle}</div>}
+                  <div className="index-list-meta muted">
+                    <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载')}</span>
+                    {(r.tags ?? []).slice(0, 3).map(t => <span key={t} className="chip ghost">{t}</span>)}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+          <Pagination page={page} totalPages={totalPages} total={total} unit="部漫画"
+                      loading={loading}
+                      onChange={p => updateFilter({ page: String(p) }, false)} />
+        </>
       ) : (
         <>
           <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
@@ -813,14 +862,17 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
                     className="work-card">
                 <div className="cover">
                   <CoverImage src={r.coverUrl} alt={r.name} />
-                  <span className="badge-anim">{sourceNames.get(r.source) ?? r.source}</span>
+                  <span className="badge-tl">{sourceNames.get(r.source) ?? r.source}</span>
+                  {(r.remarks || r.episodeCount) && (
+                    <span className="badge-br tabular-nums">
+                      {r.remarks || `${r.episodeCount} 话`}
+                    </span>
+                  )}
                 </div>
                 <div className="work-card-body">
-                  <div className="work-card-title clamp">{r.name}</div>
+                  <div className="work-card-title">{r.name}</div>
                   <div className="work-card-meta">
-                    <span className="clamp">
-                      {r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : (r.altTitle || (sourceNames.get(r.source) ?? r.source)))}
-                    </span>
+                    <span className="clamp">{r.altTitle || (sourceNames.get(r.source) ?? r.source)}</span>
                   </div>
                 </div>
               </Link>

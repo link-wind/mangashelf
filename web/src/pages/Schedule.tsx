@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../auth'
 import CoverImage from '../components/CoverImage'
+import { HeartIcon, PlayIcon } from '../components/Icons'
+import { useToast } from '../components/Toast'
 
 interface CalendarEntry {
   subjectId: number
@@ -13,113 +16,429 @@ interface CalendarEntry {
   covered: boolean
   catalogItemId: string | null
   workId: string | null
+  summary: string | null
+  remarks: string | null
+  episodeCount: number | null
+  categoryName: string | null
 }
 
-const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+type ScheduleFilter = 'all' | 'covered' | 'following'
 
-/** 新番时刻表（M9 周视图）：按放送星期分栏，可直接播放入库。 */
+const DAYS = [
+  { id: 1, zh: '周一', en: 'MON' },
+  { id: 2, zh: '周二', en: 'TUE' },
+  { id: 3, zh: '周三', en: 'WED' },
+  { id: 4, zh: '周四', en: 'THU' },
+  { id: 5, zh: '周五', en: 'FRI' },
+  { id: 6, zh: '周六', en: 'SAT' },
+  { id: 7, zh: '周日', en: 'SUN' },
+]
+
+function weekdayName(day: number | null | undefined): string {
+  return DAYS.find(d => d.id === day)?.zh ?? '待定'
+}
+
+/**
+ * 新番时刻表（借鉴 gugu.fan/schedule）：
+ * - 顶部 KPI 态势卡（本季总数 / 今日更新 / 我在追的）+ 筛选胶囊；
+ * - 7 列等宽周历切换条（自动高亮今日，URL 同步 ?day=）；
+ * - 8:4 双栏主体：左侧两档自适应横卡（焦点 144×192 + 紧凑双列 96×128），右侧本周重磅雷达 + 我的本周追更表；
+ * - 全量 Bangumi large 高清封面。
+ */
 export default function Schedule() {
   const navigate = useNavigate()
+  const { me } = useAuth()
+  const { showToast } = useToast()
+  const [params, setParams] = useSearchParams()
+
+  const today = new Date().getDay() || 7
+  const rawDay = Number(params.get('day'))
+  const activeDay = rawDay >= 1 && rawDay <= 7 ? rawDay : today
+
   const [items, setItems] = useState<CalendarEntry[]>([])
+  const [favCatalogIds, setFavCatalogIds] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState<ScheduleFilter>('all')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(async () => {
-    try {
-      setItems(await api.get<CalendarEntry[]>('/api/v1/calendar'))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '日历加载失败')
-    }
-  }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void (async () => {
+      setLoading(true); setError('')
+      try {
+        const cal = await api.get<CalendarEntry[]>('/api/v1/calendar')
+        setItems(cal)
+        if (me) {
+          const favs = await api.get<{ catalogItemId: string | null }[]>('/api/v1/me/favorites?type=catalog')
+            .catch(() => [])
+          setFavCatalogIds(new Set(favs.map(f => f.catalogItemId).filter((x): x is string => Boolean(x))))
+        } else {
+          setFavCatalogIds(new Set())
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '时刻表加载失败')
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [me])
 
-  // 播放直接进入浏览态，不创建作品。
-  function play(it: CalendarEntry) {
-    if (it.workId) { navigate(`/works/${it.workId}`); return }
-    if (it.catalogItemId) navigate(`/browse/${it.catalogItemId}`)
+  function selectDay(day: number) {
+    const next = new URLSearchParams(params)
+    if (day === today) next.delete('day')
+    else next.set('day', String(day))
+    setParams(next, { replace: true })
   }
 
-  const byDay = (day: number) => items
-    .filter(i => (i.airWeekday ?? 0) === day)
-    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-  const unscheduled = items.filter(i => !i.airWeekday)
+  function play(it: CalendarEntry) {
+    if (it.workId) { navigate(`/works/${it.workId}`); return }
+    if (it.catalogItemId) { navigate(`/browse/${it.catalogItemId}`); return }
+    navigate(`/anime?q=${encodeURIComponent(it.nameCn || it.name)}`)
+  }
+
+  async function toggleFavorite(it: CalendarEntry) {
+    if (!it.catalogItemId) {
+      showToast('该条目暂未收录到站内资源目录', 'info')
+      return
+    }
+    if (!me) {
+      showToast('请先登录后再追番收藏', 'info')
+      return
+    }
+    const cid = it.catalogItemId
+    const isFav = favCatalogIds.has(cid)
+    setBusyId(cid)
+    try {
+      if (isFav) {
+        await api.delete(`/api/v1/me/favorites/catalog/${cid}`)
+        setFavCatalogIds(prev => { const n = new Set(prev); n.delete(cid); return n })
+        showToast(`已取消追番「${it.nameCn || it.name}」`, 'info')
+      } else {
+        await api.put(`/api/v1/me/favorites/catalog/${cid}`)
+        setFavCatalogIds(prev => new Set(prev).add(cid))
+        showToast(`已追番「${it.nameCn || it.name}」`, 'success')
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '操作失败', 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const filteredAll = useMemo(() => {
+    return items.filter(it => {
+      if (filter === 'covered') return it.covered
+      if (filter === 'following') return Boolean(it.catalogItemId && favCatalogIds.has(it.catalogItemId))
+      return true
+    })
+  }, [items, filter, favCatalogIds])
+
+  const countByDay = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const d of DAYS) m.set(d.id, 0)
+    for (const it of filteredAll) {
+      if (it.airWeekday && m.has(it.airWeekday)) {
+        m.set(it.airWeekday, (m.get(it.airWeekday) ?? 0) + 1)
+      }
+    }
+    return m
+  }, [filteredAll])
+
+  const dayList = useMemo(() => {
+    return filteredAll
+      .filter(it => (it.airWeekday ?? 0) === activeDay)
+      .sort((a, b) => {
+        if (a.covered !== b.covered) return a.covered ? -1 : 1
+        return (b.rating ?? 0) - (a.rating ?? 0)
+      })
+  }, [filteredAll, activeDay])
+
+  // 两档自适应卡片：当日 Top 2 可播高分番做 144×192 大横卡，其余做双列 96×128 紧凑横卡
+  const featured = useMemo(() => {
+    const covered = dayList.filter(it => it.covered)
+    return (covered.length > 0 ? covered : dayList).slice(0, Math.min(2, dayList.length))
+  }, [dayList])
+  const featuredIds = useMemo(() => new Set(featured.map(f => f.subjectId)), [featured])
+  const compactList = useMemo(() => dayList.filter(it => !featuredIds.has(it.subjectId)), [dayList, featuredIds])
+
+  const topPicks = useMemo(() => {
+    return [...items]
+      .filter(it => it.covered && (it.rating ?? 0) > 0)
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+      .slice(0, 5)
+  }, [items])
+
+  const myWeekly = useMemo(() => {
+    return items
+      .filter(it => it.catalogItemId && favCatalogIds.has(it.catalogItemId))
+      .sort((a, b) => (a.airWeekday ?? 9) - (b.airWeekday ?? 9))
+  }, [items, favCatalogIds])
+
+  const todayCount = items.filter(it => it.airWeekday === today).length
+  const coveredTotal = items.filter(it => it.covered).length
 
   return (
     <main className="watch-page">
-      <div className="watch-title"><h1>新番时刻表</h1></div>
-      <div className="watch-meta">
-        <span>Bangumi 本季 {items.length} 部 · 资源已覆盖 {items.filter(i => i.covered).length} 部</span>
-        <span>按日本放送日（周一～周日）</span>
+      {/* 顶部态势头 + 3 KPI 卡 */}
+      <div className="sched-header">
+        <div>
+          <span className="sched-eyebrow">BROADCAST SCHEDULE · BANGUMI WEEKLY</span>
+          <h1>新番时刻表</h1>
+          <p className="muted" style={{ margin: '4px 0 0' }}>
+            按放送星期追踪本季新番，已收录资源 {coveredTotal} / {items.length} 部可直接播放。
+          </p>
+        </div>
+        <div className="sched-kpis">
+          <div className="sched-kpi card">
+            <span className="sched-kpi-label">本季排期总数</span>
+            <strong className="sched-kpi-val tabular-nums">{items.length} <small>部</small></strong>
+          </div>
+          <div className="sched-kpi sched-kpi-today card">
+            <span className="sched-kpi-label">今日更新（{weekdayName(today)}）</span>
+            <strong className="sched-kpi-val tabular-nums">{todayCount} <small>部</small></strong>
+          </div>
+          <div className="sched-kpi card">
+            <span className="sched-kpi-label">我的追番排期</span>
+            <strong className="sched-kpi-val tabular-nums">{me ? myWeekly.length : '—'} <small>部</small></strong>
+          </div>
+        </div>
       </div>
-      {error && <p className="error">{error}</p>}
 
-      <div className="schedule-grid">
-        {[1, 2, 3, 4, 5, 6, 7].map(day => {
-          const list = byDay(day)
+      {/* 筛选胶囊条 */}
+      <div className="sched-filter-bar">
+        <div className="row-inline" role="group" aria-label="排期筛选">
+          <button type="button" className={'mini ' + (filter === 'all' ? '' : 'ghost')}
+                  onClick={() => setFilter('all')}>全部播映</button>
+          <button type="button" className={'mini ' + (filter === 'covered' ? '' : 'ghost')}
+                  onClick={() => setFilter('covered')}>仅看可播 · {coveredTotal}</button>
+          <button type="button" className={'mini ' + (filter === 'following' ? '' : 'ghost')}
+                  disabled={!me}
+                  title={me ? '只看收藏的本季新番' : '登录后可用'}
+                  onClick={() => setFilter('following')}>
+            仅看我的追番{me ? ` · ${myWeekly.length}` : ''}
+          </button>
+        </div>
+        <Link to="/anime?category=season" className="muted" style={{ fontSize: 13 }}>
+          浏览全部本季新番 →
+        </Link>
+      </div>
+
+      {/* 7 列等宽周历切换条 */}
+      <div className="sched-week-strip" role="tablist" aria-label="星期切换">
+        {DAYS.map(d => {
+          const isToday = d.id === today
+          const isActive = d.id === activeDay
+          const count = countByDay.get(d.id) ?? 0
           return (
-            <section key={day} className="schedule-col">
-              <header>
-                {WEEKDAYS[day]}
-                <span className="muted"> {list.length}</span>
-              </header>
-              {list.map(it => (
-                <ScheduleCard key={it.subjectId} it={it} onPlay={play} />
-              ))}
-              {list.length === 0 && <p className="muted" style={{ fontSize: 12 }}>—</p>}
-            </section>
+            <button key={d.id} type="button" role="tab" aria-selected={isActive}
+                    className={'sched-day-tab' + (isActive ? ' active' : '') + (isToday ? ' today' : '')}
+                    onClick={() => selectDay(d.id)}>
+              <div className="sched-day-top">
+                <span className="sched-day-zh">{d.zh}</span>
+                <span className="sched-day-en">{isToday ? '今日' : d.en}</span>
+              </div>
+              <span className="sched-day-count tabular-nums">{count} 部排期</span>
+            </button>
           )
         })}
       </div>
 
-      {unscheduled.length > 0 && (
-        <section style={{ marginTop: 26 }}>
-          <div className="section-head"><h2>放送日未定（{unscheduled.length}）</h2></div>
-          <div className="card-grid">
-            {unscheduled.map(it => (
-              <div key={it.subjectId} className="work-card">
-                <div className="cover">
-                  <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=common`} alt={it.nameCn || it.name} />
-                  {it.covered && <span className="badge-anim">可看</span>}
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{it.nameCn || it.name}</div>
-                  <div className="row-inline" style={{ marginTop: 8 }}>
-                    {it.covered
-                      ? <button style={{ fontSize: 12, padding: '4px 10px' }}
-                                onClick={() => void play(it)}>
-                          {it.workId ? '打开' : '播放'}
-                        </button>
-                      : <span className="muted" style={{ fontSize: 12 }}>资源未收录</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
+      {error && <p className="error" style={{ marginTop: 14 }}>{error}</p>}
+
+      {loading ? (
+        <div className="sched-body-grid" style={{ marginTop: 22 }}>
+          <div className="stack">
+            <div className="skeleton-box" style={{ height: 210, borderRadius: 16 }} />
+            <div className="skeleton-box" style={{ height: 150, borderRadius: 16 }} />
           </div>
-        </section>
+          <div className="skeleton-box" style={{ height: 340, borderRadius: 16 }} />
+        </div>
+      ) : (
+        <div className="sched-body-grid">
+          {/* 左侧主排期流（8fr） */}
+          <div className="sched-main">
+            {dayList.length === 0 ? (
+              <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+                <p className="muted" style={{ margin: 0 }}>
+                  {weekdayName(activeDay)}在当前筛选下暂无排期——可切换其他星期或点「全部播映」。
+                </p>
+              </div>
+            ) : (
+              <>
+                {featured.length > 0 && (
+                  <section className="sched-group">
+                    <div className="sched-group-head">
+                      <h2>{weekdayName(activeDay)}焦点排期</h2>
+                      <span className="sched-count-pill tabular-nums">{featured.length} 部精选</span>
+                    </div>
+                    <div className="sched-featured-list">
+                      {featured.map(it => {
+                        const isFav = Boolean(it.catalogItemId && favCatalogIds.has(it.catalogItemId))
+                        return (
+                          <article key={it.subjectId} className="sched-card card">
+                            <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                                  className="sched-poster">
+                              <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
+                                          alt={it.nameCn || it.name} loading="eager" />
+                              <span className={'badge-tl ' + (it.covered ? 'is-pub' : '')}>
+                                {it.covered ? '可播' : '未收录'}
+                              </span>
+                              {typeof it.rating === 'number' && it.rating > 0 && (
+                                <span className="badge-bl badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
+                              )}
+                            </Link>
+                            <div className="sched-card-body">
+                              <div className="sched-card-tags">
+                                <span className="sched-time-tag">{weekdayName(it.airWeekday)}放送</span>
+                                {it.remarks && <span className="sched-ep-tag">{it.remarks}</span>}
+                                {it.categoryName && <span className="chip ghost">{it.categoryName}</span>}
+                              </div>
+                              <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                                    className="sched-card-title">
+                                {it.nameCn || it.name}
+                              </Link>
+                              {it.nameCn && it.name !== it.nameCn && (
+                                <p className="sched-card-sub muted">{it.name}</p>
+                              )}
+                              <p className="sched-card-desc">
+                                {it.summary || '暂未录入简介，点击详情可查看线路与分集信息。'}
+                              </p>
+                              <div className="sched-card-actions">
+                                <button type="button" className="pill mini" onClick={() => play(it)}>
+                                  <PlayIcon size={13} />
+                                  {it.covered ? (it.workId ? '打开播放' : '立即播放') : '去番剧库找'}
+                                </button>
+                                {it.catalogItemId && (
+                                  <button type="button" className={'pill mini ' + (isFav ? '' : 'ghost')}
+                                          disabled={busyId === it.catalogItemId}
+                                          onClick={() => void toggleFavorite(it)}>
+                                    <HeartIcon size={13} />
+                                    {isFav ? '已追番' : '追番'}
+                                  </button>
+                                )}
+                                {it.catalogItemId && (
+                                  <Link to={`/catalog/${it.catalogItemId}`} className="btn ghost mini">详情</Link>
+                                )}
+                              </div>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {compactList.length > 0 && (
+                  <section className="sched-group">
+                    <div className="sched-group-head">
+                      <h2>{weekdayName(activeDay)}更多播映</h2>
+                      <span className="sched-count-pill tabular-nums">{compactList.length} 部排期</span>
+                    </div>
+                    <div className="sched-compact-grid">
+                      {compactList.map(it => (
+                        <article key={it.subjectId} className="sched-card compact card">
+                          <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                                className="sched-poster">
+                            <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
+                                        alt={it.nameCn || it.name} />
+                            {typeof it.rating === 'number' && it.rating > 0 && (
+                              <span className="badge-bl badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
+                            )}
+                          </Link>
+                          <div className="sched-card-body">
+                            <div className="sched-card-tags">
+                              <span className={'tag ' + (it.covered ? 'pub' : 'priv')}>
+                                {it.covered ? (it.remarks || '可播') : '未收录'}
+                              </span>
+                            </div>
+                            <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                                  className="sched-card-title clamp">
+                              {it.nameCn || it.name}
+                            </Link>
+                            <div className="sched-card-actions" style={{ marginTop: 'auto' }}>
+                              <button type="button" className="mini" onClick={() => play(it)}>
+                                {it.covered ? '立即播放' : '搜索资源'}
+                              </button>
+                              {it.catalogItemId && (
+                                <Link to={`/catalog/${it.catalogItemId}`} className="btn ghost mini">详情</Link>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 右侧情报侧栏（4fr） */}
+          <aside className="sched-side">
+            {topPicks.length > 0 && (
+              <section className="card sched-side-card">
+                <div className="sched-side-head">
+                  <h3>本周重磅雷达</h3>
+                  <span className="muted">高分可播</span>
+                </div>
+                <ol className="sched-radar-list">
+                  {topPicks.map((it, idx) => (
+                    <li key={it.subjectId} className="sched-radar-item">
+                      <span className={'rank-no tabular-nums' + (idx < 3 ? ' top' : '')}>
+                        {String(idx + 1).padStart(2, '0')}
+                      </span>
+                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                            className="sched-radar-thumb">
+                        <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
+                                    alt={it.nameCn || it.name} />
+                      </Link>
+                      <div className="sched-radar-info">
+                        <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
+                              className="sched-radar-title">
+                          {it.nameCn || it.name}
+                        </Link>
+                        <span className="muted">
+                          {weekdayName(it.airWeekday)} · {it.remarks || `${it.episodeCount ?? 0} 集`}
+                        </span>
+                      </div>
+                      <span className="sched-radar-score tabular-nums">★ {(it.rating ?? 0).toFixed(1)}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
+            <section className="card sched-side-card">
+              <div className="sched-side-head">
+                <h3>我的本周追更</h3>
+                {me && <Link to="/me?tab=favorites&kind=anime" className="muted">管理 →</Link>}
+              </div>
+              {!me ? (
+                <p className="muted" style={{ margin: 0 }}>
+                  <Link to="/login?next=%2Fschedule">登录</Link>后将在此自动汇总你收藏的本季连载新番排期。
+                </p>
+              ) : myWeekly.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>
+                  还没有收藏本季新番——在左侧卡片点「追番」即可加入本周追更表。
+                </p>
+              ) : (
+                <ul className="sched-my-list">
+                  {myWeekly.slice(0, 10).map(it => (
+                    <li key={it.subjectId}>
+                      <span className="sched-my-day">{weekdayName(it.airWeekday)}</span>
+                      <Link to={it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime'}
+                            className="sched-my-name">
+                        {it.nameCn || it.name}
+                      </Link>
+                      <span className="muted tabular-nums">{it.remarks || ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </aside>
+        </div>
       )}
     </main>
-  )
-}
-
-function ScheduleCard({ it, onPlay }: {
-  it: CalendarEntry
-  onPlay: (it: CalendarEntry) => void
-}) {
-  return (
-    <div className="schedule-item">
-      <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=small`} alt="" loading="lazy" decoding="async"
-           referrerPolicy="no-referrer"
-           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-      <div className="schedule-body">
-        <div className="schedule-name clamp">{it.nameCn || it.name}</div>
-        <div className="schedule-meta">
-          {typeof it.rating === 'number' && it.rating > 0 && <span className="star">★ {it.rating.toFixed(1)}</span>}
-          {it.covered
-            ? <button className="mini" onClick={() => void onPlay(it)}>
-                {it.workId ? '打开' : '播放'}
-              </button>
-            : <span className="muted">未收录</span>}
-        </div>
-      </div>
-    </div>
   )
 }

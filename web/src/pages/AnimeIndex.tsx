@@ -56,9 +56,10 @@ const SORTS = [
 ]
 
 const FALLBACK_GENRES = ['热血', '奇幻', '冒险', '恋爱', '搞笑', '科幻', '悬疑', '治愈', '日常', '校园', '战斗', '机甲']
-const PAGE_SIZE = 24
+const PAGE_SIZE = 28
+const VIEW_KEY = 'ms-index-view'
 
-/** 番剧索引：多维分类筛选（分区/题材/状态/年份/排序）+ 页码分页 + URL 双向同步。 */
+/** 番剧索引：多维分类筛选 + 网格/列表双视图切换 + 页码分页直达 + 全高清 large 封面。 */
 export default function AnimeIndex() {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -74,6 +75,9 @@ export default function AnimeIndex() {
 
   const [qInput, setQInput] = useState(activeQuery)
   const [genres, setGenres] = useState<string[]>(FALLBACK_GENRES)
+  const [expandGenres, setExpandGenres] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(
+    () => (localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'))
   const [items, setItems] = useState<CatalogItem[]>([])
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -132,6 +136,11 @@ export default function AnimeIndex() {
     setParams(next)
   }
 
+  function switchView(next: 'grid' | 'list') {
+    setViewMode(next)
+    localStorage.setItem(VIEW_KEY, next)
+  }
+
   function submitSearch() {
     updateFilter({ q: qInput.trim() })
   }
@@ -149,12 +158,21 @@ export default function AnimeIndex() {
   }
 
   const hasFilters = Boolean(category || genre || status || year || activeQuery || sort !== 'updated')
+  const shownGenres = expandGenres ? genres : genres.slice(0, 12)
 
   return (
     <main className="watch-page">
       <div className="section-head">
         <h1>番剧索引</h1>
-        <span className="muted">共 {total} 部 · 支持多维分类与页码翻页</span>
+        <div className="row-inline">
+          <span className="muted tabular-nums">共 {total} 部</span>
+          <div className="view-toggle" role="group" aria-label="视图切换">
+            <button type="button" className={'mini ' + (viewMode === 'grid' ? '' : 'ghost')}
+                    onClick={() => switchView('grid')}>网格</button>
+            <button type="button" className={'mini ' + (viewMode === 'list' ? '' : 'ghost')}
+                    onClick={() => switchView('list')}>列表</button>
+          </div>
+        </div>
       </div>
 
       <div className="index-filter-panel card">
@@ -176,11 +194,17 @@ export default function AnimeIndex() {
           <div className="filter-pills">
             <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
                     onClick={() => updateFilter({ genre: '' })}>全部</button>
-            {genres.slice(0, 18).map(g => (
+            {shownGenres.map(g => (
               <button key={g} type="button"
                       className={'mini ' + (genre === g ? '' : 'ghost')}
                       onClick={() => updateFilter({ genre: g })}>{g}</button>
             ))}
+            {genres.length > 12 && (
+              <button type="button" className="mini ghost"
+                      onClick={() => setExpandGenres(v => !v)}>
+                {expandGenres ? '收起' : `更多 (+${genres.length - 12})`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -233,7 +257,7 @@ export default function AnimeIndex() {
       {error && <p className="error">{error}</p>}
       {loading && items.length === 0 ? (
         <div className="card-grid">
-          {Array.from({ length: 12 }).map((_, i) => (
+          {Array.from({ length: 14 }).map((_, i) => (
             <div key={i}>
               <div className="skeleton-box card-skeleton-cover" />
               <div className="skeleton-box card-skeleton-line" />
@@ -243,6 +267,43 @@ export default function AnimeIndex() {
         </div>
       ) : items.length === 0 ? (
         <p className="muted">当前筛选条件下暂无番剧——尝试切换分类或重置筛选条件。</p>
+      ) : viewMode === 'list' ? (
+        <>
+          <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
+            {items.map(it => (
+              <article key={it.id} className="index-list-card card">
+                <Link to={`/catalog/${it.id}`} className="index-list-poster">
+                  <CoverImage
+                    src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
+                    alt={it.name}
+                  />
+                  {it.workId && <span className="badge-tl is-pub">在库</span>}
+                </Link>
+                <div className="index-list-body">
+                  <Link to={`/catalog/${it.id}`} className="index-list-title">{it.name}</Link>
+                  <div className="index-list-meta muted tabular-nums">
+                    {it.categoryName && <span className="chip ghost">{it.categoryName}</span>}
+                    <span>{it.remarks || `${it.episodeCount} 集`}</span>
+                  </div>
+                  <div className="row-inline" style={{ marginTop: 'auto' }}>
+                    {it.workId
+                      ? <Link className="btn mini ghost" to={`/works/${it.workId}`}>打开作品</Link>
+                      : <>
+                          <button type="button" className="mini" onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
+                          <button type="button" className="mini ghost" disabled={busyItem === it.id}
+                                  onClick={() => void favorite(it)}>收藏</button>
+                          <Link className="btn mini ghost" to={`/catalog/${it.id}`}>详情</Link>
+                        </>
+                    }
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <Pagination page={page} totalPages={totalPages} total={total} unit="部番剧"
+                      loading={loading}
+                      onChange={p => updateFilter({ page: String(p) }, false)} />
+        </>
       ) : (
         <>
           <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
@@ -250,25 +311,24 @@ export default function AnimeIndex() {
               <div key={it.id} className="work-card">
                 <Link to={`/catalog/${it.id}`} className="cover">
                   <CoverImage
-                    src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
+                    src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
                     alt={it.name}
                   />
-                  {it.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在书库</span>}
+                  {it.workId
+                    ? <span className="badge-tl is-pub">在库</span>
+                    : it.categoryName && <span className="badge-tl">{it.categoryName}</span>}
+                  <span className="badge-br tabular-nums">{it.remarks || `${it.episodeCount} 集`}</span>
                 </Link>
                 <div className="work-card-body">
-                  <Link to={`/catalog/${it.id}`} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
-                  <div className="work-card-meta">
-                    <span>{it.remarks || `${it.episodeCount} 集`}</span>
-                  </div>
-                  <div className="row-inline" style={{ marginTop: 8 }}>
+                  <Link to={`/catalog/${it.id}`} className="work-card-title" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
+                  <div className="row-inline" style={{ marginTop: 6 }}>
                     {it.workId
-                      ? <Link className="btn ghost" style={{ fontSize: 12, padding: '4px 10px' }}
-                              to={`/works/${it.workId}`}>打开</Link>
+                      ? <Link className="btn ghost mini" style={{ flex: 1 }} to={`/works/${it.workId}`}>打开</Link>
                       : <>
-                          <button type="button" className="ghost" style={{ fontSize: 12, padding: '4px 10px' }}
+                          <button type="button" className="ghost mini" style={{ flex: 1 }}
                                   disabled={busyItem === it.id}
                                   onClick={() => void favorite(it)}>收藏</button>
-                          <button type="button" style={{ fontSize: 12, padding: '4px 10px' }}
+                          <button type="button" className="mini" style={{ flex: 1 }}
                                   onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
                         </>
                     }

@@ -26,6 +26,14 @@ public class RecommendationController {
         return recommendations.recommendAnime(user, limit, offset);
     }
 
+    @GetMapping("/anime/{catalogItemId}/similar")
+    public java.util.List<RecommendationService.AnimeRecItem> similarAnime(
+            @OptionalAuthUser CurrentUser user,
+            @org.springframework.web.bind.annotation.PathVariable java.util.UUID catalogItemId,
+            @RequestParam(defaultValue = "6") int limit) {
+        return recommendations.similarAnime(catalogItemId, limit);
+    }
+
     @GetMapping("/manga")
     public RecommendationService.MangaRecommendationResult manga(
             @OptionalAuthUser CurrentUser user,

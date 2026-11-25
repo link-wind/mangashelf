@@ -19,6 +19,8 @@ export default function MangaDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [data, setData] = useState<MangaDetail | null>(null)
+  const [reverse, setReverse] = useState(false)
+  const [chunkIdx, setChunkIdx] = useState(0)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -48,6 +50,11 @@ export default function MangaDetailPage() {
   if (!data) return <main className="watch-page page-center">加载中…</main>
 
   const { work, chapters, owner, coverUrl, continueReading } = data
+  const ordered = reverse ? [...chapters].reverse() : chapters
+  const CHUNK = 50
+  const useChunks = ordered.length > CHUNK
+  const safeChunkIdx = useChunks ? Math.min(chunkIdx, Math.floor((ordered.length - 1) / CHUNK)) : 0
+  const displayed = useChunks ? ordered.slice(safeChunkIdx * CHUNK, (safeChunkIdx + 1) * CHUNK) : ordered
   const readUrl = (c: ChapterRow, resume = 1) =>
     `/read/${c.currentRevisionId}?chapter=${c.id}&resume=${resume}`
   const contChapter = continueReading
@@ -92,9 +99,32 @@ export default function MangaDetailPage() {
       </div>
 
       <section style={{ marginTop: 26 }}>
-        <div className="section-head"><h2>章节（{chapters.length}）</h2></div>
+        <div className="section-head">
+          <h2>章节（{chapters.length}）</h2>
+          {chapters.length > 1 && (
+            <button type="button" className="mini ghost"
+                    onClick={() => { setReverse(v => !v); setChunkIdx(0) }}>
+              {reverse ? '倒序 ↓' : '正序 ↑'}
+            </button>
+          )}
+        </div>
+        {useChunks && (
+          <div className="row-inline ep-chunks" style={{ marginBottom: 12 }}>
+            {Array.from({ length: Math.ceil(ordered.length / CHUNK) }, (_, idx) => {
+              const s = idx * CHUNK + 1
+              const e = Math.min(ordered.length, (idx + 1) * CHUNK)
+              return (
+                <button key={idx} type="button"
+                        className={'mini tabular-nums ' + (idx === safeChunkIdx ? '' : 'ghost')}
+                        onClick={() => setChunkIdx(idx)}>
+                  {s}–{e} 话
+                </button>
+              )
+            })}
+          </div>
+        )}
         <ul className="chapters">
-          {chapters.map(c => (
+          {displayed.map(c => (
             <li key={c.id}>
               <span>
                 第 {c.ordinal} 话 {c.title}

@@ -14,7 +14,7 @@ interface CalendarEntry {
 }
 interface CatalogItem {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
-  workId: string | null; bangumiSubjectId: number | null
+  workId: string | null; bangumiSubjectId: number | null; categoryName?: string | null
 }
 interface ContinueRow {
   type: 'work-read' | 'manga-read' | 'animation-watch' | 'external-watch'
@@ -39,25 +39,38 @@ interface AnimeRecResult {
   seasonalPicks: CalendarEntry[]
   totalCandidates: number
 }
+interface GenreStat { tag: string; items: number }
+
+type RankTab = 'seasonal' | 'updated' | 'episodes'
 
 const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const FALLBACK_GENRES: GenreStat[] = [
+  { tag: '热血', items: 0 }, { tag: '奇幻', items: 0 }, { tag: '冒险', items: 0 },
+  { tag: '恋爱', items: 0 }, { tag: '搞笑', items: 0 }, { tag: '悬疑', items: 0 },
+  { tag: '科幻', items: 0 }, { tag: '治愈', items: 0 }, { tag: '校园', items: 0 },
+  { tag: '日常', items: 0 },
+]
 
-/** 首页：精选 Hero → 追更提醒与继续观看 → 为你推荐（可换一批）→ 新番时刻表速览 → 最近更新 → 本季必看榜。 */
+/** 首页：高清 Hero → 追更与继续观看 → 70/30 推荐网格+多榜侧栏 → 新番时刻表速览 → 完结补番精选 → 最近更新 → 热门题材探索。 */
 export default function Home() {
   const { me } = useAuth()
   const [calendar, setCalendar] = useState<CalendarEntry[]>([])
   const [updates, setUpdates] = useState<CatalogItem[]>([])
+  const [completed, setCompleted] = useState<CatalogItem[]>([])
+  const [topEpisodes, setTopEpisodes] = useState<CatalogItem[]>([])
+  const [genres, setGenres] = useState<GenreStat[]>([])
   const [continueList, setContinueList] = useState<ContinueRow[]>([])
   const [rec, setRec] = useState<AnimeRecResult | null>(null)
   const [recOffset, setRecOffset] = useState(0)
   const [recLoading, setRecLoading] = useState(false)
+  const [rankTab, setRankTab] = useState<RankTab>('seasonal')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const loadRecommendations = useCallback(async (offset: number) => {
     setRecLoading(true)
     try {
-      const data = await api.get<AnimeRecResult>(`/api/v1/recommendations/anime?limit=12&offset=${offset}`)
+      const data = await api.get<AnimeRecResult>(`/api/v1/recommendations/anime?limit=8&offset=${offset}`)
       setRec(data)
     } catch { /* 推荐异常不阻断公开首页 */ }
     finally { setRecLoading(false) }
@@ -66,15 +79,24 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       try {
-        const [cal, cat, recData] = await Promise.all([
+        const [cal, cat, comp, epRank, recData, genreList] = await Promise.all([
           api.get<CalendarEntry[]>('/api/v1/calendar'),
-          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=12'),
-          api.get<AnimeRecResult>('/api/v1/recommendations/anime?limit=12&offset=0')
+          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=14&page=1'),
+          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=10&page=1&status=completed&sort=rating')
+            .catch(() => ({ items: [] })),
+          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=8&page=1&sort=episodes')
+            .catch(() => ({ items: [] })),
+          api.get<AnimeRecResult>('/api/v1/recommendations/anime?limit=8&offset=0')
             .catch(() => null),
+          api.get<GenreStat[]>('/api/v1/catalog-items/genres')
+            .catch(() => []),
         ])
         setCalendar(cal)
         setUpdates(cat.items)
+        setCompleted(comp.items)
+        setTopEpisodes(epRank.items)
         setRec(recData)
+        setGenres(genreList.length > 0 ? genreList : FALLBACK_GENRES)
         if (me) {
           try {
             const cont = await api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
@@ -98,7 +120,7 @@ export default function Home() {
   const bannerItems = seasonalPicks.slice(0, 4)
 
   function refreshRec() {
-    const next = recOffset + 12
+    const next = recOffset + 8
     setRecOffset(next)
     void loadRecommendations(next)
   }
@@ -110,7 +132,7 @@ export default function Home() {
         <section style={{ marginTop: 30 }}>
           <div className="skeleton-box" style={{ width: 140, height: 22, marginBottom: 14, borderRadius: 8 }} />
           <div className="card-grid">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 7 }).map((_, i) => (
               <div key={i}>
                 <div className="skeleton-box card-skeleton-cover" />
                 <div className="skeleton-box card-skeleton-line" />
@@ -150,12 +172,13 @@ export default function Home() {
                     className="work-card">
                 <div className="cover">
                   <CoverImage src={item.coverUrl} alt={item.title} />
-                  <span className="badge-anim badge-new">+{item.newEpisodes} 新集</span>
+                  <span className="badge-tl badge-new tabular-nums">+{item.newEpisodes} 新集</span>
+                  <span className="badge-br tabular-nums">第 {item.latestOrdinal} 集</span>
                 </div>
                 <div className="work-card-body">
-                  <div className="work-card-title clamp">{item.title}</div>
-                  <div className="work-card-meta">
-                    <span>第 {item.watchedOrdinal} → {item.latestOrdinal} 集</span>
+                  <div className="work-card-title">{item.title}</div>
+                  <div className="work-card-meta tabular-nums">
+                    <span>看到第 {item.watchedOrdinal} 集</span>
                   </div>
                 </div>
               </Link>
@@ -183,7 +206,8 @@ export default function Home() {
                       className="work-card">
                   <div className="cover">
                     <CoverImage src={r.coverUrl} alt={r.title} />
-                    <span className="badge-anim">{pct !== null ? `${pct}%` : '继续'}</span>
+                    <span className="badge-tl tabular-nums">{pct !== null ? `${pct}%` : '继续'}</span>
+                    <span className="badge-br tabular-nums">第 {r.ordinal} 话</span>
                     {pct !== null && (
                       <div className="card-progress" aria-hidden="true">
                         <div className="card-progress-fill" style={{ width: `${pct}%` }} />
@@ -191,8 +215,8 @@ export default function Home() {
                     )}
                   </div>
                   <div className="work-card-body">
-                    <div className="work-card-title clamp">{r.title}</div>
-                    <div className="work-card-meta"><span>第 {r.ordinal} 话</span></div>
+                    <div className="work-card-title">{r.title}</div>
+                    <div className="work-card-meta"><span>继续上次进度</span></div>
                   </div>
                 </Link>
               )
@@ -201,47 +225,134 @@ export default function Home() {
         </section>
       )}
 
-      {forYou.length > 0 && (
-        <section style={{ marginTop: 30 }}>
-          <div className="section-head">
-            <h2>
-              {rec?.personalized ? '为你推荐' : '精选推荐'}
-              {rec && rec.topPreferences.length > 0 && (
-                <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
-                  常看：{rec.topPreferences.slice(0, 3).join(' · ')}
-                </span>
+      {/* 70/30 非对称探索区：左侧 4×2 推荐网格 + 右侧多 Tab 榜单卡片 */}
+      {(forYou.length > 0 || seasonalPicks.length > 0) && (
+        <section className="home-split-grid" style={{ marginTop: 30 }}>
+          <div className="home-split-main">
+            <div className="section-head">
+              <h2>
+                {rec?.personalized ? '为你推荐' : '精选推荐'}
+                {rec && rec.topPreferences.length > 0 && (
+                  <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                    常看：{rec.topPreferences.slice(0, 3).join(' · ')}
+                  </span>
+                )}
+              </h2>
+              {(rec?.totalCandidates ?? 0) > 8 && (
+                <button type="button" className="mini ghost" disabled={recLoading} onClick={refreshRec}>
+                  {recLoading ? '刷新中…' : '换一批 ↻'}
+                </button>
               )}
-            </h2>
-            {(rec?.totalCandidates ?? 0) > 12 && (
-              <button type="button" className="mini ghost" disabled={recLoading} onClick={refreshRec}>
-                {recLoading ? '刷新中…' : '换一批 ↻'}
-              </button>
-            )}
-          </div>
-          <div className="card-grid">
-            {forYou.map(it => (
-              <Link key={it.catalogItemId}
-                    to={it.workId ? `/works/${it.workId}` : `/catalog/${it.catalogItemId}`}
-                    className="work-card">
-                <div className="cover">
-                  <CoverImage src={it.coverUrl} alt={it.title} />
-                  {typeof it.rating === 'number' && it.rating > 0 && (
-                    <span className="badge-anim">★ {it.rating.toFixed(1)}</span>
-                  )}
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{it.title}</div>
-                  <div className="work-card-meta">
-                    <span className="rec-reason clamp">{it.reason}</span>
+            </div>
+            <div className="card-grid card-grid-4">
+              {forYou.map(it => (
+                <Link key={it.catalogItemId}
+                      to={it.workId ? `/works/${it.workId}` : `/catalog/${it.catalogItemId}`}
+                      className="work-card">
+                  <div className="cover">
+                    <CoverImage src={it.coverUrl} alt={it.title} />
+                    {it.categoryName && <span className="badge-tl">{it.categoryName}</span>}
+                    {typeof it.rating === 'number' && it.rating > 0 && (
+                      <span className="badge-tr badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
+                    )}
+                    <span className="badge-br tabular-nums">{it.remarks || `${it.episodeCount} 集`}</span>
                   </div>
-                </div>
-              </Link>
-            ))}
+                  <div className="work-card-body">
+                    <div className="work-card-title">{it.title}</div>
+                    <div className="work-card-meta">
+                      <span className="rec-reason">{it.reason}</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
+
+          <aside className="card home-rank-card">
+            <div className="home-rank-head">
+              <h2>站内榜单</h2>
+              <div className="home-rank-tabs" role="tablist" aria-label="榜单切换">
+                <button type="button" role="tab" aria-selected={rankTab === 'seasonal'}
+                        className={'mini ' + (rankTab === 'seasonal' ? '' : 'ghost')}
+                        onClick={() => setRankTab('seasonal')}>高分</button>
+                <button type="button" role="tab" aria-selected={rankTab === 'updated'}
+                        className={'mini ' + (rankTab === 'updated' ? '' : 'ghost')}
+                        onClick={() => setRankTab('updated')}>热更</button>
+                <button type="button" role="tab" aria-selected={rankTab === 'episodes'}
+                        className={'mini ' + (rankTab === 'episodes' ? '' : 'ghost')}
+                        onClick={() => setRankTab('episodes')}>长篇</button>
+              </div>
+            </div>
+
+            {rankTab === 'seasonal' ? (
+              <ol className="home-rank-list">
+                {seasonalPicks.slice(0, 8).map((it, i) => (
+                  <li key={it.subjectId} className="home-rank-row">
+                    <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'} className="home-rank-thumb">
+                      <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} />
+                    </Link>
+                    <div className="home-rank-info">
+                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'} className="home-rank-title">
+                        {it.nameCn || it.name}
+                      </Link>
+                      <span className="muted">
+                        {it.airWeekday ? WEEKDAYS[it.airWeekday] : '本季'} · {it.remarks || (it.covered ? '可看' : '未收录')}
+                      </span>
+                    </div>
+                    {typeof it.rating === 'number' && (
+                      <span className="home-rank-metric tabular-nums">★ {it.rating.toFixed(1)}</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <ol className="home-rank-list">
+                {(rankTab === 'updated' ? updates : topEpisodes).slice(0, 8).map((it, i) => (
+                  <li key={it.id} className="home-rank-row">
+                    <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <Link to={`/catalog/${it.id}`} className="home-rank-thumb">
+                      <CoverImage
+                        src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
+                        alt={it.name}
+                      />
+                    </Link>
+                    <div className="home-rank-info">
+                      <Link to={`/catalog/${it.id}`} className="home-rank-title">{it.name}</Link>
+                      <span className="muted">{it.categoryName || '动漫'} · {it.remarks || `${it.episodeCount} 集`}</span>
+                    </div>
+                    <span className="home-rank-metric tabular-nums">{it.episodeCount} 集</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </aside>
         </section>
       )}
 
       <WeeklyPreview items={calendar} />
+
+      {/* 完结补番精选（一口气看完） */}
+      {completed.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div className="section-head">
+            <h2>
+              完结补番精选
+              <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                一口气看完 · 高分完结
+              </span>
+            </h2>
+            <Link to="/anime?status=completed&sort=rating" className="muted">全部完结番剧 →</Link>
+          </div>
+          <div className="hscroll">
+            {completed.map(it => <CatalogCard key={it.id} it={it} badgeLabel="已完结" />)}
+          </div>
+        </section>
+      )}
 
       <section style={{ marginTop: 30 }}>
         <div className="section-head">
@@ -255,33 +366,24 @@ export default function Home() {
             </div>}
       </section>
 
-      {seasonalPicks.length > 0 && (
-        <section style={{ marginTop: 30 }}>
-          <div className="section-head">
-            <h2>本季必看榜</h2>
-            <Link to="/anime?category=season&sort=rating" className="muted">按评分浏览 →</Link>
+      {/* 热门题材探索 */}
+      <section className="card home-explore-card" style={{ marginTop: 32 }}>
+        <div className="section-head" style={{ marginBottom: 10 }}>
+          <h2>热门题材探索</h2>
+          <div className="row-inline">
+            <Link to="/anime?sort=rating" className="muted">高分番剧库 →</Link>
+            <Link to="/manga?tab=index" className="muted">漫画索引 →</Link>
           </div>
-          <ol className="rank-list">
-            {seasonalPicks.slice(0, 10).map((it, i) => (
-              <li key={it.subjectId} className="rank-item">
-                <span className={'rank-no' + (i < 3 ? ' top' : '')}>{i + 1}</span>
-                <img src={`/api/v1/bangumi-covers/${it.subjectId}?size=small`} alt=""
-                     loading="lazy" decoding="async" referrerPolicy="no-referrer"
-                     onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden' }} />
-                <Link className="rank-name clamp"
-                      to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}>
-                  {it.nameCn || it.name}
-                </Link>
-                {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
-                {it.airWeekday ? <span className="muted">{WEEKDAYS[it.airWeekday]}</span> : null}
-                {it.covered
-                  ? <span className="tag pub">可看</span>
-                  : <span className="tag priv">未收录</span>}
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
+        </div>
+        <div className="explore-tags">
+          {genres.slice(0, 16).map(g => (
+            <Link key={g.tag} to={`/anime?genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
+              <span>{g.tag}</span>
+              {g.items > 0 && <span className="explore-tag-cnt tabular-nums">{g.items}</span>}
+            </Link>
+          ))}
+        </div>
+      </section>
     </main>
   )
 }
@@ -355,7 +457,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
         </div>
         <h1>{it.nameCn || it.name}</h1>
         {it.nameCn && it.name !== it.nameCn && <p className="hero-sub">{it.name}</p>}
-        <div className="hero-meta">
+        <div className="hero-meta tabular-nums">
           {typeof it.rating === 'number' && <span className="star">★ Bangumi {it.rating.toFixed(1)}</span>}
           {it.categoryName && <span>{it.categoryName}</span>}
           {it.episodeCount ? <span>已更 {it.episodeCount} 集</span> : null}
@@ -385,7 +487,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
         {items.map((x, i) => (
           <button type="button" key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
                   onClick={() => setIdx(i)} title={x.nameCn || x.name}>
-            <CoverImage src={`/api/v1/bangumi-covers/${x.subjectId}?size=small`}
+            <CoverImage src={`/api/v1/bangumi-covers/${x.subjectId}?size=large`}
                         alt={x.nameCn || x.name} loading="eager" />
             <span className="hero-thumb-title">{x.nameCn || x.name}</span>
           </button>
@@ -395,7 +497,7 @@ function HeroBanner({ items }: { items: CalendarEntry[] }) {
   )
 }
 
-/** 新番时刻表预览：星期切换 + 当日列表。 */
+/** 新番时刻表预览：星期切换 + 当日 7 列等比高清列表。 */
 function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   const today = new Date().getDay() || 7
   const [day, setDay] = useState(today)
@@ -404,22 +506,22 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
     .filter(i => (i.airWeekday ?? 0) === day)
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
   return (
-    <section style={{ marginTop: 28 }}>
+    <section style={{ marginTop: 30 }}>
       <div className="section-head">
         <h2>
           新番时刻表{' '}
-          <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
+          <span className="muted tabular-nums" style={{ fontSize: 13, fontWeight: 400 }}>
             {WEEKDAYS[day]}放送 {list.length} 部
           </span>
         </h2>
-        <Link to="/schedule" className="muted">完整时刻表 →</Link>
-      </div>
-      <div className="row-inline" style={{ marginBottom: 12 }}>
-        {[1, 2, 3, 4, 5, 6, 7].map(d => (
-          <button type="button" key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
-            {WEEKDAYS[d]}
-          </button>
-        ))}
+        <div className="row-inline">
+          {[1, 2, 3, 4, 5, 6, 7].map(d => (
+            <button type="button" key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
+              {WEEKDAYS[d]}
+            </button>
+          ))}
+          <Link to={`/schedule?day=${day}`} className="muted" style={{ marginLeft: 4 }}>完整时刻表 →</Link>
+        </div>
       </div>
       <div className="hscroll">
         {list.map(it => (
@@ -427,14 +529,17 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
                 to={it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : '/anime')}
                 className="work-card">
             <div className="cover">
-              <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=common`} alt={it.nameCn || it.name} />
-              {it.covered && <span className="badge-anim">可看</span>}
+              <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} />
+              {it.covered && <span className="badge-tl is-pub">可看</span>}
+              {typeof it.rating === 'number' && it.rating > 0 && (
+                <span className="badge-tr badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
+              )}
+              {it.remarks && <span className="badge-br">{it.remarks}</span>}
             </div>
             <div className="work-card-body">
-              <div className="work-card-title clamp">{it.nameCn || it.name}</div>
+              <div className="work-card-title">{it.nameCn || it.name}</div>
               <div className="work-card-meta">
-                {typeof it.rating === 'number' && <span className="star">★ {it.rating.toFixed(1)}</span>}
-                {it.remarks && <span>{it.remarks}</span>}
+                <span>{it.categoryName || WEEKDAYS[day]}</span>
               </div>
             </div>
           </Link>
@@ -445,24 +550,27 @@ function WeeklyPreview({ items }: { items: CalendarEntry[] }) {
   )
 }
 
-function CatalogCard({ it }: { it: CatalogItem }) {
+function CatalogCard({ it, badgeLabel }: { it: CatalogItem; badgeLabel?: string }) {
   const navigate = useNavigate()
   return (
     <button type="button" className="work-card ext-card"
             onClick={() => navigate(it.workId ? `/works/${it.workId}` : `/browse/${it.id}`)}>
       <div className="cover">
         <CoverImage
-          src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=common` : it.coverUrl}
+          src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
           alt={it.name}
         />
-        {it.workId
-          ? <span className="badge-anim" style={{ background: 'var(--pub)' }}>在库</span>
-          : <span className="badge-anim">可播</span>}
+        {badgeLabel
+          ? <span className="badge-tl">{badgeLabel}</span>
+          : it.workId
+            ? <span className="badge-tl is-pub">在库</span>
+            : <span className="badge-tl">可播</span>}
+        <span className="badge-br tabular-nums">{it.remarks || `${it.episodeCount} 集`}</span>
       </div>
       <div className="work-card-body">
-        <div className="work-card-title clamp">{it.name}</div>
+        <div className="work-card-title">{it.name}</div>
         <div className="work-card-meta">
-          <span>{it.remarks || `${it.episodeCount} 集`}</span>
+          <span>{it.categoryName || '番剧'}</span>
         </div>
       </div>
     </button>

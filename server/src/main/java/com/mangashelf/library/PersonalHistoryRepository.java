@@ -129,7 +129,7 @@ public class PersonalHistoryRepository {
                 , p.episode_id, p.position_ms, p.duration_ms, p.updated_at,
                        w.title, e.title AS subtitle,
                        (SELECT CASE
-                                 WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                                 WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=large'
                                  ELSE '/api/v1/catalog-covers/' || c.id
                                END
                           FROM external_catalog_items c
@@ -160,7 +160,7 @@ public class PersonalHistoryRepository {
                 , p.episode_id, p.position_ms, p.duration_ms, p.updated_at,
                        c.name AS title, e.title AS subtitle,
                        CASE
-                         WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                         WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=large'
                          WHEN c.cover_url <> '' THEN '/api/v1/catalog-covers/' || c.id
                          ELSE ''
                        END AS cover_url

@@ -185,7 +185,7 @@ export default function Search() {
               <Link key={c.id} to={`/catalog/${c.id}`} className="work-card">
                 <div className="cover">
                   <CoverImage
-                    src={c.bangumiSubjectId ? `/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=common` : c.coverUrl}
+                    src={c.bangumiSubjectId ? `/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=large` : c.coverUrl}
                     alt={c.name}
                   />
                   {c.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在库</span>}

@@ -112,7 +112,7 @@ public class FavoriteRepository {
             rows.addAll(jdbc.query("""
                     SELECT 'catalog' AS type, c.name AS title,
                            CASE
-                             WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=common'
+                             WHEN c.bangumi_subject_id IS NOT NULL THEN '/api/v1/bangumi-covers/' || c.bangumi_subject_id || '?size=large'
                              WHEN c.cover_url <> '' THEN '/api/v1/catalog-covers/' || c.id
                              ELSE ''
                            END AS cover_url,

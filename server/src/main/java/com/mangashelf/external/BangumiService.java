@@ -166,10 +166,8 @@ public class BangumiService {
                 try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
                     for (int idx = 0; idx < subjectIds.size(); idx++) {
                         long sid = subjectIds.get(idx);
-                        boolean needCommon = !coverCache.isCached("bangumi", sid + "-common");
-                        boolean needSmall = idx < 12 && !coverCache.isCached("bangumi", sid + "-small");
-                        boolean needLarge = idx < 6 && !coverCache.isCached("bangumi", sid + "-large");
-                        if (!needCommon && !needSmall && !needLarge) {
+                        boolean needLarge = !coverCache.isCached("bangumi", sid + "-large");
+                        if (!needLarge) {
                             continue;
                         }
                         toWarm++;
@@ -177,15 +175,7 @@ public class BangumiService {
                             try {
                                 permits.acquire();
                                 try {
-                                    if (needCommon) {
-                                        fetchCover(sid, "common");
-                                    }
-                                    if (needSmall) {
-                                        fetchCover(sid, "small");
-                                    }
-                                    if (needLarge) {
-                                        fetchCover(sid, "large");
-                                    }
+                                    fetchCover(sid, "large");
                                 } finally {
                                     permits.release();
                                 }
@@ -245,11 +235,11 @@ public class BangumiService {
 
     private static String normalizeCoverSize(String size) {
         if (size == null || size.isBlank()) {
-            return "common";
+            return "large";
         }
         return switch (size) {
             case "large", "common", "medium", "small" -> size;
-            default -> "common";
+            default -> "large";
         };
     }
 

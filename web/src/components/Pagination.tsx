@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 interface PaginationProps {
   page: number
   totalPages: number
@@ -7,10 +9,12 @@ interface PaginationProps {
   onChange: (nextPage: number) => void
 }
 
-/** 通用页码分页组件：支持上一页/下一页、省略号页码与总数提示。 */
+/** 通用页码分页组件：上一页/下一页、省略号页码、总数统计与页码直达跳转。 */
 export default function Pagination({
   page, totalPages, total, unit = '部', loading = false, onChange,
 }: PaginationProps) {
+  const [jumpInput, setJumpInput] = useState('')
+
   if (totalPages <= 1 && total === 0) return null
 
   const pages = buildPageWindow(page, totalPages)
@@ -21,9 +25,18 @@ export default function Pagination({
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  function submitJump(e: React.FormEvent) {
+    e.preventDefault()
+    const target = Number.parseInt(jumpInput.trim(), 10)
+    if (Number.isFinite(target) && target >= 1 && target <= totalPages) {
+      setJumpInput('')
+      go(target)
+    }
+  }
+
   return (
     <nav className="pagination-bar" aria-label="分页导航">
-      <span className="pagination-summary muted">
+      <span className="pagination-summary muted tabular-nums">
         共 {total} {unit} · 第 {page} / {totalPages} 页
       </span>
       {totalPages > 1 && (
@@ -37,7 +50,7 @@ export default function Pagination({
               <span key={`e-${idx}`} className="pagination-ellipsis muted" aria-hidden="true">…</span>
             ) : (
               <button key={p} type="button"
-                      className={'mini pagination-num' + (p === page ? '' : ' ghost')}
+                      className={'mini pagination-num tabular-nums' + (p === page ? '' : ' ghost')}
                       aria-current={p === page ? 'page' : undefined}
                       disabled={loading}
                       onClick={() => go(p)}>
@@ -49,6 +62,15 @@ export default function Pagination({
                   onClick={() => go(page + 1)}>
             下一页 →
           </button>
+          {totalPages > 5 && (
+            <form className="pagination-jump" onSubmit={submitJump}>
+              <span className="muted">跳至</span>
+              <input type="number" min={1} max={totalPages} value={jumpInput}
+                     onChange={e => setJumpInput(e.target.value)}
+                     placeholder={String(page)} aria-label="跳转页码" />
+              <button type="submit" className="mini ghost" disabled={loading || !jumpInput.trim()}>前往</button>
+            </form>
+          )}
         </div>
       )}
     </nav>

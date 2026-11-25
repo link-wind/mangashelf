@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import CoverImage from './CoverImage'
 import Player, { type DanmakuItem } from './Player'
 import type { PlaybackStatus } from '../useEpisodePlayback'
 
@@ -13,6 +14,15 @@ export interface ShellEpisode {
 export interface ShellInfoRow {
   label: string
   value: string
+}
+
+export interface SimilarAnime {
+  catalogItemId: string
+  workId: string | null
+  title: string
+  coverUrl: string
+  rating: number | null
+  reason: string
 }
 
 interface EpisodePlayerShellProps {
@@ -38,6 +48,7 @@ interface EpisodePlayerShellProps {
   onSelectEpisode: (id: string) => void
   extraActions?: ReactNode
   infoRows: ShellInfoRow[]
+  similar?: SimilarAnime[]
   danmaku?: {
     items: DanmakuItem[]
     enabled: boolean
@@ -47,16 +58,54 @@ interface EpisodePlayerShellProps {
   }
 }
 
-/** 共享剧集播放壳：合并 BrowseWatch 与 ExternalWatch 的播放器、线路切换、正片/特典选集与上下集控制。 */
+const CHUNK_SIZE = 24
+const AUTOPLAY_KEY = 'ms-autoplay'
+
+/** 共享剧集播放壳：播放器 + 正/倒序选集 + 长篇集数分段 + 自动连播开关 + 侧栏相似推荐。 */
 export default function EpisodePlayerShell({
   title, current, metaText, backLinkTo, backLinkLabel, notice,
   status, resumeMs, resolving, failed, onProgress, onResolve,
   lines, activeLine, onSelectLine, hasExtra, tab, onSelectTab,
-  episodes, onSelectEpisode, extraActions, infoRows, danmaku,
+  episodes, onSelectEpisode, extraActions, infoRows, similar = [], danmaku,
 }: EpisodePlayerShellProps) {
+  const [reverse, setReverse] = useState(false)
+  const [autoPlay, setAutoPlay] = useState<boolean>(() => localStorage.getItem(AUTOPLAY_KEY) !== 'off')
+  const [chunkIdx, setChunkIdx] = useState(0)
+
   const index = episodes.findIndex(e => e.id === current.id)
   const prev = index > 0 ? episodes[index - 1] : null
   const next = index >= 0 && index < episodes.length - 1 ? episodes[index + 1] : null
+
+  const ordered = useMemo(() => (reverse ? [...episodes].reverse() : episodes), [episodes, reverse])
+  const needsChunks = ordered.length > 30
+  const chunks = useMemo(() => {
+    if (!needsChunks) return []
+    const out: { label: string; items: ShellEpisode[] }[] = []
+    for (let i = 0; i < ordered.length; i += CHUNK_SIZE) {
+      const slice = ordered.slice(i, i + CHUNK_SIZE)
+      const firstNo = String(slice[0].ordinal).padStart(2, '0')
+      const lastNo = String(slice[slice.length - 1].ordinal).padStart(2, '0')
+      out.push({ label: `${firstNo}–${lastNo}`, items: slice })
+    }
+    return out
+  }, [ordered, needsChunks])
+
+  // 切集或切换排序时自动定位到包含当前集的分组
+  useEffect(() => {
+    if (!needsChunks) { setChunkIdx(0); return }
+    const pos = ordered.findIndex(e => e.id === current.id)
+    if (pos >= 0) setChunkIdx(Math.floor(pos / CHUNK_SIZE))
+  }, [current.id, needsChunks, ordered])
+
+  const shownEpisodes = needsChunks ? (chunks[chunkIdx]?.items ?? ordered) : ordered
+
+  function toggleAutoPlay() {
+    setAutoPlay(v => {
+      const nextVal = !v
+      localStorage.setItem(AUTOPLAY_KEY, nextVal ? 'on' : 'off')
+      return nextVal
+    })
+  }
 
   return (
     <main className="watch-page">
@@ -77,7 +126,7 @@ export default function EpisodePlayerShell({
             kind={(status?.playKind as 'hls' | 'mp4' | null) ?? null}
             resumeMs={resumeMs}
             onProgress={onProgress}
-            onEnded={() => next && onSelectEpisode(next.id)}
+            onEnded={() => autoPlay && next && onSelectEpisode(next.id)}
             onFatal={onResolve}
             danmaku={danmaku}
             overlay={resolving ? (
@@ -118,33 +167,78 @@ export default function EpisodePlayerShell({
 
         <aside className="watch-side">
           <div className="card">
-            <h3>选集（{episodes.length}）</h3>
+            <div className="row-between" style={{ marginBottom: 10 }}>
+              <h3 style={{ margin: 0 }}>选集（{episodes.length}）</h3>
+              <div className="row-inline" style={{ gap: 6 }}>
+                <label className="autoplay-toggle">
+                  <input type="checkbox" checked={autoPlay} onChange={toggleAutoPlay} />
+                  连播
+                </label>
+                <button type="button" className="mini ghost" title="切换正序/倒序"
+                        onClick={() => setReverse(v => !v)}>
+                  {reverse ? '倒序 ↓' : '正序 ↑'}
+                </button>
+              </div>
+            </div>
             {lines.length > 0 && (
               <div className="row-inline" style={{ marginBottom: 10 }}>
                 {lines.map(name => (
-                  <button key={name} className={name === activeLine ? 'mini' : 'mini ghost'}
+                  <button key={name} type="button" className={name === activeLine ? 'mini' : 'mini ghost'}
                           onClick={() => onSelectLine(name)}>{name}</button>
                 ))}
               </div>
             )}
             {hasExtra && (
               <div className="row-inline" style={{ marginBottom: 10 }}>
-                <button className={tab === 'MAIN' ? 'mini' : 'mini ghost'} onClick={() => onSelectTab('MAIN')}>正片</button>
-                <button className={tab === 'EXTRA' ? 'mini' : 'mini ghost'} onClick={() => onSelectTab('EXTRA')}>PV/特典</button>
+                <button type="button" className={tab === 'MAIN' ? 'mini' : 'mini ghost'} onClick={() => onSelectTab('MAIN')}>正片</button>
+                <button type="button" className={tab === 'EXTRA' ? 'mini' : 'mini ghost'} onClick={() => onSelectTab('EXTRA')}>PV/特典</button>
+              </div>
+            )}
+            {needsChunks && (
+              <div className="row-inline ep-chunks" style={{ marginBottom: 10 }}>
+                {chunks.map((c, idx) => (
+                  <button key={c.label} type="button"
+                          className={'mini tabular-nums ' + (idx === chunkIdx ? '' : 'ghost')}
+                          onClick={() => setChunkIdx(idx)}>
+                    {c.label}
+                  </button>
+                ))}
               </div>
             )}
             <div className="episode-grid">
-              {episodes.map(e => (
-                <button key={e.id}
+              {shownEpisodes.map(e => (
+                <button key={e.id} type="button"
                         className={'episode-cell' + (e.id === current.id ? ' active' : '')}
                         onClick={() => onSelectEpisode(e.id)}>
-                  <div className="no">{String(e.ordinal).padStart(2, '0')}</div>
+                  <div className="no tabular-nums">{String(e.ordinal).padStart(2, '0')}</div>
                   <div className="name">{e.title}</div>
                 </button>
               ))}
-              {episodes.length === 0 && <p className="muted">该线路此分类暂无剧集</p>}
+              {shownEpisodes.length === 0 && <p className="muted">该线路此分类暂无剧集</p>}
             </div>
           </div>
+
+          {similar.length > 0 && (
+            <div className="card">
+              <h3>相似推荐</h3>
+              <div className="similar-grid">
+                {similar.slice(0, 6).map(item => (
+                  <Link key={item.catalogItemId}
+                        to={item.workId ? `/works/${item.workId}` : `/catalog/${item.catalogItemId}`}
+                        className="similar-tile" title={`${item.title} · ${item.reason}`}>
+                    <div className="similar-cover">
+                      <CoverImage src={item.coverUrl} alt={item.title} />
+                      {typeof item.rating === 'number' && item.rating > 0 && (
+                        <span className="badge-tr badge-score tabular-nums">★ {item.rating.toFixed(1)}</span>
+                      )}
+                    </div>
+                    <div className="similar-title">{item.title}</div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <h3>播放信息</h3>
             <ul className="info-list">

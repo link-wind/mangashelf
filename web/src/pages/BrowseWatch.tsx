@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
-import EpisodePlayerShell from '../components/EpisodePlayerShell'
+import EpisodePlayerShell, { type SimilarAnime } from '../components/EpisodePlayerShell'
 import { useToast } from '../components/Toast'
 import { useEpisodePlayback } from '../useEpisodePlayback'
 
@@ -25,6 +25,7 @@ export default function BrowseWatch() {
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [error, setError] = useState('')
   const [favorited, setFavorited] = useState(false)
+  const [similar, setSimilar] = useState<SimilarAnime[]>([])
   const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
     useEpisodePlayback(episodeId)
 
@@ -37,6 +38,13 @@ export default function BrowseWatch() {
         setError(e instanceof ApiError ? e.message : '加载剧集失败')
       }
     })()
+  }, [itemId])
+
+  useEffect(() => {
+    if (!itemId) return
+    void api.get<SimilarAnime[]>(`/api/v1/recommendations/anime/${itemId}/similar?limit=6`)
+      .then(setSimilar)
+      .catch(() => setSimilar([]))
   }, [itemId])
 
   useEffect(() => {
@@ -119,6 +127,7 @@ export default function BrowseWatch() {
       onSelectTab={setTab}
       episodes={episodes}
       onSelectEpisode={goto}
+      similar={similar}
       extraActions={
         <button className="pill" onClick={() => void toggleFavorite()}>
           {favorited ? '取消收藏' : '收藏'}

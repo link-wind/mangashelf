@@ -135,6 +135,68 @@ public class RecommendationService {
                 seasonalPicks, diversified.size());
     }
 
+    /** 播放页/详情页相似番剧推荐：按共享题材标签 + 同分区 + 贝叶斯评分召回（排除自身）。 */
+    public List<AnimeRecItem> similarAnime(UUID catalogItemId, int limit) {
+        if (catalogItemId == null) return List.of();
+        int size = Math.min(Math.max(limit, 1), 12);
+        List<AnimeCandidate> anchorRows = jdbc.query("""
+                SELECT e.id, e.work_id, e.bangumi_subject_id, e.name, e.cover_url, e.remarks,
+                       e.category_id, e.category_name, e.episode_count,
+                       b.rating, b.tags, COALESCE(b.in_calendar, false) AS in_calendar,
+                       COALESCE(e.resource_updated_at, e.synced_at) AS updated_at
+                  FROM external_catalog_items e
+                  LEFT JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id
+                 WHERE e.id = ?
+                """, (rs, i) -> {
+            UUID id = rs.getObject("id", UUID.class);
+            Long bgmId = (Long) rs.getObject("bangumi_subject_id");
+            var ratingDec = rs.getBigDecimal("rating");
+            return new AnimeCandidate(
+                    id, rs.getObject("work_id", UUID.class), bgmId,
+                    rs.getString("name"), resolveCatalogCover(id, bgmId, rs.getString("cover_url")),
+                    rs.getString("remarks"), (Integer) rs.getObject("category_id"),
+                    rs.getString("category_name"), rs.getInt("episode_count"),
+                    ratingDec == null ? null : ratingDec.doubleValue(),
+                    extractTags(rs.getArray("tags")), rs.getBoolean("in_calendar"),
+                    toInstant(rs.getObject("updated_at", OffsetDateTime.class)));
+        }, catalogItemId);
+        if (anchorRows.isEmpty()) return List.of();
+
+        AnimeCandidate anchor = anchorRows.getFirst();
+        Map<String, Double> tagWeights = new HashMap<>();
+        if (anchor.tags() != null) {
+            for (String t : anchor.tags()) tagWeights.put(t, 1.0);
+        }
+        Map<Integer, Double> categoryWeights = anchor.categoryId() != null
+                ? Map.of(anchor.categoryId(), 1.0) : Map.of();
+
+        List<AnimeCandidate> candidates = loadAnimeCandidates(180);
+        Instant now = Instant.now();
+        List<AnimeRecItem> scored = new ArrayList<>();
+        for (AnimeCandidate c : candidates) {
+            if (catalogItemId.equals(c.id())) continue;
+            scored.add(scoreSimilarAnime(anchor, c, tagWeights, categoryWeights, now));
+        }
+        scored.sort(Comparator.comparingDouble(AnimeRecItem::score).reversed());
+        return scored.stream().limit(size).toList();
+    }
+
+    static AnimeRecItem scoreSimilarAnime(AnimeCandidate anchor, AnimeCandidate cand,
+                                          Map<String, Double> anchorTags,
+                                          Map<Integer, Double> anchorCat,
+                                          Instant now) {
+        AnimeRecItem base = scoreAnimeCandidate(cand, anchorTags, anchorCat, now);
+        String reason = !base.matchedTags().isEmpty()
+                ? "同题材 · " + String.join("·", base.matchedTags().subList(0, Math.min(2, base.matchedTags().size())))
+                : (anchor.categoryId() != null && anchor.categoryId().equals(cand.categoryId())
+                        && cand.categoryName() != null && !cand.categoryName().isBlank()
+                        ? "同属 " + cand.categoryName()
+                        : base.reason());
+        return new AnimeRecItem(base.catalogItemId(), base.workId(), base.bangumiSubjectId(),
+                base.title(), base.coverUrl(), base.remarks(), base.categoryName(),
+                base.episodeCount(), base.rating(), base.matchedTags(), reason, base.score());
+    }
+
     /** 本季精选：优先可播 + 贝叶斯评分 + 近期播出日（今/昨）加成。 */
     private List<SeasonalPick> buildSeasonalPicks() {
         List<BangumiService.CalendarEntry> calendar = bangumi.calendar();
@@ -704,7 +766,7 @@ public class RecommendationService {
 
     private static String resolveCatalogCover(UUID catalogId, Long bgmId, String rawCover) {
         if (bgmId != null) {
-            return "/api/v1/bangumi-covers/" + bgmId + "?size=common";
+            return "/api/v1/bangumi-covers/" + bgmId + "?size=large";
         }
         if (rawCover != null && !rawCover.isBlank()) {
             return rawCover.startsWith("http") ? "/api/v1/catalog-covers/" + catalogId : rawCover;

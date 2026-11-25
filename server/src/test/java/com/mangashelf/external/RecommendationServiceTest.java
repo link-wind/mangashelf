@@ -78,6 +78,25 @@ class RecommendationServiceTest {
         assertEquals(List.of(2, 3, 4), RecommendationService.sliceWithRotation(src, 3, 6));
     }
 
+    @Test
+    void similarAnimePrefersSharedTagsAndCategory() {
+        Instant now = Instant.now();
+        var anchor = new RecommendationService.AnimeCandidate(
+                UUID.randomUUID(), null, 1L, "锚点番", "", "更新至8集",
+                30, "日韩动漫", 8, 8.0, List.of("奇幻", "冒险"), true, now);
+        var close = new RecommendationService.AnimeCandidate(
+                UUID.randomUUID(), null, 2L, "相似番", "", "更新至6集",
+                30, "日韩动漫", 6, 7.6, List.of("奇幻", "冒险"), true, now);
+        var far = new RecommendationService.AnimeCandidate(
+                UUID.randomUUID(), null, 3L, "不同番", "", "更新至6集",
+                29, "国产动漫", 6, 7.8, List.of("校园"), true, now);
+
+        var r1 = RecommendationService.scoreSimilarAnime(anchor, close, Map.of("奇幻", 1.0, "冒险", 1.0), Map.of(30, 1.0), now);
+        var r2 = RecommendationService.scoreSimilarAnime(anchor, far, Map.of("奇幻", 1.0, "冒险", 1.0), Map.of(30, 1.0), now);
+        assertTrue(r1.score() > r2.score());
+        assertTrue(r1.reason().startsWith("同题材"));
+    }
+
     private static RecommendationService.AnimeRecItem rec(String title, String tag) {
         return new RecommendationService.AnimeRecItem(
                 UUID.randomUUID(), null, null, title, "", "", "日韩动漫", 12, 8.0,

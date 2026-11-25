@@ -51,6 +51,7 @@ export default function ExternalMangaDetail() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [lang, setLang] = useState('zh')
   const [asc, setAsc] = useState(true)
+  const [chunkIdx, setChunkIdx] = useState(0)
   const [showAllBiliChapters, setShowAllBiliChapters] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')
@@ -155,6 +156,12 @@ export default function ExternalMangaDetail() {
   const readable = chapters.filter(c => !c.external && c.pages !== 0)
   const shown = officialBiliUrl && showAllBiliChapters ? chapters : readable
   const ordered = asc ? shown : [...shown].reverse()
+  const CHUNK = 50
+  const useChunks = ordered.length > CHUNK
+  const safeChunkIdx = useChunks ? Math.min(chunkIdx, Math.floor((ordered.length - 1) / CHUNK)) : 0
+  const displayedChapters = useChunks
+    ? ordered.slice(safeChunkIdx * CHUNK, (safeChunkIdx + 1) * CHUNK)
+    : ordered
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
 
@@ -245,14 +252,30 @@ export default function ExternalMangaDetail() {
                 {showAllBiliChapters ? `仅站内可读（${readable.length}）` : `显示全部（${chapters.length}）`}
               </button>
             )}
-            <button className="mini ghost" onClick={() => setAsc(v => !v)}>{asc ? '倒序' : '正序'}</button>
+            <button className="mini ghost" onClick={() => { setAsc(v => !v); setChunkIdx(0) }}>{asc ? '倒序 ↓' : '正序 ↑'}</button>
           </div>
         </div>
 
+        {useChunks && (
+          <div className="row-inline ep-chunks" style={{ marginBottom: 12 }}>
+            {Array.from({ length: Math.ceil(ordered.length / CHUNK) }, (_, idx) => {
+              const s = idx * CHUNK + 1
+              const e = Math.min(ordered.length, (idx + 1) * CHUNK)
+              return (
+                <button key={idx} type="button"
+                        className={'mini tabular-nums ' + (idx === safeChunkIdx ? '' : 'ghost')}
+                        onClick={() => setChunkIdx(idx)}>
+                  {s}–{e} 话
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {loading && <p className="muted">加载章节…</p>}
-        {ordered.length > 0 ? (
+        {displayedChapters.length > 0 ? (
           <div className="chapter-grid">
-            {ordered.map(c => c.external && officialBiliUrl ? (
+            {displayedChapters.map(c => c.external && officialBiliUrl ? (
               <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
                  target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>
