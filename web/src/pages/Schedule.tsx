@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import CoverImage from '../components/CoverImage'
-import { BoltIcon, ChevronDownIcon, HeartIcon, InfoIcon, MoonIcon, PlayIcon, SunIcon } from '../components/Icons'
+import { BoltIcon, ChevronDownIcon, ClockIcon, HeartIcon, InfoIcon, MoonIcon, PlayIcon, SunIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 
 interface CalendarEntry {
@@ -31,8 +31,8 @@ interface SeasonOption {
   label: string
 }
 
-type ScheduleFilter = 'all' | 'covered' | 'following' | 'unwatched'
-type TimeBand = 'prime' | 'midnight' | 'other'
+type ScheduleFilter = 'all' | 'following' | 'unwatched'
+type TimeBand = 'prime' | 'midnight' | 'daytime' | 'untimed'
 
 const DAYS = [
   { id: 1, zh: '周一', en: 'MON' },
@@ -77,10 +77,10 @@ function parseMinutes(hhmm: string | null | undefined): number | null {
 
 function classifyBand(airTime: string | null | undefined): TimeBand {
   const mins = parseMinutes(airTime)
-  if (mins === null) return 'other'
+  if (mins === null) return 'untimed'
   if (mins >= 21 * 60) return 'prime'
   if (mins < 3 * 60) return 'midnight'
-  return 'other'
+  return 'daytime'
 }
 
 function sortByTimeAndRating(list: CalendarEntry[]): CalendarEntry[] {
@@ -266,7 +266,6 @@ export default function Schedule() {
 
   const filteredAll = useMemo(() => {
     return items.filter(it => {
-      if (filter === 'covered') return it.covered
       if (filter === 'following') return Boolean(it.catalogItemId && favCatalogIds.has(it.catalogItemId))
       if (filter === 'unwatched') return Boolean(it.catalogItemId && unwatchedIds.has(it.catalogItemId))
       return true
@@ -277,33 +276,26 @@ export default function Schedule() {
     return filteredAll.filter(it => (it.airWeekday ?? 0) === activeDay)
   }, [filteredAll, activeDay])
 
-  // 三档播映时段分组
+  // 按精确时刻清晰分档：黄金夜档 / 深夜硬核档 / 日间与晚间档 / 今日更多更新（无精确时刻）
   const bands = useMemo(() => {
     const prime: CalendarEntry[] = []
     const midnight: CalendarEntry[] = []
-    const other: CalendarEntry[] = []
+    const daytime: CalendarEntry[] = []
+    const untimed: CalendarEntry[] = []
     for (const it of dayList) {
       const b = classifyBand(it.airTime)
       if (b === 'prime') prime.push(it)
       else if (b === 'midnight') midnight.push(it)
-      else other.push(it)
+      else if (b === 'daytime') daytime.push(it)
+      else untimed.push(it)
     }
     return {
       prime: sortByTimeAndRating(prime),
       midnight: sortByTimeAndRating(midnight),
-      other: sortByTimeAndRating(other),
+      daytime: sortByTimeAndRating(daytime),
+      untimed: sortByTimeAndRating(untimed),
     }
   }, [dayList])
-
-  // 当「日间与其他时段」条目较多时：前 3 部（或带精确时间的）做精排大卡，其余自动收为紧凑双列，避免页面过长
-  const otherSplit = useMemo(() => {
-    if (bands.other.length <= 4) {
-      return { detailed: bands.other, compact: [] as CalendarEntry[] }
-    }
-    const detailed = bands.other.slice(0, 3)
-    const compact = bands.other.slice(3)
-    return { detailed, compact }
-  }, [bands.other])
 
   // 顶部「下个更新」实时预告（从今日带精确时刻的条目中取最近即将播出的一部）
   const nextAiring = useMemo(() => {
@@ -515,8 +507,6 @@ export default function Schedule() {
         <div className="row-inline" role="group" aria-label="排期筛选">
           <button type="button" className={'mini ' + (filter === 'all' ? '' : 'ghost')}
                   onClick={() => setFilter('all')}>全部</button>
-          <button type="button" className={'mini ' + (filter === 'covered' ? '' : 'ghost')}
-                  onClick={() => setFilter('covered')}>已上线</button>
           <button type="button" className={'mini ' + (filter === 'following' ? '' : 'ghost')}
                   onClick={() => setFilter('following')}>我的追番</button>
           <button type="button" className={'mini ' + (filter === 'unwatched' ? '' : 'ghost')}
@@ -632,25 +622,29 @@ export default function Schedule() {
                   </section>
                 )}
 
-                {bands.other.length > 0 && (
+                {bands.daytime.length > 0 && (
                   <section className="sched-group">
                     <div className="sched-group-head">
                       <span className="sched-slot-icon"><SunIcon size={15} /></span>
-                      <h2>{bands.prime.length > 0 || bands.midnight.length > 0 ? '其他播映时段' : `${weekdayName(activeDay)}更新`}</h2>
-                      {(bands.prime.length > 0 || bands.midnight.length > 0) && (
-                        <span className="sched-slot-range">日间与晚间</span>
-                      )}
+                      <h2>日间与晚间档</h2>
+                      <span className="sched-slot-range tabular-nums">03:00 — 20:59</span>
                     </div>
-                    {otherSplit.detailed.length > 0 && (
-                      <div className="sched-featured-list">
-                        {otherSplit.detailed.map(renderDetailedCard)}
-                      </div>
-                    )}
-                    {otherSplit.compact.length > 0 && (
-                      <div className="sched-compact-grid" style={{ marginTop: 14 }}>
-                        {otherSplit.compact.map(renderCompactCard)}
-                      </div>
-                    )}
+                    <div className="sched-featured-list">
+                      {bands.daytime.map(renderDetailedCard)}
+                    </div>
+                  </section>
+                )}
+
+                {bands.untimed.length > 0 && (
+                  <section className="sched-group">
+                    <div className="sched-group-head">
+                      <span className="sched-slot-icon"><ClockIcon size={15} /></span>
+                      <h2>当日更多更新</h2>
+                      <span className="sched-slot-range">{weekdayName(activeDay)}不定时更新</span>
+                    </div>
+                    <div className="sched-compact-grid">
+                      {bands.untimed.map(renderCompactCard)}
+                    </div>
                   </section>
                 )}
               </>

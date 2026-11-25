@@ -469,9 +469,16 @@ public class BangumiService {
         return calendar("current");
     }
 
+    /** 时刻表公共过滤条件：过滤儿童向与动态漫画（只保留正常番剧）。 */
+    private static final String SCHEDULE_CONTENT_FILTER = """
+            AND COALESCE(b.media_type, '') <> '动态漫画'
+            AND NOT (b.tags && ARRAY['子供向', '儿童', '幼儿', '少儿', '幼教', '早教', '低幼', '动态漫画', '动态漫'])
+            AND NOT (COALESCE(NULLIF(b.name_cn, ''), b.name) ~ '(屁屁侦探|熊出没|喜羊羊|汪汪队|小猪佩奇|巧虎|宝宝巴士|奥特曼|超级飞侠|猪猪侠|贝乐虎|面包超人|托马斯|大耳朵图图|动态漫画)')
+            """;
+
     /**
-     * 新番时刻表查询：支持 season = current（默认本季）/ all（全部已定档）/ YYYYQ[1-4]（指定季度）。
-     * 经热点缓存（TTL 60s）加速高频读。
+     * 新番时刻表查询：仅展示已关联站内可播资源、且排除儿童番与动态漫画的条目。
+     * 支持 season = current（默认本季）/ all（全部已定档）/ YYYYQ[1-4]（指定季度）。
      */
     public List<CalendarEntry> calendar(String season) {
         String key = (season == null || season.isBlank()) ? "current" : season.trim();
@@ -494,12 +501,12 @@ public class BangumiService {
             String sql = """
                     SELECT DISTINCT ON (b.subject_id)
                            b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
-                           (c.id IS NOT NULL) AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
+                           TRUE AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
                            c.remarks, c.episode_count, c.category_name,
                            b.air_date, b.air_time, b.studio, b.media_type
                     FROM bangumi_subjects b
-                    LEFT JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
-                    """ + whereClause + "\n" + """
+                    JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
+                    """ + whereClause + "\n" + SCHEDULE_CONTENT_FILTER + """
                     ORDER BY b.subject_id, c.episode_count DESC NULLS LAST
                     """;
             List<CalendarEntry> out = jdbc.query(sql, rs -> {
@@ -525,16 +532,18 @@ public class BangumiService {
         });
     }
 
-    /** 列出库内可选季度（基于 bangumi_subjects.air_date 真实统计）。 */
+    /** 列出库内可选季度（仅统计有可播非儿童番剧的季度）。 */
     public List<SeasonOption> calendarSeasons() {
         return hotspotCache.getOrLoad("calendar", "calendar_seasons", Duration.ofMinutes(5), () -> {
             List<SeasonOption> options = new ArrayList<>();
             options.add(new SeasonOption("current", "本季新番"));
             List<SeasonOption> quarters = jdbc.query("""
-                    SELECT EXTRACT(YEAR FROM air_date)::int AS y,
-                           CEIL(EXTRACT(MONTH FROM air_date) / 3.0)::int AS q
-                      FROM bangumi_subjects
-                     WHERE air_date IS NOT NULL AND air_weekday IS NOT NULL
+                    SELECT EXTRACT(YEAR FROM b.air_date)::int AS y,
+                           CEIL(EXTRACT(MONTH FROM b.air_date) / 3.0)::int AS q
+                      FROM bangumi_subjects b
+                      JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
+                     WHERE b.air_date IS NOT NULL AND b.air_weekday IS NOT NULL
+                    """ + SCHEDULE_CONTENT_FILTER + """
                      GROUP BY y, q
                      ORDER BY y DESC, q DESC
                      LIMIT 12
