@@ -2,7 +2,7 @@
 .nav {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; gap: 12px;
-  height: 58px; padding: 0 22px;
+  height: 58px; padding: 0 var(--page-gutter);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -146,8 +146,8 @@
   color: var(--danger);
 }
 
-/* ── 通用容器与布局辅助（统一 1344px 黄金内容宽）── */
-.page { max-width: 1344px; margin: 0 auto; padding: 22px 24px 48px; }
+/* ── 通用容器与布局辅助（宽屏高占比，最大 1680px）── */
+.page { max-width: var(--container-max); margin: 0 auto; padding: 22px var(--page-gutter) 48px; }
 .page-center { min-height: 60vh; display: grid; place-items: center; color: var(--muted); }
 .card {
   background: var(--card); border: 1px solid var(--border);
@@ -162,7 +162,7 @@
 /* ── 页脚 ── */
 .site-footer { margin-top: 48px; border-top: 1px solid var(--border); background: var(--card); }
 .footer-inner {
-  max-width: 1200px; margin: 0 auto; padding: 28px 24px 36px;
+  max-width: var(--container-max); margin: 0 auto; padding: 28px var(--page-gutter) 36px;
   display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 22px;
 }
 @media (max-width: 760px) { .footer-inner { grid-template-columns: 1fr 1fr; } }
@@ -238,17 +238,18 @@
 
 /* ── 响应式体系（统一 7→5→4→2 列）── */
 @media (max-width: 1279px) {
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 440px; }
-  .manga-hero-inner { padding: 28px 30px; }
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 460px; }
+  .manga-hero-inner { padding: 32px 34px; }
+  .manga-hero-cover { width: 176px; height: 235px; }
   .card-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .card-grid.card-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .hscroll .work-card { min-width: 172px; max-width: 172px; }
 }
 
 @media (max-width: 1023px) {
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 390px; }
-  .manga-hero-cover { width: 138px; height: 184px; }
-  .manga-hero-info h2 { font-size: 24px; }
+  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 400px; }
+  .manga-hero-cover { width: 148px; height: 197px; }
+  .manga-hero-info h2 { font-size: 26px; }
   .card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px 12px; }
   .card-grid.card-grid-4 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .hscroll .work-card { min-width: 164px; max-width: 164px; }

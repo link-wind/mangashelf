@@ -127,26 +127,26 @@ button.ext-card:hover { background: var(--card); }
 
 /* ── 首页首屏 Hero Banner（液态玻璃悬浮控件 + 淡入淡出）── */
 .hero-slide {
-  position: relative; min-height: clamp(360px, 52vh, 480px);
+  position: relative; min-height: clamp(460px, 60vh, 620px);
   border-radius: var(--radius-lg); overflow: hidden;
-  display: flex; align-items: center;
+  display: flex; align-items: flex-end;
   background: #0e1318;
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.16);
 }
 .hero-bg {
-  position: absolute; inset: 0; background-size: cover; background-position: center 24%;
-  filter: saturate(118%) brightness(.64);
+  position: absolute; inset: 0; background-size: cover; background-position: center 22%;
+  filter: saturate(118%) brightness(.66);
   animation: heroFade .55s var(--ease-spring) both;
 }
 .hero-shade {
   position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(8, 12, 18, .9) 0%, rgba(8, 12, 18, .66) 44%, rgba(8, 12, 18, .22) 74%, rgba(8, 12, 18, .42) 100%),
-    linear-gradient(0deg, rgba(8, 12, 18, .68), transparent 48%);
+    linear-gradient(90deg, rgba(8, 12, 18, .88) 0%, rgba(8, 12, 18, .62) 44%, rgba(8, 12, 18, .2) 74%, rgba(8, 12, 18, .4) 100%),
+    linear-gradient(0deg, rgba(8, 12, 18, .76), transparent 56%);
 }
-.hero-content { position: relative; z-index: 2; padding: 34px 38px; max-width: 660px; color: #fff; }
-.hero-badges { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.hb { font-size: 12px; padding: 2px 10px; border-radius: 999px; line-height: 20px; font-weight: 500; }
+.hero-content { position: relative; z-index: 2; padding: 46px 52px; max-width: 760px; color: #fff; }
+.hero-badges { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.hb { font-size: 12.5px; padding: 3px 11px; border-radius: 999px; line-height: 20px; font-weight: 500; }
 .hb-tv { background: rgba(0, 174, 236, .92); color: #fff; }
 .hb-on {
   background: var(--glass-dark-bg); color: #fff;
@@ -156,37 +156,37 @@ button.ext-card:hover { background: var(--card); }
 }
 .hb-time { background: rgba(255, 92, 138, .9); color: #fff; }
 .hero-content h1 {
-  margin: 0 0 6px; font-size: 32px; line-height: 1.22; letter-spacing: -.5px;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, .45);
+  margin: 0 0 8px; font-size: clamp(32px, 2.8vw, 44px); line-height: 1.18; letter-spacing: -.6px;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .48);
 }
-.hero-sub { margin: 0 0 10px; font-size: 14px; color: rgba(255, 255, 255, .74); }
+.hero-sub { margin: 0 0 12px; font-size: 15px; color: rgba(255, 255, 255, .76); }
 .hero-meta {
   display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
-  font-size: 13px; color: rgba(255, 255, 255, .86); margin-bottom: 10px;
+  font-size: 13.5px; color: rgba(255, 255, 255, .88); margin-bottom: 12px;
 }
 .hero-meta .star { color: #ffb400; }
 .hero-desc {
-  margin: 0; font-size: 13.5px; line-height: 1.75; color: rgba(255, 255, 255, .82);
-  max-width: 58ch;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  margin: 0; font-size: 14.5px; line-height: 1.75; color: rgba(255, 255, 255, .84);
+  max-width: 62ch;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
-.hero-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+.hero-actions { display: flex; gap: 12px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
 .hero-play {
   background: linear-gradient(135deg, #1cc4ff, #0099dd);
-  color: #fff; padding: 10px 26px; font-size: 15px; font-weight: 600;
+  color: #fff; padding: 12px 30px; font-size: 15.5px; font-weight: 600;
   border-radius: 999px;
   box-shadow: 0 6px 20px rgba(0, 174, 236, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .hero-play:hover { transform: translateY(-1px); background: linear-gradient(135deg, #2eceff, #00a5eb); }
 .hero-sub-btn {
-  background: var(--glass-dark-bg); color: #fff; padding: 10px 22px; font-size: 14.5px;
+  background: var(--glass-dark-bg); color: #fff; padding: 12px 24px; font-size: 15px;
   border-radius: 999px; border: 1px solid var(--glass-dark-border);
   backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%);
   box-shadow: var(--glass-dark-highlight);
 }
 .hero-sub-btn:hover { background: rgba(255, 255, 255, .24); transform: translateY(-1px); }
 .hero-info {
-  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
   color: #fff; text-decoration: none; border: 1px solid var(--glass-dark-border);
   background: var(--glass-dark-bg);
   backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%);
@@ -197,17 +197,17 @@ button.ext-card:hover { background: var(--card); }
 
 /* Hero 右下角液态玻璃缩略图托盘 */
 .hero-thumbs {
-  position: absolute; right: 20px; bottom: 18px; display: flex; gap: 8px; z-index: 2;
-  max-width: 48%; padding: 7px; border-radius: 14px;
+  position: absolute; right: 26px; bottom: 24px; display: flex; gap: 10px; z-index: 2;
+  max-width: 48%; padding: 8px; border-radius: 15px;
   background: var(--glass-dark-bg);
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-dark-border);
   box-shadow: var(--glass-dark-highlight), var(--glass-dark-shadow);
 }
 .hero-thumb {
-  position: relative; width: 102px; height: 58px; border-radius: 9px; overflow: hidden;
+  position: relative; width: 118px; height: 68px; border-radius: 9px; overflow: hidden;
   padding: 0; border: 2px solid transparent; background: #1b2026; cursor: pointer;
-  opacity: .7; transition: opacity .18s ease, border-color .18s ease, transform .18s var(--ease-spring);
+  opacity: .72; transition: opacity .18s ease, border-color .18s ease, transform .18s var(--ease-spring);
 }
 .hero-thumb.on { border-color: var(--accent); opacity: 1; transform: translateY(-2px); }
 .hero-thumb:hover { opacity: 1; }
@@ -472,7 +472,8 @@ body.reader-open .nav, body.reader-open .site-footer, body.reader-open .nav-fab 
 
 
 /* ── 首页与索引统一动画海报卡（复刻 gugu.fan 悬浮淡青蒙层 + 圆形播放/收藏双按钮）── */
-.hscroll .anime-poster-card { min-width: 182px; max-width: 182px; flex-shrink: 0; }
+.hscroll .anime-poster-card { min-width: 196px; max-width: 196px; flex-shrink: 0; }
+@media (min-width: 1560px) { .hscroll .anime-poster-card { min-width: 212px; max-width: 212px; } }
 @media (max-width: 1279px) { .hscroll .anime-poster-card { min-width: 172px; max-width: 172px; } }
 @media (max-width: 1023px) { .hscroll .anime-poster-card { min-width: 164px; max-width: 164px; } }
 @media (max-width: 767px) { .hscroll .anime-poster-card { min-width: 150px; max-width: 150px; } }

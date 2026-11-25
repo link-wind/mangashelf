@@ -16,6 +16,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
+  --container-max: 1680px;
+  --page-gutter: clamp(16px, 2.8vw, 40px);
   --shadow-hover: 0 10px 26px rgba(15, 23, 42, 0.08);
   --pub: #00a870;
   --pub-text: #006f49;
