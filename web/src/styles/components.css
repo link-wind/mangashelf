@@ -624,6 +624,7 @@ body.reader-open .nav, body.reader-open .site-footer, body.reader-open .nav-fab 
   transition: transform .15s cubic-bezier(.4, 0, .2, 1), background-color .15s cubic-bezier(.4, 0, .2, 1);
 }
 .apc-play svg { transform: translateX(1px); }
+.apc-play.is-read svg { transform: none; }
 .apc-play:hover {
   background: #00658b;
   color: #fff;

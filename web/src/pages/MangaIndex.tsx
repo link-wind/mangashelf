@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
+import { BookOpenIcon, HeartIcon, InfoIcon } from '../components/Icons'
 import Pagination from '../components/Pagination'
 import { hdCover } from '../externalManga'
+import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
 interface MangaCard {
   id: string; title: string; description: string; visibility: string
@@ -68,7 +71,9 @@ interface CatalogPage {
 }
 interface GenreTag { tag: string; items: number }
 
-const CACHE_KEY = 'ms-manga-cache:all'
+type MangaRankTab = 'hot' | 'rise' | 'new'
+
+const CACHE_KEY = 'ms-manga-cache:v2:all'
 const CACHE_TTL_MS = 10 * 60 * 1000
 const INDEX_PAGE_SIZE = 28
 const MANGA_VIEW_KEY = 'ms-index-view'
@@ -96,13 +101,27 @@ function mangaLink(source: string, id: string, title: string, workId?: string | 
   return `/manga-ext/${id}?${new URLSearchParams({ lang: 'all', source, title })}`
 }
 
-/** 漫画专区：发现推荐、分类索引与漫画搜索。 */
+function targetSourceOf(it: RankItem): string {
+  return it.readSource || it.source
+}
+
+function targetIdOf(it: RankItem): string {
+  return it.readId || it.id
+}
+
+function statusOf(remarks: string | null | undefined, finished?: boolean): string {
+  if (finished || remarks?.includes('完结')) return '已完结'
+  return '连载中'
+}
+
+/** 漫画专区：发现推荐（对齐动画首页 70/30 布局 + 统一悬停阅读/收藏海报卡）、分类索引与漫画搜索。 */
 export default function MangaIndex() {
   const [params, setParams] = useSearchParams()
   const rawTab = params.get('tab')
   const tab: 'discover' | 'index' = rawTab === 'index' ? 'index' : 'discover'
   const activeSearch = params.get('q') ?? ''
   const [searchInput, setSearchInput] = useState(activeSearch)
+  const fav = useMangaFavorites()
 
   useEffect(() => { setSearchInput(activeSearch) }, [activeSearch])
 
@@ -164,12 +183,12 @@ export default function MangaIndex() {
       </div>
 
       {activeSearch ? (
-        <MangaSearchView query={activeSearch} onClear={clearSearch} />
+        <MangaSearchView query={activeSearch} onClear={clearSearch} fav={fav} />
       ) : tab === 'index' ? (
-        <MangaCatalogIndex />
+        <MangaCatalogIndex fav={fav} />
       ) : (
         <>
-          <MangaDiscovery />
+          <MangaDiscovery fav={fav} />
           <LocalManga />
         </>
       )}
@@ -177,8 +196,10 @@ export default function MangaIndex() {
   )
 }
 
-/** 漫画搜索结果视图。 */
-function MangaSearchView({ query, onClear }: { query: string; onClear: () => void }) {
+type MangaFavHook = ReturnType<typeof useMangaFavorites>
+
+/** 漫画搜索结果视图（统一悬停阅读 + 一键收藏海报卡）。 */
+function MangaSearchView({ query, onClear, fav }: { query: string; onClear: () => void; fav: MangaFavHook }) {
   const [result, setResult] = useState<UnifiedSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -215,7 +236,7 @@ function MangaSearchView({ query, onClear }: { query: string; onClear: () => voi
       {error && <p className="error">{error}</p>}
       {loading && (
         <div className="card-grid">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 14 }).map((_, i) => (
             <div key={i}>
               <div className="skeleton-box card-skeleton-cover" />
               <div className="skeleton-box card-skeleton-line" />
@@ -233,19 +254,26 @@ function MangaSearchView({ query, onClear }: { query: string; onClear: () => voi
         <div className="card-grid">
           {shown.map(item => {
             const activeStream = item.streams.find(s => s.source === item.primarySource) ?? item.streams[0]
-            const primaryHref = mangaLink(activeStream.source, activeStream.id, item.title, activeStream.workId)
+            const href = mangaLink(activeStream.source, activeStream.id, item.title, activeStream.workId)
+            const isLocal = activeStream.source === 'local' || Boolean(activeStream.workId)
+            const key = mangaFavKey(activeStream.source, activeStream.id)
             return (
-              <Link key={`${item.primarySource}:${item.primaryId}`} to={primaryHref} className="work-card">
-                <div className="cover">
-                  <CoverImage src={item.coverUrl} alt={item.title} />
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title clamp">{item.title}</div>
-                  <div className="work-card-meta">
-                    <span className="clamp">{item.remarks || item.altTitle || '漫画'}</span>
-                  </div>
-                </div>
-              </Link>
+              <AnimePosterCard
+                key={`${item.primarySource}:${item.primaryId}`}
+                actionKind="read"
+                title={item.title}
+                coverUrl={hdCover(item.coverUrl)}
+                detailHref={href}
+                playHref={href}
+                topLeft={statusOf(item.remarks)}
+                bottomRight={item.remarks || null}
+                metaLeft={item.altTitle || '漫画'}
+                metaTag={item.remarks || undefined}
+                canFavorite={!isLocal}
+                favorited={!isLocal && fav.isFavorited(activeStream.source, activeStream.id)}
+                busy={fav.busyKey === key}
+                onToggleFavorite={() => void fav.toggle(activeStream.source, activeStream.id, item.title)}
+              />
             )
           })}
         </div>
@@ -254,14 +282,17 @@ function MangaSearchView({ query, onClear }: { query: string; onClear: () => voi
   )
 }
 
-/** Tab 1 · 发现推荐：精选 Hero + 继续阅读 + 为你推荐 + 热门榜单。 */
-function MangaDiscovery() {
+/** Tab 1 · 发现推荐：高清 Hero → 继续阅读 → 70/30 推荐网格+多榜侧栏 → 精选专题横滑 → 热门探索。 */
+function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const navigate = useNavigate()
   const { me } = useAuth()
   const [sections, setSections] = useState<SourceSection[]>([])
+  const [genres, setGenres] = useState<GenreTag[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [heroIdx, setHeroIdx] = useState(0)
+  const [heroPaused, setHeroPaused] = useState(false)
+  const [rankTab, setRankTab] = useState<MangaRankTab>('hot')
 
   const [continueManga, setContinueManga] = useState<ContinueRow[]>([])
   const [rec, setRec] = useState<MangaRecResult | null>(null)
@@ -269,18 +300,24 @@ function MangaDiscovery() {
   const [recLoading, setRecLoading] = useState(false)
 
   useEffect(() => {
+    void api.get<GenreTag[]>('/api/v1/manga-catalog/genres')
+      .then(setGenres)
+      .catch(() => setGenres([]))
+  }, [])
+
+  useEffect(() => {
     if (!me) { setContinueManga([]); return }
     void api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
-      .then(rows => setContinueManga(rows.filter(r => r.type === 'manga-read' || r.type === 'work-read').slice(0, 6)))
+      .then(rows => setContinueManga(rows.filter(r => r.type === 'manga-read' || r.type === 'work-read').slice(0, 8)))
       .catch(() => { /* 私有续读失败不影响发现页 */ })
   }, [me])
 
   const loadRec = useCallback(async (offset: number) => {
     setRecLoading(true)
     try {
-      const data = await api.get<MangaRecResult>(`/api/v1/recommendations/manga?limit=12&offset=${offset}`)
+      const data = await api.get<MangaRecResult>(`/api/v1/recommendations/manga?limit=8&offset=${offset}`)
       setRec(data)
-    } catch { /* 推荐接口失败不阻断榜单 */ }
+    } catch { /* 推荐接口失败不阻断发现页 */ }
     finally { setRecLoading(false) }
   }, [])
 
@@ -296,7 +333,7 @@ function MangaDiscovery() {
     }
     try {
       const result = await api.get<DiscoveryResult>('/api/v1/manga-discovery?limit=14')
-      const rows = result.rows ?? []
+      const rows = (result.rows ?? []).filter(r => r.items.length > 0)
       setSections(rows)
       writeCache(CACHE_KEY, rows)
     } catch (e) {
@@ -307,41 +344,75 @@ function MangaDiscovery() {
 
   useEffect(() => { void load() }, [load])
 
-  const featuredSection = useMemo(
-    () => sections.find(s => s.items.length > 0) ?? null, [sections])
+  const hotRow = useMemo(
+    () => sections.find(s => s.id === 'all') ?? sections[0] ?? null,
+    [sections]
+  )
+  const riseRow = useMemo(
+    () => sections.find(s => s.id.includes('rise') || s.name.includes('飙升')) ?? sections[1] ?? hotRow,
+    [sections, hotRow]
+  )
+  const newRow = useMemo(
+    () => sections.find(s => s.id.includes('new') || s.name.includes('新作')) ?? sections[2] ?? hotRow,
+    [sections, hotRow]
+  )
+
   const featured = useMemo(() => {
-    if (!featuredSection) return []
-    const readable = featuredSection.items.filter(it => it.readable || it.readId)
-    const pool = readable.length >= 3 ? readable : featuredSection.items
-    return pool.slice(0, 5)
-  }, [featuredSection])
+    const pool = (hotRow?.items ?? []).filter(it => it.readable || it.readId)
+    return (pool.length > 0 ? pool : (hotRow?.items ?? [])).slice(0, 5)
+  }, [hotRow])
   const hero = featured[heroIdx] ?? null
-  const heroLabel = featuredSection?.name || '热门推荐'
 
   useEffect(() => {
-    if (featured.length < 2) return
-    const timer = window.setInterval(() => setHeroIdx(i => (i + 1) % featured.length), 6000)
+    if (featured.length < 2 || heroPaused) return
+    const timer = window.setInterval(() => setHeroIdx(i => (i + 1) % featured.length), 7000)
     return () => window.clearInterval(timer)
-  }, [featured.length])
+  }, [featured.length, heroPaused])
 
-  function open(it: RankItem) {
-    if (it.externalUrl && !it.readId) {
-      window.open(it.externalUrl, '_blank', 'noopener,noreferrer')
-      return
+  // 精简精选专题行（最多 2 行：编辑精选 + 人气长篇），避免冗长重复
+  const curatedRows = useMemo(() => {
+    const usedIds = new Set<string>([hotRow?.id ?? '', riseRow?.id ?? '', newRow?.id ?? ''])
+    const pick = (pred: (s: SourceSection) => boolean, title: string) => {
+      const hit = sections.find(s => !usedIds.has(s.id) && pred(s))
+      if (!hit) return null
+      usedIds.add(hit.id)
+      return { id: hit.id, title, items: hit.items }
     }
-    navigate(mangaLink(it.readSource ?? it.source, it.readId ?? it.id, it.title))
-  }
+    const out: { id: string; title: string; items: DiscoveryItem[] }[] = []
+    const editor = pick(s => s.id.includes('recommend') || s.name.includes('推荐'), '编辑精选')
+    if (editor) out.push(editor)
+    const binge = pick(s => s.id.includes('pay') || s.id.includes('hot') || s.name.includes('畅销') || s.name.includes('真香'), '人气长篇')
+    if (binge) out.push(binge)
+    // 若数据源结构不同导致不足 2 行，补齐剩余非空行
+    if (out.length < 2) {
+      for (const s of sections) {
+        if (usedIds.has(s.id) || s.items.length === 0) continue
+        usedIds.add(s.id)
+        out.push({ id: s.id, title: s.name === '热门' ? '人气佳作' : s.name, items: s.items })
+        if (out.length >= 2) break
+      }
+    }
+    return out
+  }, [sections, hotRow, riseRow, newRow])
+
+  const activeRankItems = useMemo(() => {
+    if (rankTab === 'rise') return riseRow?.items ?? []
+    if (rankTab === 'new') return newRow?.items ?? []
+    return hotRow?.items ?? []
+  }, [rankTab, hotRow, riseRow, newRow])
 
   function refreshRec() {
-    const next = recOffset + 12
+    const next = recOffset + 8
     setRecOffset(next)
     void loadRec(next)
   }
 
-  const displaySections = useMemo(
-    () => sections.filter(s => s.items.length > 0).slice(0, 5),
-    [sections]
-  )
+  const forYou = (rec?.forYou ?? []).slice(0, 8)
+  const heroSource = hero ? targetSourceOf(hero) : ''
+  const heroId = hero ? targetIdOf(hero) : ''
+  const heroHref = hero ? mangaLink(heroSource, heroId, hero.title) : '/manga'
+  const heroFav = hero ? fav.isFavorited(heroSource, heroId) : false
+  const heroBusy = hero ? fav.busyKey === mangaFavKey(heroSource, heroId) : false
 
   return (
     <section className="manga-discover">
@@ -354,14 +425,25 @@ function MangaDiscovery() {
 
       {loading && sections.length === 0 && (
         <>
-          <div className="manga-hero-banner skeleton" />
-          <p className="muted">加载推荐…</p>
+          <div className="skeleton-box hero-skeleton" />
+          <div className="card-grid" style={{ marginTop: 28 }}>
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i}>
+                <div className="skeleton-box card-skeleton-cover" />
+                <div className="skeleton-box card-skeleton-line" />
+                <div className="skeleton-box card-skeleton-line short" />
+              </div>
+            ))}
+          </div>
         </>
       )}
 
+      {/* 高清 Hero 轮播（对齐动画首页：开始阅读 + 一键收藏 + 详情） */}
       {hero && (
-        <div className="manga-hero-banner">
-          <div className="manga-hero-bg" key={hero.source + hero.id}>
+        <section className="manga-hero-banner"
+                 onMouseEnter={() => setHeroPaused(true)}
+                 onMouseLeave={() => setHeroPaused(false)}>
+          <div className="manga-hero-bg" key={heroSource + heroId}>
             {hero.coverUrl && (
               <img className="manga-hero-bg-img" src={hdCover(hero.coverUrl)} alt=""
                    referrerPolicy="no-referrer" decoding="async"
@@ -370,23 +452,32 @@ function MangaDiscovery() {
           </div>
           <div className="manga-hero-shade" />
           <div className="manga-hero-inner">
-            <button type="button" className="manga-hero-cover" onClick={() => open(hero)} aria-label={hero.title}>
+            <Link to={heroHref} className="manga-hero-cover" aria-label={hero.title}>
               <CoverImage src={hdCover(hero.coverUrl)} alt={hero.title} loading="eager" fetchPriority="high" />
-            </button>
+            </Link>
             <div className="manga-hero-info">
-              <span className="manga-hero-kicker">{heroLabel}</span>
+              <div className="hero-badges" style={{ marginBottom: 8 }}>
+                <span className="hb hb-on">人气精选</span>
+                <span className="hb hb-tv">{statusOf(hero.latestLabel, hero.finished)}</span>
+                {hero.latestLabel && <span className="hb hb-time">{hero.latestLabel}</span>}
+              </div>
               <h2>{hero.title}</h2>
               {hero.authors?.length > 0 && (
                 <p className="mh-author">{hero.authors.join(' / ')}</p>
               )}
-              <div className="mh-chips">
-                {hero.latestLabel && <span className="chip">{hero.latestLabel}</span>}
-                {hero.finished && <span className="chip">已完结</span>}
-              </div>
-              <div className="manga-hero-actions">
-                <button type="button" className="pill" onClick={() => open(hero)}>
-                  {hero.readable || hero.readId ? '开始阅读' : '查看详情'}
+              <div className="hero-actions" style={{ marginTop: 18 }}>
+                <button type="button" className="pill hero-play" onClick={() => navigate(heroHref)}>
+                  <BookOpenIcon size={15} />
+                  开始阅读
                 </button>
+                <button type="button" className="pill hero-sub-btn" disabled={heroBusy}
+                        onClick={() => void fav.toggle(heroSource, heroId, hero.title)}>
+                  <HeartIcon size={15} filled={heroFav} />
+                  {heroBusy ? '处理中…' : (heroFav ? '已收藏' : '收藏')}
+                </button>
+                <Link to={heroHref} className="hero-info" title="详情" aria-label="查看详情">
+                  <InfoIcon size={17} />
+                </Link>
               </div>
             </div>
           </div>
@@ -402,109 +493,207 @@ function MangaDiscovery() {
               ))}
             </div>
           )}
-        </div>
+        </section>
       )}
 
+      {/* 继续阅读 */}
       {continueManga.length > 0 && (
-        <section className="manga-section">
+        <section style={{ marginTop: 28 }}>
           <div className="section-head">
             <h2>继续阅读</h2>
             <Link to="/me?tab=continue&kind=manga" className="muted">全部进度 →</Link>
           </div>
-          <div className="manga-row">
+          <div className="hscroll">
             {continueManga.map(r => {
-              const href = r.type === 'work-read'
+              const readHref = r.type === 'work-read'
                 ? `/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal ?? 1}`
                 : (r.chapterId
                     ? `/manga-ext/read/${r.chapterId}?${new URLSearchParams({ mangaId: r.mangaId ?? '', lang: 'all', source: r.source ?? '', title: r.title })}`
                     : mangaLink(r.source ?? '', r.mangaId ?? '', r.title))
+              const detailHref = r.type === 'work-read'
+                ? `/manga/${r.workId}`
+                : mangaLink(r.source ?? '', r.mangaId ?? '', r.title)
+              const canFav = r.type === 'manga-read' && Boolean(r.source && r.mangaId)
+              const key = mangaFavKey(r.source, r.mangaId)
               return (
-                <Link key={`${r.type}-${r.workId ?? r.mangaId}-${r.chapterId}`} to={href} className="manga-tile">
-                  <div className="mt-cover">
-                    <CoverImage src={r.coverUrl} alt={r.title} />
-                    <span className="mt-multi">第 {r.pageOrdinal ?? 1} 页</span>
-                  </div>
-                  <div className="mt-title clamp">{r.title}</div>
-                  <div className="mt-meta clamp">{r.subtitle || '继续阅读'}</div>
-                </Link>
+                <AnimePosterCard
+                  key={`${r.type}-${r.workId ?? r.mangaId}-${r.chapterId}`}
+                  actionKind="read"
+                  title={r.title}
+                  coverUrl={hdCover(r.coverUrl)}
+                  detailHref={detailHref}
+                  playHref={readHref}
+                  topLeft={`第 ${r.pageOrdinal ?? 1} 页`}
+                  topLeftVariant="accent"
+                  bottomRight={r.subtitle || null}
+                  metaLeft="继续阅读"
+                  metaTag={r.subtitle || undefined}
+                  canFavorite={canFav}
+                  favorited={canFav && fav.isFavorited(r.source, r.mangaId)}
+                  busy={fav.busyKey === key}
+                  onToggleFavorite={canFav ? () => void fav.toggle(r.source, r.mangaId, r.title) : undefined}
+                />
               )
             })}
           </div>
         </section>
       )}
 
-      {rec && rec.forYou.length > 0 && (
-        <section className="manga-section">
-          <div className="section-head">
-            <h2>
-              {rec.personalized ? '为你推荐' : '精选推荐'}
-              {rec.topPreferences.length > 0 && (
-                <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
-                  偏好：{rec.topPreferences.slice(0, 3).join(' · ')}
-                </span>
+      {/* 70/30 非对称探索区：左侧 4×2 推荐网格 + 右侧多 Tab 漫画榜单 */}
+      {(forYou.length > 0 || activeRankItems.length > 0) && (
+        <section className="home-split-grid" style={{ marginTop: 30 }}>
+          <div className="home-split-main">
+            <div className="section-head">
+              <h2>
+                {rec?.personalized ? '为你推荐' : '精选推荐'}
+                {rec && rec.topPreferences.length > 0 && (
+                  <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                    常读：{rec.topPreferences.slice(0, 3).join(' · ')}
+                  </span>
+                )}
+              </h2>
+              {(rec?.totalCandidates ?? 0) > 8 && (
+                <button type="button" className="mini ghost" disabled={recLoading} onClick={refreshRec}>
+                  {recLoading ? '刷新中…' : '换一批 ↻'}
+                </button>
               )}
-            </h2>
-            {rec.totalCandidates > 12 && (
-              <button type="button" className="mini ghost" disabled={recLoading} onClick={refreshRec}>
-                {recLoading ? '刷新中…' : '换一批 ↻'}
-              </button>
-            )}
+            </div>
+            <div className="card-grid card-grid-4">
+              {forYou.map(it => {
+                const href = mangaLink(it.source, it.id, it.title)
+                const key = mangaFavKey(it.source, it.id)
+                return (
+                  <AnimePosterCard
+                    key={`${it.source}:${it.id}`}
+                    actionKind="read"
+                    title={it.title}
+                    coverUrl={hdCover(it.coverUrl)}
+                    detailHref={href}
+                    playHref={href}
+                    topLeft={statusOf(it.remarks)}
+                    bottomRight={it.remarks || null}
+                    metaLeft="漫画"
+                    metaTag={it.reason}
+                    favorited={fav.isFavorited(it.source, it.id)}
+                    busy={fav.busyKey === key}
+                    onToggleFavorite={() => void fav.toggle(it.source, it.id, it.title)}
+                  />
+                )
+              })}
+            </div>
           </div>
-          <div className="manga-row">
-            {rec.forYou.map(it => (
-              <Link key={`${it.source}:${it.id}`} to={mangaLink(it.source, it.id, it.title)} className="manga-tile">
-                <div className="mt-cover">
-                  <CoverImage src={it.coverUrl} alt={it.title} />
-                </div>
-                <div className="mt-title clamp">{it.title}</div>
-                <div className="mt-reason clamp">{it.reason}</div>
-              </Link>
-            ))}
-          </div>
+
+          <aside className="card home-rank-card">
+            <div className="home-rank-head">
+              <h2>漫画榜单</h2>
+              <div className="home-rank-tabs" role="tablist" aria-label="漫画榜单切换">
+                <button type="button" role="tab" aria-selected={rankTab === 'hot'}
+                        className={'mini ' + (rankTab === 'hot' ? '' : 'ghost')}
+                        onClick={() => setRankTab('hot')}>热榜</button>
+                <button type="button" role="tab" aria-selected={rankTab === 'rise'}
+                        className={'mini ' + (rankTab === 'rise' ? '' : 'ghost')}
+                        onClick={() => setRankTab('rise')}>飙升</button>
+                <button type="button" role="tab" aria-selected={rankTab === 'new'}
+                        className={'mini ' + (rankTab === 'new' ? '' : 'ghost')}
+                        onClick={() => setRankTab('new')}>新作</button>
+              </div>
+            </div>
+
+            <ol className="home-rank-list">
+              {activeRankItems.slice(0, 8).map((it, i) => {
+                const src = targetSourceOf(it)
+                const mid = targetIdOf(it)
+                const href = mangaLink(src, mid, it.title)
+                return (
+                  <li key={src + mid} className="home-rank-row">
+                    <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <Link to={href} className="home-rank-thumb">
+                      <CoverImage src={hdCover(it.coverUrl)} alt={it.title} />
+                    </Link>
+                    <div className="home-rank-info">
+                      <Link to={href} className="home-rank-title">{it.title}</Link>
+                      <span className="muted">
+                        {it.authors?.length ? it.authors[0] : statusOf(it.latestLabel, it.finished)}
+                      </span>
+                    </div>
+                    {it.latestLabel && (
+                      <span className="home-rank-metric tabular-nums">
+                        {it.latestLabel.replace(/^更新[到至]/, '')}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          </aside>
         </section>
       )}
 
-      {displaySections.map(section => (
-        <SectionRow key={section.id + (section.sourceId ?? '')} section={section}
-                    showRank={section.id === 'all' || section.name.includes('榜')}
-                    onOpen={open} />
+      {/* 精选专题横滑（编辑精选 + 人气长篇） */}
+      {curatedRows.map(row => (
+        <section key={row.id} style={{ marginTop: 30 }}>
+          <div className="section-head">
+            <h2>{row.title}</h2>
+            <Link to="/manga?tab=index" className="muted">全部漫画 →</Link>
+          </div>
+          <div className="hscroll">
+            {row.items.map(it => {
+              const src = targetSourceOf(it)
+              const mid = targetIdOf(it)
+              const href = mangaLink(src, mid, it.title)
+              const key = mangaFavKey(src, mid)
+              return (
+                <AnimePosterCard
+                  key={src + mid}
+                  actionKind="read"
+                  title={it.title}
+                  coverUrl={hdCover(it.coverUrl)}
+                  detailHref={href}
+                  playHref={href}
+                  topLeft={statusOf(it.latestLabel, it.finished)}
+                  bottomRight={it.latestLabel || null}
+                  metaLeft={it.authors?.length ? it.authors[0] : '漫画'}
+                  metaTag={it.finished ? '已完结' : (it.latestLabel ? '连载' : undefined)}
+                  favorited={fav.isFavorited(src, mid)}
+                  busy={fav.busyKey === key}
+                  onToggleFavorite={() => void fav.toggle(src, mid, it.title)}
+                />
+              )
+            })}
+          </div>
+        </section>
       ))}
 
-      {!loading && !error && sections.length > 0 && sections.every(s => s.items.length === 0) && (
-        <p className="muted">暂无推荐内容。</p>
-      )}
+      {/* 底部快捷探索卡片（对齐动画首页） */}
+      <section className="card home-explore-card" style={{ marginTop: 32 }}>
+        <div className="section-head" style={{ marginBottom: 10 }}>
+          <h2>快捷探索</h2>
+          <div className="row-inline">
+            <Link to="/manga?tab=index" className="muted">漫画分类索引 →</Link>
+            <Link to="/anime" className="muted">番剧索引 →</Link>
+          </div>
+        </div>
+        <div className="explore-tags">
+          <Link to="/manga?tab=index&status=ongoing" className="explore-tag-pill">连载新作</Link>
+          <Link to="/manga?tab=index&status=completed" className="explore-tag-pill">完结一口气读</Link>
+          <Link to="/manga?tab=index&sort=episodes" className="explore-tag-pill">长篇必看</Link>
+          <Link to="/manga?tab=index&sort=updated" className="explore-tag-pill">最近更新</Link>
+          {genres.slice(0, 12).map(g => (
+            <Link key={g.tag} to={`/manga?tab=index&genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
+              {g.tag}
+            </Link>
+          ))}
+        </div>
+      </section>
     </section>
   )
 }
 
-/** 分区横向卡片行。 */
-function SectionRow({ section, showRank, onOpen }: {
-  section: SourceSection; showRank: boolean; onOpen: (it: RankItem) => void
-}) {
-  return (
-    <section className="manga-section">
-      <div className="section-head">
-        <h2>{section.name}</h2>
-      </div>
-      <div className="manga-row">
-        {section.items.map((it, i) => (
-          <button type="button" key={it.source + it.id} className="manga-tile" onClick={() => onOpen(it)}
-                  title={it.title}>
-            <div className="mt-cover">
-              <CoverImage src={it.coverUrl} alt={it.title} />
-              {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
-            </div>
-            <div className="mt-title clamp">{it.title}</div>
-            <div className="mt-meta">{it.latestLabel || (it.finished ? '已完结' : '连载中')}</div>
-          </button>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-/** Tab 2 · 漫画分类分页索引：题材 + 状态 + 排序 + 页码分页。 */
-function MangaCatalogIndex() {
+/** Tab 2 · 漫画分类分页索引：对齐番剧索引（统一悬停海报卡 / 双栏列表卡 + 筛选 + 分页）。 */
+function MangaCatalogIndex({ fav }: { fav: MangaFavHook }) {
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const genre = params.get('genre') ?? ''
   const status = params.get('status') ?? ''
@@ -645,57 +834,70 @@ function MangaCatalogIndex() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <p className="muted">当前筛选下暂无漫画，可以尝试搜索标题。</p>
+        <p className="muted">当前筛选下暂无漫画，可以尝试切换条件或搜索标题。</p>
       ) : viewMode === 'list' ? (
         <>
           <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
-            {items.map(r => (
-              <Link key={`${r.source}-${r.sourceItemId}`}
-                    to={mangaLink(r.source, r.sourceItemId, r.name)}
-                    className="index-list-card card" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div className="index-list-poster">
-                  <CoverImage src={r.coverUrl} alt={r.name} />
-                </div>
-                <div className="index-list-body">
-                  <div className="index-list-title">{r.name}</div>
-                  {r.altTitle && <div className="muted clamp">{r.altTitle}</div>}
-                  <div className="index-list-meta muted">
-                    <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载中')}</span>
-                    {(r.tags ?? []).slice(0, 3).map(t => <span key={t} className="chip ghost">{t}</span>)}
+            {items.map(r => {
+              const href = mangaLink(r.source, r.sourceItemId, r.name)
+              const isFav = fav.isFavorited(r.source, r.sourceItemId)
+              const key = mangaFavKey(r.source, r.sourceItemId)
+              return (
+                <article key={`${r.source}-${r.sourceItemId}`} className="index-list-card card">
+                  <Link to={href} className="index-list-poster">
+                    <CoverImage src={hdCover(r.coverUrl)} alt={r.name} />
+                  </Link>
+                  <div className="index-list-body">
+                    <Link to={href} className="index-list-title">{r.name}</Link>
+                    <div className="index-list-meta muted">
+                      <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载中')}</span>
+                      {r.altTitle && <span className="clamp">{r.altTitle}</span>}
+                      {(r.tags ?? []).slice(0, 3).map(t => <span key={t} className="chip ghost">{t}</span>)}
+                    </div>
+                    <div className="row-inline" style={{ marginTop: 'auto' }}>
+                      <button type="button" className="mini" onClick={() => navigate(href)}>阅读</button>
+                      <button type="button" className={'mini ' + (isFav ? '' : 'ghost')}
+                              disabled={fav.busyKey === key}
+                              onClick={() => void fav.toggle(r.source, r.sourceItemId, r.name)}>
+                        {isFav ? '已收藏' : '收藏'}
+                      </button>
+                      <Link className="btn mini ghost" to={href}>详情</Link>
+                    </div>
                   </div>
-                </div>
-              </Link>
-            ))}
+                </article>
+              )
+            })}
           </div>
-          <Pagination page={page} totalPages={totalPages} total={total} unit="部漫画"
+          <Pagination page={page} totalPages={totalPages} total={total}
                       loading={loading}
                       onChange={p => updateFilter({ page: String(p) }, false)} />
         </>
       ) : (
         <>
           <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
-            {items.map(r => (
-              <Link key={`${r.source}-${r.sourceItemId}`}
-                    to={mangaLink(r.source, r.sourceItemId, r.name)}
-                    className="work-card">
-                <div className="cover">
-                  <CoverImage src={r.coverUrl} alt={r.name} />
-                  {(r.remarks || r.episodeCount) && (
-                    <span className="badge-br tabular-nums">
-                      {r.remarks || `${r.episodeCount} 话`}
-                    </span>
-                  )}
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title">{r.name}</div>
-                  <div className="work-card-meta">
-                    <span className="clamp">{r.altTitle || r.remarks || '连载中'}</span>
-                  </div>
-                </div>
-              </Link>
-            ))}
+            {items.map(r => {
+              const href = mangaLink(r.source, r.sourceItemId, r.name)
+              const key = mangaFavKey(r.source, r.sourceItemId)
+              return (
+                <AnimePosterCard
+                  key={`${r.source}-${r.sourceItemId}`}
+                  actionKind="read"
+                  title={r.name}
+                  coverUrl={hdCover(r.coverUrl)}
+                  detailHref={href}
+                  playHref={href}
+                  topLeft={statusOf(r.remarks)}
+                  bottomRight={r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : null)}
+                  metaLeft={r.altTitle || '漫画'}
+                  metaTag={r.episodeCount ? `${r.episodeCount} 话` : (r.tags?.[0] || undefined)}
+                  favorited={fav.isFavorited(r.source, r.sourceItemId)}
+                  busy={fav.busyKey === key}
+                  onToggleFavorite={() => void fav.toggle(r.source, r.sourceItemId, r.name)}
+                />
+              )
+            })}
           </div>
-          <Pagination page={page} totalPages={totalPages} total={total} unit="部漫画"
+          <Pagination page={page} totalPages={totalPages} total={total}
                       loading={loading}
                       onChange={p => updateFilter({ page: String(p) }, false)} />
         </>
@@ -739,19 +941,19 @@ function LocalManga() {
 
       <div className="card-grid">
         {items.map(m => (
-          <Link key={m.id} to={`/manga/${m.id}`} className="work-card">
-            <div className="cover">
-              <CoverImage src={m.coverUrl} alt={m.title} />
-              {m.visibility === 'PRIVATE' && <span className="badge-anim" style={{ background: 'var(--priv)' }}>私人</span>}
-            </div>
-            <div className="work-card-body">
-              <div className="work-card-title clamp">{m.title}</div>
-              <div className="work-card-meta">
-                <span>{m.chapterCount} 话</span>
-                {m.latestOrdinal != null && <span>更新至第 {m.latestOrdinal} 话</span>}
-              </div>
-            </div>
-          </Link>
+          <AnimePosterCard
+            key={m.id}
+            actionKind="read"
+            title={m.title}
+            coverUrl={m.coverUrl}
+            detailHref={`/manga/${m.id}`}
+            playHref={`/manga/${m.id}`}
+            topLeft={m.visibility === 'PRIVATE' ? '私人' : '书架'}
+            bottomRight={m.latestOrdinal != null ? `第 ${m.latestOrdinal} 话` : `${m.chapterCount} 话`}
+            metaLeft="书架漫画"
+            metaTag={`${m.chapterCount} 话`}
+            canFavorite={false}
+          />
         ))}
       </div>
 

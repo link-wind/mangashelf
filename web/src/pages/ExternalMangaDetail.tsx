@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../auth'
+import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
+import { BookOpenIcon, HeartIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import { hdCover } from '../externalManga'
 import { formatMangaLine } from '../lineLabel'
-
+import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
 interface ExtManga {
   id: string; title: string; altTitle: string; description: string
@@ -18,6 +22,9 @@ interface Detail { manga: ExtManga; chapters: ExtChapter[] }
 interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number }
 interface SourceInfo { id: string; name: string; language: string; capabilities: string[]; note: string }
 interface SwitchItem { source: string; id: string; title: string; altTitle: string; coverUrl: string | null }
+interface MangaRecItem {
+  source: string; id: string; title: string; coverUrl: string | null; remarks: string; reason: string
+}
 
 /** 统一源响应（/manga-sources/{s}/manga/{id}）→ 内部 Detail。 */
 function normalizeSource(raw: {
@@ -42,17 +49,20 @@ function normalizeSource(raw: {
 }
 
 /**
- * 外部漫画详情（M21/M23）：大封面 + 信息 + 章节格。
- * 详情统一走 /manga-sources/{source}（含 MangaDex）。
+ * 漫画详情页（对齐番剧详情页 CatalogDetail）：
+ * 面包屑 + 吸顶锚点条 + 双栏卡片头图 + 题材胶囊 + 3 KPI 信息条 + 收藏/已读完 + 线路切换 + 卡片化章节格 + 更多推荐。
  */
 export default function ExternalMangaDetail() {
   const { mangaId } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
+  const { me } = useAuth()
   const { showToast } = useToast()
+  const recFav = useMangaFavorites()
+
   const source = params.get('source') ?? 'copymanga'
+  const lang = 'zh'
   const [detail, setDetail] = useState<Detail | null>(null)
-  const [lang, setLang] = useState('zh')
   const [asc, setAsc] = useState(true)
   const [chunkIdx, setChunkIdx] = useState(0)
   const [showAllBiliChapters, setShowAllBiliChapters] = useState(false)
@@ -67,10 +77,11 @@ export default function ExternalMangaDetail() {
   const [switchError, setSwitchError] = useState('')
   const [favorited, setFavorited] = useState(false)
   const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
+  const [recommended, setRecommended] = useState<MangaRecItem[]>([])
 
   const load = useCallback(async (language: string) => {
     if (!mangaId) return
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setSwitchItems([]); setSwitchError('')
     try {
       setDetail(normalizeSource(
         await api.get(`/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${language}`)))
@@ -82,7 +93,7 @@ export default function ExternalMangaDetail() {
   useEffect(() => { void load(lang) }, [lang, load])
 
   useEffect(() => {
-    if (!mangaId) return
+    if (!mangaId || !me) { setFavorited(false); setFavStatus('WATCHING'); return }
     void api.get<{ source: string | null; mangaId: string | null; status?: 'WATCHING' | 'COMPLETED' }[]>('/api/v1/me/favorites?type=manga')
       .then(list => {
         const hit = list.find(f => f.source === source && f.mangaId === mangaId)
@@ -90,10 +101,22 @@ export default function ExternalMangaDetail() {
         setFavStatus(hit?.status === 'COMPLETED' ? 'COMPLETED' : 'WATCHING')
       })
       .catch(() => { /* 收藏状态不可用不影响详情 */ })
+  }, [source, mangaId, me])
+
+  useEffect(() => {
+    void api.get<{ forYou?: MangaRecItem[] }>('/api/v1/recommendations/manga?limit=10')
+      .then(res => {
+        const list = (res.forYou ?? [])
+          .filter(r => !(r.source === source && r.id === mangaId))
+          .slice(0, 7)
+        setRecommended(list)
+      })
+      .catch(() => setRecommended([]))
   }, [source, mangaId])
 
   async function toggleFavorite() {
     if (!mangaId) return
+    if (!me) { showToast('请先登录后再收藏漫画', 'info'); return }
     const base = `/api/v1/me/favorites/manga?source=${encodeURIComponent(source)}`
       + `&mangaId=${encodeURIComponent(mangaId)}`
     try {
@@ -117,6 +140,7 @@ export default function ExternalMangaDetail() {
 
   async function toggleCompleted() {
     if (!mangaId) return
+    if (!me) { showToast('请先登录后再标记阅读状态', 'info'); return }
     const nextStatus = favStatus === 'COMPLETED' ? 'WATCHING' : 'COMPLETED'
     const qs = new URLSearchParams({
       source, mangaId, title: detail?.manga.title ?? '', status: nextStatus,
@@ -159,14 +183,15 @@ export default function ExternalMangaDetail() {
   }
 
   useEffect(() => {
-    if (!mangaId) return
+    if (!mangaId || !me) { setResume(null); return }
     void api.get<ProgressRow[]>('/api/v1/me/manga-progress?limit=50')
       .then(rows => {
         const row = rows.find(r => r.source === source && r.mangaId === mangaId)
         if (row?.chapterId) setResume({ chapterId: row.chapterId, page: row.page })
+        else setResume(null)
       })
       .catch(() => { /* 无进度 */ })
-  }, [mangaId, source])
+  }, [mangaId, source, me])
 
   const officialBiliUrl = source === 'bilibili' && /^\d{1,12}$/.test(mangaId ?? '')
     ? `https://manga.bilibili.com/detail/mc${mangaId}` : null
@@ -189,6 +214,8 @@ export default function ExternalMangaDetail() {
     : ordered
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
+  const cleanTags = (manga.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 12).slice(0, 8)
+  const statusLabel = manga.status?.includes('完结') ? '已完结' : (manga.status || '连载中')
 
   const open = (c: ExtChapter) =>
     navigate(`/manga-ext/read/${c.id}?mangaId=${manga.id}&lang=${lang}&source=${source}` +
@@ -196,43 +223,94 @@ export default function ExternalMangaDetail() {
 
   return (
     <main className="watch-page">
-      <section className="manga-hero">
-        <div className="manga-cover">
-          <CoverImage src={manga.coverUrl} alt={manga.title} loading="eager" fetchPriority="high" />
-        </div>
-        <div className="manga-info">
-          <h1>{manga.title}</h1>
-          {manga.altTitle && <p className="muted" style={{ margin: '2px 0 8px' }}>{manga.altTitle}</p>}
-          <div className="manga-chips">
-            {manga.year && <span className="chip">{manga.year}</span>}
-            {manga.status && <span className="chip">{manga.status}</span>}
-            {(manga.tags ?? []).slice(0, 4).map(t => <span key={t} className="chip ghost">{t}</span>)}
+      {/* 面包屑 */}
+      <nav className="breadcrumb" aria-label="面包屑">
+        <Link to="/">首页</Link>
+        <span>/</span>
+        <Link to="/manga">漫画</Link>
+        <span>/</span>
+        <span className="breadcrumb-cur">{manga.title}</span>
+      </nav>
+
+      {/* 吸顶分区锚点条 */}
+      <div className="detail-anchor-bar">
+        <a href="#overview" className="mini ghost btn">简介</a>
+        <a href="#chapters" className="mini ghost btn">章节目录</a>
+        {recommended.length > 0 && <a href="#recommend" className="mini ghost btn">更多推荐</a>}
+      </div>
+
+      {/* 双栏头图卡（对齐番剧详情页） */}
+      <section id="overview" className="detail-hero card" style={{ padding: 20, borderRadius: 16 }}>
+        <div className="detail-cover-col">
+          <div className="detail-cover">
+            <CoverImage src={hdCover(manga.coverUrl)} alt={manga.title} loading="eager" fetchPriority="high" />
           </div>
-          <p className={'manga-desc' + (expanded ? ' expanded' : '')}>{manga.description || '（暂无简介）'}</p>
+        </div>
+
+        <div className="detail-info">
+          <div className="row-inline" style={{ marginBottom: 6 }}>
+            <span className="tag pub">漫画</span>
+            <span className="sched-ep-tag">{statusLabel}</span>
+            {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已读完</span>}
+          </div>
+          <h1>{manga.title}</h1>
+          {manga.altTitle && (
+            <p className="muted" style={{ margin: '4px 0 10px' }}>{manga.altTitle}</p>
+          )}
+
+          {cleanTags.length > 0 && (
+            <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
+              {cleanTags.map(t => (
+                <Link key={t} to={`/manga?tab=index&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
+                  #{t}
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="detail-kpi-strip cols-3">
+            <div className="detail-kpi">
+              <span className="muted">连载状态</span>
+              <strong>{statusLabel}</strong>
+            </div>
+            <div className="detail-kpi">
+              <span className="muted">年份</span>
+              <strong className="tabular-nums">{manga.year || '—'}</strong>
+            </div>
+            <div className="detail-kpi">
+              <span className="muted">总话数</span>
+              <strong className="tabular-nums">{readable.length > 0 ? `${readable.length} 话` : '—'}</strong>
+            </div>
+          </div>
+
+          <p className={'manga-desc' + (expanded ? ' expanded' : '')} style={{ marginTop: 14 }}>
+            {manga.description || '暂无简介，可直接点击下方「开始阅读」浏览章节。'}
+          </p>
           {manga.description && manga.description.length > 120 && (
-            <button className="link-btn" onClick={() => setExpanded(v => !v)}>
+            <button type="button" className="link-btn" onClick={() => setExpanded(v => !v)}>
               {expanded ? '收起' : '展开'}
             </button>
           )}
-          <div className="manga-actions">
+
+          <div className="row-inline" style={{ marginTop: 16 }}>
             {startCh
-              ? <button className="pill manga-read-btn" onClick={() => open(startCh)}>
+              ? <button type="button" className="pill" onClick={() => open(startCh)}>
+                  <BookOpenIcon size={15} />
                   {continueCh
                     ? `继续阅读（第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}）`
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
               : <span className="muted">暂无章节</span>}
-            <button className="btn ghost pill" onClick={() => void toggleFavorite()}>
+            <button type="button" className={'pill ' + (favorited ? '' : 'ghost')}
+                    onClick={() => void toggleFavorite()}>
+              <HeartIcon size={15} filled={favorited} />
               {favorited ? '已收藏' : '收藏'}
             </button>
-            <button className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
+            <button type="button" className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
                     onClick={() => void toggleCompleted()}>
               {favStatus === 'COMPLETED' ? '✓ 已读完' : '标记已读完'}
             </button>
             {officialLink}
-            <Link className="btn ghost pill" to="/manga">
-              返回漫画页
-            </Link>
           </div>
 
           {switchSources.length > 0 && (
@@ -241,7 +319,7 @@ export default function ExternalMangaDetail() {
               {switchSources.map((s, idx) => {
                 const label = formatMangaLine(idx)
                 return (
-                  <button key={s.id} className="mini ghost" disabled={switchLoading}
+                  <button key={s.id} type="button" className="mini ghost" disabled={switchLoading}
                           onClick={() => void findIn(s, label)}>{label}</button>
                 )
               })}
@@ -256,7 +334,7 @@ export default function ExternalMangaDetail() {
               {switchItems.length > 0 && (
                 <div className="switch-list">
                   {switchItems.map(r => (
-                    <button key={r.source + r.id} className="switch-item"
+                    <button key={r.source + r.id} type="button" className="switch-item"
                             onClick={() => navigate(`/manga-ext/${r.id}?source=${r.source}` +
                               `&title=${encodeURIComponent(r.title)}`)}>
                       {r.coverUrl
@@ -272,16 +350,19 @@ export default function ExternalMangaDetail() {
         </div>
       </section>
 
-      <section style={{ marginTop: 26 }}>
+      {/* 卡片化章节目录 */}
+      <section id="chapters" className="card" style={{ marginTop: 24, padding: 18, borderRadius: 16 }}>
         <div className="section-head">
-          <h2>章节</h2>
+          <h2>章节目录</h2>
           <div className="row-inline">
             {officialBiliUrl && chapters.length > readable.length && (
-              <button className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
+              <button type="button" className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
                 {showAllBiliChapters ? '仅看可免费阅读' : '显示全部章节'}
               </button>
             )}
-            <button className="mini ghost" onClick={() => { setAsc(v => !v); setChunkIdx(0) }}>{asc ? '倒序 ↓' : '正序 ↑'}</button>
+            <button type="button" className="mini ghost" onClick={() => { setAsc(v => !v); setChunkIdx(0) }}>
+              {asc ? '倒序 ↓' : '正序 ↑'}
+            </button>
           </div>
         </div>
 
@@ -308,10 +389,10 @@ export default function ExternalMangaDetail() {
               <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
                  target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>
-                <span className="cc-sub">原站</span>
+                <span className="cc-sub">正版</span>
               </a>
             ) : (
-              <button key={c.id} className="chapter-cell" onClick={() => open(c)}
+              <button key={c.id} type="button" className="chapter-cell" onClick={() => open(c)}
                       title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>
                 <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : ''}</span>
@@ -319,11 +400,41 @@ export default function ExternalMangaDetail() {
             ))}
           </div>
         ) : !loading && (
-          <p className="muted">
-            暂无章节。
-          </p>
+          <p className="muted" style={{ margin: 0 }}>暂无章节。</p>
         )}
       </section>
+
+      {/* 底部更多推荐（7 列网格闭环） */}
+      {recommended.length > 0 && (
+        <section id="recommend" style={{ marginTop: 28 }}>
+          <div className="section-head">
+            <h2>更多推荐</h2>
+            <Link to="/manga" className="muted">浏览更多 →</Link>
+          </div>
+          <div className="card-grid">
+            {recommended.map(r => {
+              const href = `/manga-ext/${r.id}?${new URLSearchParams({ lang: 'all', source: r.source, title: r.title })}`
+              const key = mangaFavKey(r.source, r.id)
+              return (
+                <AnimePosterCard
+                  key={`${r.source}:${r.id}`}
+                  actionKind="read"
+                  title={r.title}
+                  coverUrl={hdCover(r.coverUrl)}
+                  detailHref={href}
+                  playHref={href}
+                  bottomRight={r.remarks || null}
+                  metaLeft="推荐漫画"
+                  metaTag={r.reason}
+                  favorited={recFav.isFavorited(r.source, r.id)}
+                  busy={recFav.busyKey === key}
+                  onToggleFavorite={() => void recFav.toggle(r.source, r.id, r.title)}
+                />
+              )
+            })}
+          </div>
+        </section>
+      )}
     </main>
   )
 }

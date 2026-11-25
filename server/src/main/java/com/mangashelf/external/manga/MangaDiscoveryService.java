@@ -150,13 +150,13 @@ public class MangaDiscoveryService {
 
     public Result discover(int limit) throws Exception {
         int size = Math.max(1, Math.min(limit, 30));
-        String key = "v3:" + size;
+        String key = "v4:" + size;
         CacheEntry hit = cache.get(key);
         if (hit != null && hit.expiresAt() > System.currentTimeMillis()) {
             return hit.result();
         }
         if (shared != null) {
-            var redisHit = shared.get("ms:v2:discovery:" + size);
+            var redisHit = shared.get("ms:v3:discovery:" + size);
             if (redisHit.isPresent()) {
                 var stored = shared.decodePublic(redisHit.get(), StoredResult.class);
                 if (stored != null && stored.rows() != null) {
@@ -230,11 +230,16 @@ public class MangaDiscoveryService {
         }
 
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row("all", "综合热榜", null, null, fuse(rankedLists, size, sourceNames)));
+        List<DiscoveryItem> allReadable = fuse(rankedLists, size * 2, sourceNames).stream()
+                .filter(it -> it.readable() || (it.readId() != null && !it.readId().isBlank()))
+                .limit(size)
+                .toList();
+        rows.add(new Row("all", "综合热榜", null, null, allReadable));
         for (Fetched f : fetched) {
             for (MangaSource.Section section : f.sections()) {
                 List<DiscoveryItem> items = sanitize(section.items(), zhSourceIds).stream()
                         .filter(it -> isChineseTitle(it.title()))
+                        .filter(it -> it.readable() || (it.readId() != null && !it.readId().isBlank()))
                         .map(it -> DiscoveryItem.of(it, 1, List.of()))
                         .toList();
                 if (items.isEmpty()) continue;
@@ -248,7 +253,7 @@ public class MangaDiscoveryService {
         cache.put(key, new CacheEntry(result, System.currentTimeMillis() + ttl));
         if (shared != null && errors.isEmpty()) {
             try {
-                shared.putJson("ms:v2:discovery:" + size,
+                shared.putJson("ms:v3:discovery:" + size,
                         shared.encodePublic(new StoredResult(rows, errors)),
                         java.time.Duration.ofMillis(TTL_MS));
             } catch (Exception e) {
@@ -268,12 +273,19 @@ public class MangaDiscoveryService {
                     if (item.id() == null || item.id().isBlank() || item.title() == null || item.title().isBlank()) {
                         continue;
                     }
+                    if (!item.readable() && (item.readId() == null || item.readId().isBlank())) {
+                        continue;
+                    }
                     String remarks = item.latestLabel() != null && !item.latestLabel().isBlank()
                             ? item.latestLabel().trim()
                             : (item.finished() ? "已完结" : "");
                     String authors = item.authors() == null ? "" : String.join(" / ", item.authors());
+                    String targetSource = (item.readSource() != null && !item.readSource().isBlank())
+                            ? item.readSource() : f.sourceId();
+                    String targetId = (item.readId() != null && !item.readId().isBlank())
+                            ? item.readId() : item.id();
                     try {
-                        catalog.upsert(UUID.randomUUID(), f.sourceId(), item.id(), item.title(),
+                        catalog.upsert(UUID.randomUUID(), targetSource, targetId, item.title(),
                                 authors, item.coverUrl() == null ? "" : item.coverUrl(),
                                 remarks, List.of(), null);
                     } catch (Exception ignored) {

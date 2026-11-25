@@ -1299,6 +1299,9 @@ a.sched-next-pill:hover {
   gap: 10px;
   margin-top: 12px;
 }
+.detail-kpi-strip.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .detail-kpi {
   padding: 8px 12px;
   border-radius: 10px;

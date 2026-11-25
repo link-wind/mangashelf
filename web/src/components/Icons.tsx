@@ -147,3 +147,12 @@ export function ClockIcon({ size = 15, ...p }: IconProps) {
     </svg>
   )
 }
+
+export function BookOpenIcon({ size = 16, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H10a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4.5A2.5 2.5 0 0 0 2 19.5v-14Z" />
+      <path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H14a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h5.5a2.5 2.5 0 0 1 2.5 2.5v-14Z" />
+    </svg>
+  )
+}

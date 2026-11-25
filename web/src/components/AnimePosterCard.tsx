@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom'
 import CoverImage from './CoverImage'
-import { HeartIcon, PlayIcon } from './Icons'
+import { BookOpenIcon, HeartIcon, PlayIcon } from './Icons'
 
 export interface AnimePosterCardProps {
   title: string
   coverUrl: string | null | undefined
   detailHref: string
   playHref: string
+  actionKind?: 'play' | 'read'
   topLeft?: string | null
   topLeftVariant?: 'dark' | 'accent' | 'pub'
   rating?: number | null
@@ -22,18 +23,19 @@ export interface AnimePosterCardProps {
 }
 
 /**
- * 统一动画海报卡片（复刻 gugu.fan 首页样式）：
+ * 统一作品海报卡片（番剧 / 漫画共享）：
  * - 3:4 高清海报 + 四角角标 + 底部渐变暗角；
- * - 悬浮/键盘聚焦浮现淡青柔焦蒙层 + 48px 圆形主播放按钮 + 40px 圆形心形收藏按钮；
+ * - 悬浮/键盘聚焦浮现淡青柔焦蒙层 + 48px 圆形主播放/阅读按钮 + 40px 圆形心形收藏按钮；
  * - 紧凑底栏：单行截断标题（悬浮变青）+ 左副信息 + 右淡蓝题材/理由胶囊。
  */
 export default function AnimePosterCard({
-  title, coverUrl, detailHref, playHref,
+  title, coverUrl, detailHref, playHref, actionKind = 'play',
   topLeft, topLeftVariant = 'dark', rating, bottomLeft, bottomRight,
   metaLeft, metaTag, progressPct,
   canFavorite = true, favorited = false, busy = false, onToggleFavorite,
 }: AnimePosterCardProps) {
   const showBottom = Boolean(bottomLeft || bottomRight)
+  const isRead = actionKind === 'read'
 
   return (
     <article className="anime-poster-card">
@@ -62,8 +64,10 @@ export default function AnimePosterCard({
         </Link>
 
         <div className="apc-actions">
-          <Link to={playHref} className="apc-play" aria-label={`播放 ${title}`} title="立即播放">
-            <PlayIcon size={22} />
+          <Link to={playHref} className={'apc-play' + (isRead ? ' is-read' : '')}
+                aria-label={isRead ? `阅读 ${title}` : `播放 ${title}`}
+                title={isRead ? '开始阅读' : '立即播放'}>
+            {isRead ? <BookOpenIcon size={20} /> : <PlayIcon size={22} />}
           </Link>
           {canFavorite && onToggleFavorite && (
             <button type="button"
@@ -71,8 +75,8 @@ export default function AnimePosterCard({
                     aria-pressed={favorited}
                     aria-busy={busy}
                     disabled={busy}
-                    aria-label={favorited ? `取消收藏 ${title}` : `追番收藏 ${title}`}
-                    title={favorited ? '取消收藏' : '追番收藏'}
+                    aria-label={favorited ? `取消收藏 ${title}` : `收藏 ${title}`}
+                    title={favorited ? '取消收藏' : '收藏'}
                     onClick={e => { e.preventDefault(); e.stopPropagation(); onToggleFavorite() }}>
               <HeartIcon size={19} filled={favorited} />
             </button>

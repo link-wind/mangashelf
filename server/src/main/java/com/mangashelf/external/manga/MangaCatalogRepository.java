@@ -36,6 +36,21 @@ public class MangaCatalogRepository {
         this.jdbc = jdbc;
     }
 
+    private static final java.util.regex.Pattern EPISODE_NUM = java.util.regex.Pattern.compile("(\\d{1,5})");
+
+    private static Integer resolveEpisodeCount(Integer episodeCount, String remarks) {
+        if (episodeCount != null && episodeCount > 0) return episodeCount;
+        if (remarks == null || remarks.isBlank()) return null;
+        var m = EPISODE_NUM.matcher(remarks);
+        if (!m.find()) return null;
+        try {
+            int n = Integer.parseInt(m.group(1));
+            return n > 0 ? n : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     /** upsert：新条目记录 first_seen_at；已存在时以非空字段增量合并，不覆盖已有题材标签或封面。 */
     public void upsert(UUID id, String source, String sourceItemId, String name, String altTitle,
                        String coverUrl, String remarks, List<String> tags, Integer episodeCount) {
@@ -44,6 +59,7 @@ public class MangaCatalogRepository {
                 .map(String::trim)
                 .distinct()
                 .toList();
+        Integer resolvedEpisodes = resolveEpisodeCount(episodeCount, remarks);
         jdbc.update("""
                 INSERT INTO manga_catalog_items
                     (id, source, source_item_id, name, alt_title, cover_url, remarks, tags, episode_count)
@@ -58,7 +74,7 @@ public class MangaCatalogRepository {
                     synced_at = now()
                 """, id, source, sourceItemId, name, altTitle == null ? "" : altTitle,
                 coverUrl == null ? "" : coverUrl, remarks == null ? "" : remarks,
-                cleanTags.toArray(new String[0]), episodeCount);
+                cleanTags.toArray(new String[0]), resolvedEpisodes);
     }
 
     public record MangaCatalogItem(UUID id, String source, String sourceItemId, String name,
@@ -81,7 +97,7 @@ public class MangaCatalogRepository {
         boolean byEpisodes = "episodes".equals(sort);
         if (offset != null || byEpisodes) {
             String orderBy = byEpisodes
-                    ? " ORDER BY COALESCE(episode_count, 0) DESC, synced_at DESC, id DESC "
+                    ? " ORDER BY COALESCE(episode_count, NULLIF(substring(remarks FROM '([0-9]+)'), '')::int, 0) DESC, synced_at DESC, id DESC "
                     : " ORDER BY synced_at DESC, id DESC ";
             args.add(Math.max(offset == null ? 0 : offset, 0));
             args.add(limit);
