@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import Pagination from '../components/Pagination'
-import { useToast } from '../components/Toast'
+import { useCatalogFavorites } from '../useCatalogFavorites'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
@@ -62,7 +63,7 @@ const VIEW_KEY = 'ms-index-view'
 /** 番剧索引：多维分类筛选 + 网格/列表双视图切换 + 页码分页直达 + 全高清 large 封面。 */
 export default function AnimeIndex() {
   const navigate = useNavigate()
-  const { showToast } = useToast()
+  const { favIds, busyId, toggle: toggleFav } = useCatalogFavorites()
   const [params, setParams] = useSearchParams()
 
   const category = params.get('category') ?? ''
@@ -82,7 +83,6 @@ export default function AnimeIndex() {
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [busyItem, setBusyItem] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => { setQInput(activeQuery) }, [activeQuery])
@@ -143,18 +143,6 @@ export default function AnimeIndex() {
 
   function submitSearch() {
     updateFilter({ q: qInput.trim() })
-  }
-
-  async function favorite(item: CatalogItem) {
-    setBusyItem(item.id); setError('')
-    try {
-      await api.put(`/api/v1/me/favorites/catalog/${item.id}`)
-      showToast(`已收藏「${item.name}」`, 'success')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '收藏失败'
-      setError(msg)
-      showToast(msg, 'error')
-    } finally { setBusyItem(null) }
   }
 
   const hasFilters = Boolean(category || genre || status || year || activeQuery || sort !== 'updated')
@@ -290,8 +278,11 @@ export default function AnimeIndex() {
                       ? <Link className="btn mini ghost" to={`/works/${it.workId}`}>打开作品</Link>
                       : <>
                           <button type="button" className="mini" onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
-                          <button type="button" className="mini ghost" disabled={busyItem === it.id}
-                                  onClick={() => void favorite(it)}>收藏</button>
+                          <button type="button" className={'mini ' + (favIds.has(it.id) ? '' : 'ghost')}
+                                  disabled={busyId === it.id}
+                                  onClick={() => void toggleFav(it.id, it.name)}>
+                            {favIds.has(it.id) ? '已收藏' : '收藏'}
+                          </button>
                           <Link className="btn mini ghost" to={`/catalog/${it.id}`}>详情</Link>
                         </>
                     }
@@ -308,33 +299,21 @@ export default function AnimeIndex() {
         <>
           <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
             {items.map(it => (
-              <div key={it.id} className="work-card">
-                <Link to={`/catalog/${it.id}`} className="cover">
-                  <CoverImage
-                    src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
-                    alt={it.name}
-                  />
-                  {it.workId
-                    ? <span className="badge-tl is-pub">在库</span>
-                    : it.categoryName && <span className="badge-tl">{it.categoryName}</span>}
-                  <span className="badge-br tabular-nums">{it.remarks || `${it.episodeCount} 集`}</span>
-                </Link>
-                <div className="work-card-body">
-                  <Link to={`/catalog/${it.id}`} className="work-card-title" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
-                  <div className="row-inline" style={{ marginTop: 6 }}>
-                    {it.workId
-                      ? <Link className="btn ghost mini" style={{ flex: 1 }} to={`/works/${it.workId}`}>打开</Link>
-                      : <>
-                          <button type="button" className="ghost mini" style={{ flex: 1 }}
-                                  disabled={busyItem === it.id}
-                                  onClick={() => void favorite(it)}>收藏</button>
-                          <button type="button" className="mini" style={{ flex: 1 }}
-                                  onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
-                        </>
-                    }
-                  </div>
-                </div>
-              </div>
+              <AnimePosterCard
+                key={it.id}
+                title={it.name}
+                coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
+                detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
+                playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
+                topLeft={it.workId ? '在库' : (it.remarks?.includes('完结') ? '已完结' : '连载中')}
+                topLeftVariant={it.workId ? 'pub' : 'dark'}
+                bottomRight={it.remarks || `${it.episodeCount} 集`}
+                metaLeft={it.categoryName || '番剧'}
+                metaTag={it.episodeCount > 0 ? `${it.episodeCount} 集` : undefined}
+                favorited={favIds.has(it.id)}
+                busy={busyId === it.id}
+                onToggleFavorite={() => void toggleFav(it.id, it.name)}
+              />
             ))}
           </div>
           <Pagination page={page} totalPages={totalPages} total={total} unit="部番剧"

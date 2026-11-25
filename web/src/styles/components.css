@@ -469,3 +469,254 @@ body.reader-open .nav, body.reader-open .site-footer, body.reader-open .nav-fab 
 .login-required h1 { font-size: 22px; margin: 0 0 10px; color: var(--ink); }
 .login-required p { font-size: 14px; line-height: 1.7; margin: 0 0 20px; }
 .login-required-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+
+/* ── 首页与索引统一动画海报卡（复刻 gugu.fan 悬浮淡青蒙层 + 圆形播放/收藏双按钮）── */
+.hscroll .anime-poster-card { min-width: 182px; max-width: 182px; flex-shrink: 0; }
+@media (max-width: 1279px) { .hscroll .anime-poster-card { min-width: 172px; max-width: 172px; } }
+@media (max-width: 1023px) { .hscroll .anime-poster-card { min-width: 164px; max-width: 164px; } }
+@media (max-width: 767px) { .hscroll .anime-poster-card { min-width: 150px; max-width: 150px; } }
+@media (max-width: 480px) { .hscroll .anime-poster-card { min-width: 140px; max-width: 140px; } }
+
+.anime-poster-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: transform .3s cubic-bezier(.4, 0, .2, 1), box-shadow .3s cubic-bezier(.4, 0, .2, 1), border-color .2s ease;
+}
+.anime-poster-card:hover,
+.anime-poster-card:focus-within {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, .14), 0 8px 10px -6px rgba(0, 0, 0, .1);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.apc-poster {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: var(--bg-soft);
+}
+.apc-poster-link {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+.apc-poster-link img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  transition: transform .5s cubic-bezier(0, 0, .2, 1), opacity .22s ease;
+}
+.anime-poster-card:hover .apc-poster-link img,
+.anime-poster-card:focus-within .apc-poster-link img {
+  transform: scale(1.05);
+}
+
+.apc-slot {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(25, 28, 29, 0.8);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  max-width: calc(100% - 76px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apc-slot.is-accent { background: #00aeec; }
+.apc-slot.is-pub { background: color-mix(in srgb, var(--pub, #16a34a) 90%, #000); }
+
+.apc-score {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fc739a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.apc-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  min-height: 46px;
+  padding: 22px 8px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+.apc-bottom-left,
+.apc-bottom-right {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 悬浮淡青柔焦蒙层 + 48px 播放圆钮 + 40px 收藏圆钮 */
+.apc-actions {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 101, 139, 0.22);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .28s cubic-bezier(.4, 0, .2, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .anime-poster-card:hover .apc-actions { opacity: 1; }
+  .anime-poster-card:hover .apc-play,
+  .anime-poster-card:hover .apc-fav { pointer-events: auto; }
+}
+.apc-poster:has(:focus-visible) .apc-actions { opacity: 1; }
+.apc-poster:has(:focus-visible) .apc-play,
+.apc-poster:has(:focus-visible) .apc-fav { pointer-events: auto; }
+
+.apc-play {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #00aeec;
+  color: #fff;
+  text-decoration: none;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .24), 0 4px 6px -4px rgba(0, 0, 0, .18);
+  transition: transform .15s cubic-bezier(.4, 0, .2, 1), background-color .15s cubic-bezier(.4, 0, .2, 1);
+}
+.apc-play svg { transform: translateX(1px); }
+.apc-play:hover {
+  background: #00658b;
+  color: #fff;
+  transform: scale(1.1);
+}
+.apc-play:focus-visible,
+.apc-fav:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.apc-fav {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: #a83159;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .18), 0 2px 4px -2px rgba(0, 0, 0, .14);
+  transition: transform .15s cubic-bezier(.4, 0, .2, 1), background-color .15s ease, color .15s ease;
+}
+[data-theme="dark"] .apc-fav {
+  background: rgba(24, 31, 41, 0.92);
+  color: #ff8eb3;
+}
+.apc-fav:hover:not(:disabled) {
+  background: #ffffff;
+  color: #e11d48;
+  transform: scale(1.1);
+}
+[data-theme="dark"] .apc-fav:hover:not(:disabled) {
+  background: rgb(24, 31, 41);
+  color: #ff8eb3;
+}
+.apc-fav.active,
+.apc-fav.active:hover:not(:disabled) {
+  background: #fc739a;
+  color: #fff;
+}
+
+.apc-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+.apc-caption h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apc-caption h3 a {
+  color: var(--ink);
+  text-decoration: none;
+  transition: color .15s ease;
+}
+.anime-poster-card:hover .apc-caption h3 a,
+.anime-poster-card:focus-within .apc-caption h3 a {
+  color: var(--accent-strong);
+}
+.apc-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.apc-meta-left {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apc-genre {
+  flex-shrink: 0;
+  max-width: 68%;
+  font-size: 11px;
+  line-height: 14px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

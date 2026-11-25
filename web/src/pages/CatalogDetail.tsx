@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import { HeartIcon, PlayIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import { useCatalogFavorites } from '../useCatalogFavorites'
 
 interface CatalogItem {
   id: string; sourceId: string; name: string; coverUrl: string; remarks: string
@@ -45,6 +47,7 @@ export default function CatalogDetail() {
   const navigate = useNavigate()
   const { me } = useAuth()
   const { showToast } = useToast()
+  const { favIds, busyId: simBusyId, toggle: toggleSimFav } = useCatalogFavorites()
 
   const [detail, setDetail] = useState<CatalogDetailData | null>(null)
   const [browseLines, setBrowseLines] = useState<BrowseLine[]>([])
@@ -331,21 +334,20 @@ export default function CatalogDetail() {
           </div>
           <div className="card-grid">
             {similar.map(s => (
-              <Link key={s.catalogItemId}
-                    to={s.workId ? `/works/${s.workId}` : `/catalog/${s.catalogItemId}`}
-                    className="work-card">
-                <div className="cover">
-                  <CoverImage src={s.coverUrl} alt={s.title} />
-                  {typeof s.rating === 'number' && s.rating > 0 && (
-                    <span className="badge-tr badge-score tabular-nums">★ {s.rating.toFixed(1)}</span>
-                  )}
-                  {s.remarks && <span className="badge-br">{s.remarks}</span>}
-                </div>
-                <div className="work-card-body">
-                  <div className="work-card-title">{s.title}</div>
-                  <div className="work-card-meta"><span className="rec-reason">{s.reason}</span></div>
-                </div>
-              </Link>
+              <AnimePosterCard
+                key={s.catalogItemId}
+                title={s.title}
+                coverUrl={s.coverUrl}
+                detailHref={s.workId ? `/works/${s.workId}` : `/catalog/${s.catalogItemId}`}
+                playHref={s.workId ? `/works/${s.workId}` : `/browse/${s.catalogItemId}`}
+                rating={s.rating}
+                bottomRight={s.remarks}
+                metaLeft="相似推荐"
+                metaTag={s.reason}
+                favorited={favIds.has(s.catalogItemId)}
+                busy={simBusyId === s.catalogItemId}
+                onToggleFavorite={() => void toggleSimFav(s.catalogItemId, s.title)}
+              />
             ))}
           </div>
         </section>
