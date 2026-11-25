@@ -243,7 +243,7 @@ export default function Reader() {
       if (err.code === 'PROGRESS_CONFLICT' && err.details?.current) {
         const current = err.details.current
         setVersion(current.version)
-        setNotice('进度已在其他设备更新，已同步最新版本号')
+        setNotice('已同步最新阅读进度')
       }
     }
   }, [chapterId, revisionId, version])

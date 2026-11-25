@@ -91,7 +91,7 @@ export function useEpisodePlayback(episodeId: string | undefined) {
     const now = Date.now()
     if (now - lastConflictRef.current < 30_000) return
     lastConflictRef.current = now
-    setNotice('其他设备已更新进度，已对齐版本继续保存')
+    setNotice('已同步最新观看进度')
     window.setTimeout(() => setNotice(''), 4000)
   }, [])
 

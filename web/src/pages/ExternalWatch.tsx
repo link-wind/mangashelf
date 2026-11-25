@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import EpisodePlayerShell from '../components/EpisodePlayerShell'
 import type { DanmakuItem } from '../components/Player'
-import { useEpisodePlayback, type PlaybackStatus } from '../useEpisodePlayback'
+import { formatAnimeLine } from '../lineLabel'
+import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BoundEpisode {
   id: string; sourceId: string; sourceName: string; title: string
@@ -11,7 +12,7 @@ interface BoundEpisode {
   episodeType: 'MAIN' | 'EXTRA'
 }
 
-/** 外部集观看页：复用 EpisodePlayerShell，附带弹幕与原站链接（M10–M13）。 */
+/** 作品播放页：复用 EpisodePlayerShell，线路显示为「国内线路 1/2」，附带弹幕功能。 */
 export default function ExternalWatch() {
   const { workId, episodeId } = useParams()
   const navigate = useNavigate()
@@ -75,9 +76,11 @@ export default function ExternalWatch() {
     }
   }
 
-  const lines = [...new Map(episodes.map(e => [e.lineName, e.lineRank])).entries()]
+  const rawLines = [...new Map(episodes.map(e => [e.lineName, e.lineRank])).entries()]
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name)
+  const displayLines = rawLines.map((key, idx) => ({ key, label: formatAnimeLine(idx) }))
+  const activeLineLabel = displayLines.find(l => l.key === lineName)?.label ?? '国内线路 1'
 
   const lineEpisodes = episodes
     .filter(e => e.lineName === lineName && e.episodeType === tab)
@@ -89,9 +92,9 @@ export default function ExternalWatch() {
 
   return (
     <EpisodePlayerShell
-      title={workTitle || current.sourceName}
+      title={workTitle || '动画播放'}
       current={current}
-      metaText={`共 ${lineEpisodes.length} 集 · 线路 ${lineName || '默认'}`}
+      metaText={`共 ${lineEpisodes.length} 集 · ${activeLineLabel}`}
       backLinkTo={`/works/${workId}`}
       backLinkLabel="← 返回作品"
       notice={notice}
@@ -101,7 +104,7 @@ export default function ExternalWatch() {
       failed={failed}
       onProgress={saveProgress}
       onResolve={() => void resolve(current.id)}
-      lines={lines}
+      lines={displayLines}
       activeLine={lineName}
       onSelectLine={target => {
         setLineName(target)
@@ -121,27 +124,6 @@ export default function ExternalWatch() {
         onToggle: toggleDanmaku,
         onSend: sendDanmaku,
       }}
-      extraActions={
-        <>
-          <a className="btn ghost" href={current.episodeUrl} target="_blank" rel="noopener noreferrer">跳转原站</a>
-          {status?.playKind && <span className="muted">流类型 {status.playKind === 'hls' ? 'HLS' : 'MP4'}</span>}
-        </>
-      }
-      infoRows={[
-        { label: '来源', value: current.sourceName },
-        { label: '线路', value: lineName || '默认' },
-        { label: '解析状态', value: resolveText(status) },
-        { label: '播放方式', value: '浏览器直连（不经服务器）' },
-        { label: '进度', value: '服务端保存（跨设备续播）' },
-        { label: '弹幕', value: `${danmakuItems.length} 条 · ${danmakuEnabled ? '显示' : '已关闭'}` },
-      ]}
     />
   )
-}
-
-function resolveText(st: PlaybackStatus | null): string {
-  if (!st) return '待解析'
-  if (st.playUrl) return '已就绪'
-  if (st.errorCode) return `失败（${st.errorMessage ?? st.errorCode}）`
-  return '解析中…'
 }

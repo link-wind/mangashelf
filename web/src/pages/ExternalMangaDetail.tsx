@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import CoverImage from '../components/CoverImage'
 import { useToast } from '../components/Toast'
+import { formatMangaLine } from '../lineLabel'
 
 
 interface ExtManga {
@@ -59,13 +60,11 @@ export default function ExternalMangaDetail() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [resume, setResume] = useState<{ chapterId: string; page: number } | null>(null)
-  // 数据源切换（M31）：在其它中文源按标题搜索同作
   const [switchSources, setSwitchSources] = useState<SourceInfo[]>([])
-  const [switchTarget, setSwitchTarget] = useState('')
+  const [switchLabel, setSwitchLabel] = useState('')
   const [switchItems, setSwitchItems] = useState<SwitchItem[]>([])
   const [switchLoading, setSwitchLoading] = useState(false)
   const [switchError, setSwitchError] = useState('')
-  const [sourceNames, setSourceNames] = useState<Record<string, string>>({})
   const [favorited, setFavorited] = useState(false)
   const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
 
@@ -135,18 +134,15 @@ export default function ExternalMangaDetail() {
   useEffect(() => {
     void api.get<SourceInfo[]>('/api/v1/manga-sources')
       .then(list => {
-        const names: Record<string, string> = {}
-        list.forEach(s => { names[s.id] = s.name })
-        setSourceNames(names)
         setSwitchSources(list.filter(s => s.language === 'zh'
           && s.capabilities.includes('SEARCH') && s.id !== source))
       })
-      .catch(() => { /* 源列表不可用不影响详情 */ })
+      .catch(() => { /* 线路列表不可用不影响详情 */ })
   }, [source])
 
-  async function findIn(target: SourceInfo) {
+  async function findIn(target: SourceInfo, label: string) {
     if (!detail) return
-    setSwitchTarget(target.id)
+    setSwitchLabel(label)
     setSwitchItems([])
     setSwitchError('')
     setSwitchLoading(true)
@@ -154,7 +150,7 @@ export default function ExternalMangaDetail() {
       const rows = await api.get<SwitchItem[]>(
         `/api/v1/manga-sources/${target.id}/search?q=${encodeURIComponent(detail.manga.title)}&limit=8`)
       setSwitchItems(rows)
-      if (rows.length === 0) setSwitchError(`未在${target.name}找到同作`)
+      if (rows.length === 0) setSwitchError(`${label}暂未找到同作`)
     } catch (e) {
       setSwitchError(e instanceof Error ? e.message : '搜索失败')
     } finally {
@@ -175,7 +171,7 @@ export default function ExternalMangaDetail() {
   const officialBiliUrl = source === 'bilibili' && /^\d{1,12}$/.test(mangaId ?? '')
     ? `https://manga.bilibili.com/detail/mc${mangaId}` : null
   const officialLink = officialBiliUrl
-    ? <a className="btn ghost pill" href={officialBiliUrl} target="_blank" rel="noopener noreferrer">前往哔哩原站</a>
+    ? <a className="btn ghost pill" href={officialBiliUrl} target="_blank" rel="noopener noreferrer">查看正版页面</a>
     : null
 
   if (error) return <main className="watch-page"><p className="error" role="alert">{error}</p>{officialLink}</main>
@@ -211,7 +207,6 @@ export default function ExternalMangaDetail() {
             {manga.year && <span className="chip">{manga.year}</span>}
             {manga.status && <span className="chip">{manga.status}</span>}
             {(manga.tags ?? []).slice(0, 4).map(t => <span key={t} className="chip ghost">{t}</span>)}
-            <span className="chip ghost">{sourceNames[source] ?? source}</span>
           </div>
           <p className={'manga-desc' + (expanded ? ' expanded' : '')}>{manga.description || '（暂无简介）'}</p>
           {manga.description && manga.description.length > 120 && (
@@ -226,7 +221,7 @@ export default function ExternalMangaDetail() {
                     ? `继续阅读（第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}）`
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
-              : <span className="muted">暂无可读章节</span>}
+              : <span className="muted">暂无章节</span>}
             <button className="btn ghost pill" onClick={() => void toggleFavorite()}>
               {favorited ? '已收藏' : '收藏'}
             </button>
@@ -235,25 +230,28 @@ export default function ExternalMangaDetail() {
               {favStatus === 'COMPLETED' ? '✓ 已读完' : '标记已读完'}
             </button>
             {officialLink}
-            <Link className="btn ghost pill" to={officialBiliUrl ? '/manga' : '/manga-ext'}>
-              {officialBiliUrl ? '返回漫画首页' : '返回搜索'}
+            <Link className="btn ghost pill" to="/manga">
+              返回漫画页
             </Link>
           </div>
 
           {switchSources.length > 0 && (
             <div className="manga-switch">
-              <span className="muted">切换数据源：</span>
-              {switchSources.map(s => (
-                <button key={s.id} className="mini ghost" disabled={switchLoading}
-                        onClick={() => void findIn(s)}>{s.name}</button>
-              ))}
-              {switchLoading && <span className="muted" style={{ fontSize: 12 }}>搜索中…</span>}
+              <span className="muted">切换线路：</span>
+              {switchSources.map((s, idx) => {
+                const label = formatMangaLine(idx)
+                return (
+                  <button key={s.id} className="mini ghost" disabled={switchLoading}
+                          onClick={() => void findIn(s, label)}>{label}</button>
+                )
+              })}
+              {switchLoading && <span className="muted" style={{ fontSize: 12 }}>加载中…</span>}
             </div>
           )}
           {(switchItems.length > 0 || switchError) && (
             <div className="switch-panel">
               <div className="switch-panel-head">
-                {switchError || `在${sourceNames[switchTarget] ?? switchTarget}找到 ${switchItems.length} 个结果`}
+                {switchError || `${switchLabel}匹配结果`}
               </div>
               {switchItems.length > 0 && (
                 <div className="switch-list">
@@ -276,13 +274,11 @@ export default function ExternalMangaDetail() {
 
       <section style={{ marginTop: 26 }}>
         <div className="section-head">
-          <h2>
-            章节 <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>{readable.length} 话</span>
-          </h2>
+          <h2>章节</h2>
           <div className="row-inline">
             {officialBiliUrl && chapters.length > readable.length && (
               <button className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
-                {showAllBiliChapters ? `仅站内可读（${readable.length}）` : `显示全部（${chapters.length}）`}
+                {showAllBiliChapters ? '仅看可免费阅读' : '显示全部章节'}
               </button>
             )}
             <button className="mini ghost" onClick={() => { setAsc(v => !v); setChunkIdx(0) }}>{asc ? '倒序 ↓' : '正序 ↑'}</button>
@@ -318,13 +314,13 @@ export default function ExternalMangaDetail() {
               <button key={c.id} className="chapter-cell" onClick={() => open(c)}
                       title={c.title || `第 ${c.chapter} 话`}>
                 <span className="cc-no">{c.chapter || '?'}</span>
-                <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : c.pages < 0 ? '可读' : ''}</span>
+                <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : ''}</span>
               </button>
             ))}
           </div>
         ) : !loading && (
           <p className="muted">
-            没有可读章节。
+            暂无章节。
           </p>
         )}
       </section>

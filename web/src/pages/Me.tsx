@@ -76,7 +76,7 @@ function fmt(ms: number | null | undefined): string {
 function activitySummary(a: Activity): string {
   if (a.type === 'work-read') return `${a.subtitle ?? '章节'} · 第 ${a.pageOrdinal ?? 1} 页`
   if (a.type === 'manga-read') {
-    return `${a.subtitle ? `${a.subtitle} · ` : ''}第 ${a.pageOrdinal ?? 1} 页${a.source ? ` · ${a.source}` : ''}`
+    return `${a.subtitle ? `${a.subtitle} · ` : ''}第 ${a.pageOrdinal ?? 1} 页`
   }
   if (a.type === 'animation-watch') return `看到 ${fmt(a.positionMs)}`
   return `第 ${a.ordinal ?? '?'} 话${a.subtitle ? ` ${a.subtitle}` : ''} · 看到 ${fmt(a.positionMs)}`
@@ -250,17 +250,17 @@ export default function Me() {
           <button type="button" role="tab" aria-selected={tab === 'continue'}
                   className={'pill ' + (tab === 'continue' ? '' : 'ghost')}
                   onClick={() => setTab('continue')}>
-            继续追更 · {continueList.length + catchUp.length}
+            继续追更
           </button>
           <button type="button" role="tab" aria-selected={tab === 'favorites'}
                   className={'pill ' + (tab === 'favorites' ? '' : 'ghost')}
                   onClick={() => setTab('favorites')}>
-            收藏 · {favorites.length}
+            收藏
           </button>
           <button type="button" role="tab" aria-selected={tab === 'history'}
                   className={'pill ' + (tab === 'history' ? '' : 'ghost')}
                   onClick={() => setTab('history')}>
-            历史 · {historyList.length}
+            历史
           </button>
         </div>
 
@@ -316,7 +316,6 @@ export default function Me() {
           <section>
             <div className="section-head">
               <h2>继续观看 / 阅读</h2>
-              <span className="muted" style={{ fontSize: 12 }}>{shownContinue.length} 部</span>
             </div>
             {shownContinue.length === 0 ? (
               <p className="muted">还没有正在追的{kind === 'anime' ? '动画' : kind === 'manga' ? '漫画' : '内容'}——去<Link to="/anime">番剧</Link>或<Link to="/manga">漫画</Link>逛逛。</p>
@@ -358,14 +357,14 @@ export default function Me() {
         <div style={{ marginTop: 18 }}>
           <div className="row-inline" style={{ marginBottom: 14 }}>
             <button type="button" className={'mini ' + (favStatusFilter === 'all' ? '' : 'ghost')}
-                    onClick={() => setFavStatusFilter('all')}>全部状态 · {favorites.length}</button>
+                    onClick={() => setFavStatusFilter('all')}>全部</button>
             <button type="button" className={'mini ' + (favStatusFilter === 'WATCHING' ? '' : 'ghost')}
                     onClick={() => setFavStatusFilter('WATCHING')}>
-              在追 · {favorites.filter(f => (f.status ?? 'WATCHING') === 'WATCHING').length}
+              在追
             </button>
             <button type="button" className={'mini ' + (favStatusFilter === 'COMPLETED' ? '' : 'ghost')}
                     onClick={() => setFavStatusFilter('COMPLETED')}>
-              已看完 · {favorites.filter(f => f.status === 'COMPLETED').length}
+              已看完
             </button>
           </div>
           {shownFavs.length === 0 ? (
@@ -381,8 +380,8 @@ export default function Me() {
                     <Link to={favLink(f)} className="work-card">
                       <div className="cover">
                         <CoverImage src={f.coverUrl} alt={f.title} />
-                        <span className="badge-tl" style={f.type === 'work' ? { background: 'var(--pub)' } : undefined}>
-                          {f.type === 'work' ? '本地' : f.type === 'manga' ? (f.source || '漫画') : '动画'}
+                        <span className="badge-tl">
+                          {f.type === 'catalog' ? '番剧' : '漫画'}
                         </span>
                         {done && <span className="badge-br is-pub" style={{ background: 'var(--pub)' }}>✓ 已看完</span>}
                       </div>
@@ -390,7 +389,7 @@ export default function Me() {
                         <div className="work-card-title">{f.title}</div>
                         <div className="row-between" style={{ marginTop: 6 }}>
                           <span className="muted" style={{ fontSize: 11.5 }}>
-                            {f.type === 'work' ? '本地' : f.type === 'manga' ? (f.source ?? '漫画') : '番剧'}
+                            {f.type === 'catalog' ? '番剧' : '漫画'}
                           </span>
                           <button type="button" className="fav-status-btn"
                                   onClick={e => { e.preventDefault(); void toggleFavoriteStatus(f) }}>

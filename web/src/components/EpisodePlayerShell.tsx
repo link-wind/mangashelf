@@ -11,9 +11,9 @@ export interface ShellEpisode {
   episodeType: 'MAIN' | 'EXTRA'
 }
 
-export interface ShellInfoRow {
+export interface ShellLine {
+  key: string
   label: string
-  value: string
 }
 
 export interface SimilarAnime {
@@ -38,16 +38,15 @@ interface EpisodePlayerShellProps {
   failed: boolean
   onProgress: (posMs: number, durMs?: number) => void
   onResolve: () => void
-  lines: string[]
+  lines: ShellLine[]
   activeLine: string
-  onSelectLine: (line: string) => void
+  onSelectLine: (lineKey: string) => void
   hasExtra: boolean
   tab: 'MAIN' | 'EXTRA'
   onSelectTab: (tab: 'MAIN' | 'EXTRA') => void
   episodes: ShellEpisode[]
   onSelectEpisode: (id: string) => void
   extraActions?: ReactNode
-  infoRows: ShellInfoRow[]
   similar?: SimilarAnime[]
   danmaku?: {
     items: DanmakuItem[]
@@ -61,12 +60,12 @@ interface EpisodePlayerShellProps {
 const CHUNK_SIZE = 24
 const AUTOPLAY_KEY = 'ms-autoplay'
 
-/** 共享剧集播放壳：播放器 + 正/倒序选集 + 长篇集数分段 + 自动连播开关 + 侧栏相似推荐。 */
+/** 共享剧集播放壳：简洁面向用户文案（国内线路 1/2、选集正倒序与分段、自动连播、相似推荐）。 */
 export default function EpisodePlayerShell({
   title, current, metaText, backLinkTo, backLinkLabel, notice,
   status, resumeMs, resolving, failed, onProgress, onResolve,
   lines, activeLine, onSelectLine, hasExtra, tab, onSelectTab,
-  episodes, onSelectEpisode, extraActions, infoRows, similar = [], danmaku,
+  episodes, onSelectEpisode, extraActions, similar = [], danmaku,
 }: EpisodePlayerShellProps) {
   const [reverse, setReverse] = useState(false)
   const [autoPlay, setAutoPlay] = useState<boolean>(() => localStorage.getItem(AUTOPLAY_KEY) !== 'off')
@@ -90,7 +89,6 @@ export default function EpisodePlayerShell({
     return out
   }, [ordered, needsChunks])
 
-  // 切集或切换排序时自动定位到包含当前集的分组
   useEffect(() => {
     if (!needsChunks) { setChunkIdx(0); return }
     const pos = ordered.findIndex(e => e.id === current.id)
@@ -133,8 +131,8 @@ export default function EpisodePlayerShell({
               <div className="player-overlay">
                 <div>
                   <div className="player-spinner" />
-                  <div className="big">正在获取视频源</div>
-                  <div className="sub">无头浏览器解析直链中，通常需要 5～15 秒</div>
+                  <div className="big">视频加载中</div>
+                  <div className="sub">首次加载可能需要数秒，请稍候</div>
                 </div>
               </div>
             ) : failed ? (
@@ -142,16 +140,16 @@ export default function EpisodePlayerShell({
                 <div className="player-overlay">
                   <div>
                     <div className="big">登录后播放</div>
-                    <div className="sub">该剧集尚未解析直链，登录后可触发解析并播放</div>
+                    <div className="sub">登录后即可继续观看</div>
                     <Link to="/login" className="pill nav-login-btn" style={{ marginTop: 12, display: 'inline-flex' }}>去登录</Link>
                   </div>
                 </div>
               ) : (
                 <div className="player-overlay">
                   <div>
-                    <div className="big">解析失败</div>
-                    <div className="sub">{status?.errorMessage ?? '未知错误'}</div>
-                    <button style={{ marginTop: 12 }} onClick={onResolve}>重试解析</button>
+                    <div className="big">视频暂时无法播放</div>
+                    <div className="sub">请尝试切换其他线路或点击重试</div>
+                    <button style={{ marginTop: 12 }} onClick={onResolve}>重试</button>
                   </div>
                 </div>
               )
@@ -160,7 +158,7 @@ export default function EpisodePlayerShell({
           <div className="watch-actions">
             <button className="ghost" disabled={!prev} onClick={() => prev && onSelectEpisode(prev.id)}>← 上一集</button>
             <button className="ghost" disabled={!next} onClick={() => next && onSelectEpisode(next.id)}>下一集 →</button>
-            <button className="ghost" onClick={onResolve}>重新解析</button>
+            <button className="ghost" onClick={onResolve}>刷新视频</button>
             {extraActions}
           </div>
         </div>
@@ -168,7 +166,7 @@ export default function EpisodePlayerShell({
         <aside className="watch-side">
           <div className="card">
             <div className="row-between" style={{ marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>选集（{episodes.length}）</h3>
+              <h3 style={{ margin: 0 }}>选集</h3>
               <div className="row-inline" style={{ gap: 6 }}>
                 <label className="autoplay-toggle">
                   <input type="checkbox" checked={autoPlay} onChange={toggleAutoPlay} />
@@ -182,9 +180,9 @@ export default function EpisodePlayerShell({
             </div>
             {lines.length > 0 && (
               <div className="row-inline" style={{ marginBottom: 10 }}>
-                {lines.map(name => (
-                  <button key={name} type="button" className={name === activeLine ? 'mini' : 'mini ghost'}
-                          onClick={() => onSelectLine(name)}>{name}</button>
+                {lines.map(l => (
+                  <button key={l.key} type="button" className={l.key === activeLine ? 'mini' : 'mini ghost'}
+                          onClick={() => onSelectLine(l.key)}>{l.label}</button>
                 ))}
               </div>
             )}
@@ -214,7 +212,7 @@ export default function EpisodePlayerShell({
                   <div className="name">{e.title}</div>
                 </button>
               ))}
-              {shownEpisodes.length === 0 && <p className="muted">该线路此分类暂无剧集</p>}
+              {shownEpisodes.length === 0 && <p className="muted">该线路暂无剧集</p>}
             </div>
           </div>
 
@@ -225,7 +223,7 @@ export default function EpisodePlayerShell({
                 {similar.slice(0, 6).map(item => (
                   <Link key={item.catalogItemId}
                         to={item.workId ? `/works/${item.workId}` : `/catalog/${item.catalogItemId}`}
-                        className="similar-tile" title={`${item.title} · ${item.reason}`}>
+                        className="similar-tile" title={item.title}>
                     <div className="similar-cover">
                       <CoverImage src={item.coverUrl} alt={item.title} />
                       {typeof item.rating === 'number' && item.rating > 0 && (
@@ -238,15 +236,6 @@ export default function EpisodePlayerShell({
               </div>
             </div>
           )}
-
-          <div className="card">
-            <h3>播放信息</h3>
-            <ul className="info-list">
-              {infoRows.map(row => (
-                <li key={row.label}><span className="k">{row.label}</span><span>{row.value}</span></li>
-              ))}
-            </ul>
-          </div>
         </aside>
       </div>
     </main>

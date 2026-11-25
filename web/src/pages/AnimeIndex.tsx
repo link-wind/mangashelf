@@ -153,7 +153,6 @@ export default function AnimeIndex() {
       <div className="section-head">
         <h1>番剧索引</h1>
         <div className="row-inline">
-          <span className="muted tabular-nums">共 {total} 部</span>
           <div className="view-toggle" role="group" aria-label="视图切换">
             <button type="button" className={'mini ' + (viewMode === 'grid' ? '' : 'ghost')}
                     onClick={() => switchView('grid')}>网格</button>
@@ -190,7 +189,7 @@ export default function AnimeIndex() {
             {genres.length > 12 && (
               <button type="button" className="mini ghost"
                       onClick={() => setExpandGenres(v => !v)}>
-                {expandGenres ? '收起' : `更多 (+${genres.length - 12})`}
+                {expandGenres ? '收起' : '更多'}
               </button>
             )}
           </div>
@@ -265,7 +264,6 @@ export default function AnimeIndex() {
                     src={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
                     alt={it.name}
                   />
-                  {it.workId && <span className="badge-tl is-pub">在库</span>}
                 </Link>
                 <div className="index-list-body">
                   <Link to={`/catalog/${it.id}`} className="index-list-title">{it.name}</Link>
@@ -274,18 +272,13 @@ export default function AnimeIndex() {
                     <span>{it.remarks || `${it.episodeCount} 集`}</span>
                   </div>
                   <div className="row-inline" style={{ marginTop: 'auto' }}>
-                    {it.workId
-                      ? <Link className="btn mini ghost" to={`/works/${it.workId}`}>打开作品</Link>
-                      : <>
-                          <button type="button" className="mini" onClick={() => navigate(`/browse/${it.id}`)}>播放</button>
-                          <button type="button" className={'mini ' + (favIds.has(it.id) ? '' : 'ghost')}
-                                  disabled={busyId === it.id}
-                                  onClick={() => void toggleFav(it.id, it.name)}>
-                            {favIds.has(it.id) ? '已收藏' : '收藏'}
-                          </button>
-                          <Link className="btn mini ghost" to={`/catalog/${it.id}`}>详情</Link>
-                        </>
-                    }
+                    <button type="button" className="mini" onClick={() => navigate(it.workId ? `/works/${it.workId}` : `/browse/${it.id}`)}>播放</button>
+                    <button type="button" className={'mini ' + (favIds.has(it.id) ? '' : 'ghost')}
+                            disabled={busyId === it.id}
+                            onClick={() => void toggleFav(it.id, it.name)}>
+                      {favIds.has(it.id) ? '已收藏' : '收藏'}
+                    </button>
+                    <Link className="btn mini ghost" to={`/catalog/${it.id}`}>详情</Link>
                   </div>
                 </div>
               </article>
@@ -305,8 +298,8 @@ export default function AnimeIndex() {
                 coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
                 detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
                 playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
-                topLeft={it.workId ? '在库' : (it.remarks?.includes('完结') ? '已完结' : '连载中')}
-                topLeftVariant={it.workId ? 'pub' : 'dark'}
+                topLeft={it.remarks?.includes('完结') ? '已完结' : '连载中'}
+                topLeftVariant="dark"
                 bottomRight={it.remarks || `${it.episodeCount} 集`}
                 metaLeft={it.categoryName || '番剧'}
                 metaTag={it.episodeCount > 0 ? `${it.episodeCount} 集` : undefined}

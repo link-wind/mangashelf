@@ -6,6 +6,7 @@ import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import { HeartIcon, PlayIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import { formatAnimeLine } from '../lineLabel'
 import { useCatalogFavorites } from '../useCatalogFavorites'
 
 interface CatalogItem {
@@ -183,8 +184,8 @@ export default function CatalogDetail() {
 
       {/* 吸顶分区锚点条 */}
       <div className="detail-anchor-bar">
-        <a href="#overview" className="mini ghost btn">总览介绍</a>
-        <a href="#episodes" className="mini ghost btn">线路与选集（{lineEpisodes.length || item.episodeCount}）</a>
+        <a href="#overview" className="mini ghost btn">简介</a>
+        <a href="#episodes" className="mini ghost btn">选集播放</a>
         {similar.length > 0 && <a href="#similar" className="mini ghost btn">相似推荐</a>}
       </div>
 
@@ -238,17 +239,17 @@ export default function CatalogDetail() {
               <strong className="tabular-nums">{detail.airDate || (detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}` : '—')}</strong>
             </div>
             <div className="detail-kpi">
-              <span className="muted">可用线路</span>
+              <span className="muted">播放线路</span>
               <strong className="tabular-nums">{detail.lines.length || browseLines.length} 条</strong>
             </div>
             <div className="detail-kpi">
-              <span className="muted">资源站名</span>
-              <strong className="clamp" style={{ fontSize: 13 }}>{item.name}</strong>
+              <span className="muted">总集数</span>
+              <strong className="tabular-nums">{item.episodeCount > 0 ? `${item.episodeCount} 集` : '—'}</strong>
             </div>
           </div>
 
           <p className="detail-summary" style={{ marginTop: 14 }}>
-            {detail.summary || '暂未收录详细简介——可直接点击下方「立即播放」或选择任意线路分集观看。'}
+            {detail.summary || '暂无简介，可直接点击下方「立即播放」观看。'}
           </p>
 
           <div className="row-inline" style={{ marginTop: 16 }}>
@@ -263,14 +264,14 @@ export default function CatalogDetail() {
                     onClick={() => void toggleCompleted()}>
               {favStatus === 'COMPLETED' ? '✓ 已看完' : '标记已看完'}
             </button>
-            {item.workId
-              ? <Link className="btn ghost pill" to={`/works/${item.workId}`}>打开已导入作品</Link>
+            {me?.role === 'admin' && (item.workId
+              ? <Link className="btn ghost pill" to={`/works/${item.workId}`}>管理已导入作品</Link>
               : (
                 <button type="button" className="ghost pill" disabled={busy} onClick={() => void materialize()}
-                        title="仅用于编辑或发布：创建作品并收编剧集">
-                  {busy ? '处理中…' : '导入为我的作品'}
+                        title="管理员操作：创建本地作品并关联剧集">
+                  {busy ? '处理中…' : '导入作品'}
                 </button>
-              )}
+              ))}
           </div>
         </div>
       </section>
@@ -278,7 +279,7 @@ export default function CatalogDetail() {
       {/* 内嵌多线路分集选集 */}
       <section id="episodes" className="card" style={{ marginTop: 24, padding: 18, borderRadius: 16 }}>
         <div className="section-head">
-          <h2>线路与选集 <span className="muted tabular-nums" style={{ fontSize: 13, fontWeight: 400 }}>{lineEpisodes.length} 集</span></h2>
+          <h2>选集播放</h2>
           {lineEpisodes.length > 1 && (
             <button type="button" className="mini ghost"
                     onClick={() => { setEpReverse(v => !v); setEpChunk(0) }}>
@@ -288,11 +289,11 @@ export default function CatalogDetail() {
         </div>
         {browseLines.length > 0 && (
           <div className="row-inline" style={{ marginBottom: 12 }}>
-            {browseLines.map(l => (
+            {browseLines.map((l, idx) => (
               <button key={l.name} type="button"
                       className={'mini ' + (l.name === activeLine ? '' : 'ghost')}
                       onClick={() => { setActiveLine(l.name); setEpChunk(0) }}>
-                {l.name}（{l.episodes.length}）
+                {formatAnimeLine(idx)}
               </button>
             ))}
           </div>
@@ -321,7 +322,7 @@ export default function CatalogDetail() {
             ))}
           </div>
         ) : (
-          <p className="muted" style={{ margin: 0 }}>暂未解析出剧集，点击上方「立即播放」尝试加载。</p>
+          <p className="muted" style={{ margin: 0 }}>暂无剧集，点击上方「立即播放」尝试加载。</p>
         )}
       </section>
 

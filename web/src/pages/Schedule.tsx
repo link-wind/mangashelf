@@ -98,7 +98,7 @@ export default function Schedule() {
 
   async function toggleFavorite(it: CalendarEntry) {
     if (!it.catalogItemId) {
-      showToast('该条目暂未收录到站内资源目录', 'info')
+      showToast('该作品暂未上线', 'info')
       return
     }
     if (!me) {
@@ -133,17 +133,6 @@ export default function Schedule() {
     })
   }, [items, filter, favCatalogIds])
 
-  const countByDay = useMemo(() => {
-    const m = new Map<number, number>()
-    for (const d of DAYS) m.set(d.id, 0)
-    for (const it of filteredAll) {
-      if (it.airWeekday && m.has(it.airWeekday)) {
-        m.set(it.airWeekday, (m.get(it.airWeekday) ?? 0) + 1)
-      }
-    }
-    return m
-  }, [filteredAll])
-
   const dayList = useMemo(() => {
     return filteredAll
       .filter(it => (it.airWeekday ?? 0) === activeDay)
@@ -153,7 +142,6 @@ export default function Schedule() {
       })
   }, [filteredAll, activeDay])
 
-  // 两档自适应卡片：当日 Top 2 可播高分番做 144×192 大横卡，其余做双列 96×128 紧凑横卡
   const featured = useMemo(() => {
     const covered = dayList.filter(it => it.covered)
     return (covered.length > 0 ? covered : dayList).slice(0, Math.min(2, dayList.length))
@@ -174,33 +162,14 @@ export default function Schedule() {
       .sort((a, b) => (a.airWeekday ?? 9) - (b.airWeekday ?? 9))
   }, [items, favCatalogIds])
 
-  const todayCount = items.filter(it => it.airWeekday === today).length
-  const coveredTotal = items.filter(it => it.covered).length
-
   return (
     <main className="watch-page">
-      {/* 顶部态势头 + 3 KPI 卡 */}
       <div className="sched-header">
         <div>
-          <span className="sched-eyebrow">BROADCAST SCHEDULE · BANGUMI WEEKLY</span>
           <h1>新番时刻表</h1>
           <p className="muted" style={{ margin: '4px 0 0' }}>
-            按放送星期追踪本季新番，已收录资源 {coveredTotal} / {items.length} 部可直接播放。
+            按放送星期追踪本季新番更新。
           </p>
-        </div>
-        <div className="sched-kpis">
-          <div className="sched-kpi card">
-            <span className="sched-kpi-label">本季排期总数</span>
-            <strong className="sched-kpi-val tabular-nums">{items.length} <small>部</small></strong>
-          </div>
-          <div className="sched-kpi sched-kpi-today card">
-            <span className="sched-kpi-label">今日更新（{weekdayName(today)}）</span>
-            <strong className="sched-kpi-val tabular-nums">{todayCount} <small>部</small></strong>
-          </div>
-          <div className="sched-kpi card">
-            <span className="sched-kpi-label">我的追番排期</span>
-            <strong className="sched-kpi-val tabular-nums">{me ? myWeekly.length : '—'} <small>部</small></strong>
-          </div>
         </div>
       </div>
 
@@ -208,14 +177,14 @@ export default function Schedule() {
       <div className="sched-filter-bar">
         <div className="row-inline" role="group" aria-label="排期筛选">
           <button type="button" className={'mini ' + (filter === 'all' ? '' : 'ghost')}
-                  onClick={() => setFilter('all')}>全部播映</button>
+                  onClick={() => setFilter('all')}>全部</button>
           <button type="button" className={'mini ' + (filter === 'covered' ? '' : 'ghost')}
-                  onClick={() => setFilter('covered')}>仅看可播 · {coveredTotal}</button>
+                  onClick={() => setFilter('covered')}>已上线</button>
           <button type="button" className={'mini ' + (filter === 'following' ? '' : 'ghost')}
                   disabled={!me}
                   title={me ? '只看收藏的本季新番' : '登录后可用'}
                   onClick={() => setFilter('following')}>
-            仅看我的追番{me ? ` · ${myWeekly.length}` : ''}
+            我的追番
           </button>
         </div>
         <Link to="/anime?category=season" className="muted" style={{ fontSize: 13 }}>
@@ -228,7 +197,6 @@ export default function Schedule() {
         {DAYS.map(d => {
           const isToday = d.id === today
           const isActive = d.id === activeDay
-          const count = countByDay.get(d.id) ?? 0
           return (
             <button key={d.id} type="button" role="tab" aria-selected={isActive}
                     className={'sched-day-tab' + (isActive ? ' active' : '') + (isToday ? ' today' : '')}
@@ -237,7 +205,6 @@ export default function Schedule() {
                 <span className="sched-day-zh">{d.zh}</span>
                 <span className="sched-day-en">{isToday ? '今日' : d.en}</span>
               </div>
-              <span className="sched-day-count tabular-nums">{count} 部排期</span>
             </button>
           )
         })}
@@ -260,7 +227,7 @@ export default function Schedule() {
             {dayList.length === 0 ? (
               <div className="card" style={{ padding: 28, textAlign: 'center' }}>
                 <p className="muted" style={{ margin: 0 }}>
-                  {weekdayName(activeDay)}在当前筛选下暂无排期——可切换其他星期或点「全部播映」。
+                  {weekdayName(activeDay)}在当前筛选下暂无更新——可切换其他星期或点「全部」。
                 </p>
               </div>
             ) : (
@@ -268,8 +235,7 @@ export default function Schedule() {
                 {featured.length > 0 && (
                   <section className="sched-group">
                     <div className="sched-group-head">
-                      <h2>{weekdayName(activeDay)}焦点排期</h2>
-                      <span className="sched-count-pill tabular-nums">{featured.length} 部精选</span>
+                      <h2>{weekdayName(activeDay)}精选</h2>
                     </div>
                     <div className="sched-featured-list">
                       {featured.map(it => {
@@ -281,7 +247,7 @@ export default function Schedule() {
                               <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
                                           alt={it.nameCn || it.name} loading="eager" />
                               <span className={'badge-tl ' + (it.covered ? 'is-pub' : '')}>
-                                {it.covered ? '可播' : '未收录'}
+                                {it.covered ? '连载中' : '待更新'}
                               </span>
                               {typeof it.rating === 'number' && it.rating > 0 && (
                                 <span className="badge-bl badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
@@ -301,12 +267,12 @@ export default function Schedule() {
                                 <p className="sched-card-sub muted">{it.name}</p>
                               )}
                               <p className="sched-card-desc">
-                                {it.summary || '暂未录入简介，点击详情可查看线路与分集信息。'}
+                                {it.summary || '暂无简介，点击详情查看更多信息。'}
                               </p>
                               <div className="sched-card-actions">
                                 <button type="button" className="pill mini" onClick={() => play(it)}>
                                   <PlayIcon size={13} />
-                                  {it.covered ? (it.workId ? '打开播放' : '立即播放') : '去番剧库找'}
+                                  {it.covered ? '立即播放' : '查看详情'}
                                 </button>
                                 {it.catalogItemId && (
                                   <button type="button" className={'pill mini ' + (isFav ? '' : 'ghost')}
@@ -331,8 +297,7 @@ export default function Schedule() {
                 {compactList.length > 0 && (
                   <section className="sched-group">
                     <div className="sched-group-head">
-                      <h2>{weekdayName(activeDay)}更多播映</h2>
-                      <span className="sched-count-pill tabular-nums">{compactList.length} 部排期</span>
+                      <h2>更多更新</h2>
                     </div>
                     <div className="sched-compact-grid">
                       {compactList.map(it => (
@@ -348,7 +313,7 @@ export default function Schedule() {
                           <div className="sched-card-body">
                             <div className="sched-card-tags">
                               <span className={'tag ' + (it.covered ? 'pub' : 'priv')}>
-                                {it.covered ? (it.remarks || '可播') : '未收录'}
+                                {it.covered ? (it.remarks || '连载中') : '待更新'}
                               </span>
                             </div>
                             <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'}
@@ -357,7 +322,7 @@ export default function Schedule() {
                             </Link>
                             <div className="sched-card-actions" style={{ marginTop: 'auto' }}>
                               <button type="button" className="mini" onClick={() => play(it)}>
-                                {it.covered ? '立即播放' : '搜索资源'}
+                                {it.covered ? '立即播放' : '查看详情'}
                               </button>
                               {it.catalogItemId && (
                                 <Link to={`/catalog/${it.catalogItemId}`} className="btn ghost mini">详情</Link>
@@ -379,7 +344,7 @@ export default function Schedule() {
               <section className="card sched-side-card">
                 <div className="sched-side-head">
                   <h3>本周重磅雷达</h3>
-                  <span className="muted">高分可播</span>
+                  <span className="muted">本周精选</span>
                 </div>
                 <ol className="sched-radar-list">
                   {topPicks.map((it, idx) => (
@@ -440,22 +405,21 @@ export default function Schedule() {
             {/* 追番日历 .ics 订阅 */}
             <section className="card sched-side-card">
               <div className="sched-side-head">
-                <h3>追番日历订阅 (.ics)</h3>
-                <span className="muted">UTC+8</span>
+                <h3>追番日历订阅</h3>
               </div>
               <p className="muted" style={{ margin: '0 0 12px', fontSize: 12.5 }}>
-                标准 RFC 5545 周循环日历，可直接导入 Apple 日历、Google 日历或 Outlook。
+                导出周历文件，可导入 Apple 日历、Google 日历或 Outlook。
               </p>
               <div className="sched-ics-actions">
                 <a className="btn mini" href={me && myWeekly.length > 0 ? '/api/v1/calendar/ics?onlyMine=true' : '/api/v1/calendar/ics?coveredOnly=true'}
                    download="mangashelf-schedule.ics">
-                  {me && myWeekly.length > 0 ? '下载我的追番 .ics' : '下载可播新番 .ics'}
+                  {me && myWeekly.length > 0 ? '下载我的追番日历' : '下载本季日历'}
                 </a>
                 <button type="button" className="mini ghost" onClick={() => {
                   const path = me && myWeekly.length > 0 ? '/api/v1/calendar/ics?onlyMine=true' : '/api/v1/calendar/ics?coveredOnly=true'
                   const full = `${window.location.origin}${path}`
                   void navigator.clipboard?.writeText(full)
-                    .then(() => showToast('已复制 .ics 订阅链接', 'success'))
+                    .then(() => showToast('已复制日历订阅链接', 'success'))
                     .catch(() => showToast(full, 'info'))
                 }}>
                   复制订阅地址

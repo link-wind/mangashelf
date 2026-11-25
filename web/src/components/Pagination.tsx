@@ -11,7 +11,7 @@ interface PaginationProps {
 
 /** 通用页码分页组件：上一页/下一页、省略号页码、总数统计与页码直达跳转。 */
 export default function Pagination({
-  page, totalPages, total, unit = '部', loading = false, onChange,
+  page, totalPages, total, loading = false, onChange,
 }: PaginationProps) {
   const [jumpInput, setJumpInput] = useState('')
 
@@ -37,7 +37,7 @@ export default function Pagination({
   return (
     <nav className="pagination-bar" aria-label="分页导航">
       <span className="pagination-summary muted tabular-nums">
-        共 {total} {unit} · 第 {page} / {totalPages} 页
+        第 {page} / {totalPages} 页
       </span>
       {totalPages > 1 && (
         <div className="pagination-controls">

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import ExternalEpisodes from './ExternalEpisodes'
 import { api, ApiError } from '../api'
 import CoverImage from '../components/CoverImage'
+import { formatAnimeLine } from '../lineLabel'
 
 interface Chapter {
   id: string
@@ -108,7 +109,7 @@ export default function WorkDetail() {
             <div className="watch-meta" style={{ margin: '4px 0 8px' }}>
               {typeof meta.rating === 'number' && meta.rating > 0 && <span className="star">★ {meta.rating.toFixed(1)}</span>}
               {meta.airWeekday && <span>{['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][meta.airWeekday]}放送</span>}
-              {meta.lines.length > 0 && <span>线路：{meta.lines.join(' / ')}</span>}
+              {meta.lines.length > 0 && <span>线路：{meta.lines.map((_, i) => formatAnimeLine(i)).join(' / ')}</span>}
             </div>
             {meta.summary && <p className="detail-summary">{meta.summary}</p>}
           </div>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import EpisodePlayerShell, { type SimilarAnime } from '../components/EpisodePlayerShell'
 import { useToast } from '../components/Toast'
+import { formatAnimeLine } from '../lineLabel'
 import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BrowseEpisode {
@@ -15,7 +16,7 @@ interface Item {
 }
 interface BrowseEpisodes { item: Item; lines: BrowseLine[] }
 
-/** 浏览态播放（M20）：复用 EpisodePlayerShell，进度按目录条目 + 集号保存。 */
+/** 剧集播放页：使用友好的「国内线路 1/2」展示，不暴露底层线路代号与调试卡片。 */
 export default function BrowseWatch() {
   const { itemId, episodeId } = useParams()
   const navigate = useNavigate()
@@ -90,6 +91,8 @@ export default function BrowseWatch() {
   }
 
   const lines = data?.lines ?? []
+  const displayLines = lines.map((l, idx) => ({ key: l.name, label: formatAnimeLine(idx) }))
+  const activeLineLabel = displayLines.find(l => l.key === line)?.label ?? '国内线路 1'
   const episodes = (lines.find(l => l.name === line)?.episodes ?? [])
     .filter(e => e.episodeType === tab)
     .sort((a, b) => a.ordinal - b.ordinal)
@@ -103,7 +106,7 @@ export default function BrowseWatch() {
     <EpisodePlayerShell
       title={data.item.name}
       current={current}
-      metaText={`浏览模式（${favorited ? '已收藏' : '未收藏'}）· 共 ${episodes.length} 集 · 线路 ${line}`}
+      metaText={`共 ${episodes.length} 集 · ${activeLineLabel}`}
       backLinkTo={`/catalog/${itemId}`}
       backLinkLabel="作品详情"
       notice={notice}
@@ -113,7 +116,7 @@ export default function BrowseWatch() {
       failed={failed}
       onProgress={saveProgress}
       onResolve={() => void resolve(current.id)}
-      lines={lines.map(l => l.name)}
+      lines={displayLines}
       activeLine={line}
       onSelectLine={target => {
         setLine(target)
@@ -133,12 +136,6 @@ export default function BrowseWatch() {
           {favorited ? '取消收藏' : '收藏'}
         </button>
       }
-      infoRows={[
-        { label: '模式', value: `浏览（${favorited ? '已收藏' : '未收藏'}）` },
-        { label: '线路', value: line },
-        { label: '解析状态', value: status?.playUrl ? '已就绪' : failed ? '失败' : '解析中…' },
-        { label: '进度', value: '服务端保存' },
-      ]}
     />
   )
 }

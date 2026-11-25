@@ -435,7 +435,7 @@ public class RecommendationService {
         } else if (c.inCalendar() && c.rating() != null && c.rating() >= 7.5) {
             reason = String.format(Locale.ROOT, "本季高分 %.1f", c.rating());
         } else if (c.inCalendar()) {
-            reason = "本季热门可播";
+            reason = "本季热门";
         } else if (c.rating() != null && c.rating() >= 7.5) {
             reason = String.format(Locale.ROOT, "口碑佳作 %.1f", c.rating());
         } else {
@@ -683,12 +683,12 @@ public class RecommendationService {
         String reason;
         if (!matched.isEmpty()) {
             reason = "常看 " + String.join("·", matched.subList(0, Math.min(2, matched.size())));
-        } else if (c.sourceCount() > 1 && c.readable()) {
-            reason = c.sourceCount() + " 源热推 · 站内可读";
+        } else if (c.sourceCount() > 1) {
+            reason = "人气热推";
         } else if (c.readable()) {
-            reason = c.sourceName() + " · 站内可读";
+            reason = "编辑精选";
         } else {
-            reason = c.sourceName() + " 热门";
+            reason = "近期热门";
         }
 
         return new MangaRecItem(c.source(), c.sourceName(), c.id(), c.title(), c.coverUrl(),

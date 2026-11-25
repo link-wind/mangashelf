@@ -136,7 +136,7 @@ function Nav() {
         <form className="nav-search" onSubmit={submit}>
           <span className="nav-search-icon"><SearchIcon size={15} /></span>
           <input value={kw} onChange={e => setKw(e.target.value)}
-                 placeholder="搜索番剧、全流漫画、对白…" aria-label="全站搜索" />
+                 placeholder="搜索番剧、漫画…" aria-label="全站搜索" />
           {kw && (
             <button type="button" className="nav-search-clear" aria-label="清空搜索词"
                     onClick={() => setKw('')}>
@@ -303,7 +303,7 @@ function Footer() {
       <div className="footer-inner">
         <div className="footer-col footer-brand">
           <span className="brand">MangaShelf</span>
-          <p className="muted">个人自托管 · 动画与漫画空间 · 视频由浏览器直连来源</p>
+          <p className="muted">私人动画与漫画空间 · 简洁无广告</p>
         </div>
         <div className="footer-col">
           <h3>发现内容</h3>

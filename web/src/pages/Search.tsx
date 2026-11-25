@@ -18,9 +18,6 @@ interface UnifiedMangaHit {
   workId: string | null; readable: boolean; remarks: string
   sourceCount: number; streams: StreamEntry[]
 }
-interface SourceStatus {
-  source: string; name: string; count: number; ok: boolean; error: string | null; durationMs: number
-}
 
 interface Hit {
   kind: 'work' | 'page'
@@ -41,14 +38,13 @@ function mangaHref(source: string, id: string, title: string, workId?: string | 
   return `/manga-ext/${id}?${new URLSearchParams({ lang: 'all', source, title })}`
 }
 
-/** 全局搜索页：并行检索番剧目录、全流漫画聚合（在线源+目录库+本地）与站内标题/对白；显式展示各流状态与错误。 */
+/** 全局搜索页：并行检索番剧、漫画与站内作品/台词。 */
 export default function Search() {
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState(params.get('q') ?? '')
   const [hits, setHits] = useState<Hit[]>([])
   const [catalog, setCatalog] = useState<CatalogHit[]>([])
   const [mangaHits, setMangaHits] = useState<UnifiedMangaHit[]>([])
-  const [mangaStatus, setMangaStatus] = useState<SourceStatus[]>([])
   const [tab, setTab] = useState<FilterTab>('all')
   const [semanticEnabled, setSemanticEnabled] = useState(false)
   const [semantic, setSemantic] = useState(false)
@@ -60,7 +56,7 @@ export default function Search() {
   const run = useCallback(async (query: string) => {
     const trimmed = query.trim()
     if (!trimmed) {
-      setHits([]); setCatalog([]); setMangaHits([]); setMangaStatus([]); setSearched(false); setErrors([])
+      setHits([]); setCatalog([]); setMangaHits([]); setSearched(false); setErrors([])
       return
     }
     setLoading(true)
@@ -87,18 +83,16 @@ export default function Search() {
       setCatalog(r.items)
     }).catch(e => {
       setCatalog([])
-      nextErrors.push(`番剧目录检索失败：${e instanceof Error ? e.message : '未知错误'}`)
+      nextErrors.push(`番剧检索失败：${e instanceof Error ? e.message : '未知错误'}`)
     })
 
-    const mangaPromise = api.get<{ items: UnifiedMangaHit[]; sourceStatus: SourceStatus[] }>(
+    const mangaPromise = api.get<{ items: UnifiedMangaHit[] }>(
       `/api/v1/manga-discovery/search?q=${encodeURIComponent(trimmed)}&source=all&limit=24`
     ).then(r => {
       setMangaHits(r.items ?? [])
-      setMangaStatus(r.sourceStatus ?? [])
     }).catch(e => {
       setMangaHits([])
-      setMangaStatus([])
-      nextErrors.push(`全流漫画检索失败：${e instanceof Error ? e.message : '未知错误'}`)
+      nextErrors.push(`漫画检索失败：${e instanceof Error ? e.message : '未知错误'}`)
     })
 
     await Promise.all([localPromise, animePromise, mangaPromise])
@@ -131,55 +125,44 @@ export default function Search() {
     <main className="page">
       <h1 style={{ margin: '0 0 8px' }}>全站搜索</h1>
       <div className="search-bar">
-        <input className="search search-input-lg" placeholder="搜索番剧、全流漫画或站内对白…"
+        <input className="search search-input-lg" placeholder="搜索番剧、漫画或台词…"
                value={q} onChange={e => setQ(e.target.value)} autoFocus />
         <label className="scope-item">
           <input type="checkbox" checked={hasAnimation} onChange={e => setHasAnimation(e.target.checked)} />
-          站内只看有动画
+          仅看有动画
         </label>
         {semanticEnabled && (
           <label className="scope-item">
             <input type="checkbox" checked={semantic} onChange={e => setSemantic(e.target.checked)} />
-            语义检索（较慢）
+            语义搜索
           </label>
         )}
       </div>
 
       {errors.map((err, i) => <p key={i} className="error" style={{ margin: '4px 0' }}>{err}</p>)}
 
-      {mangaStatus.length > 0 && (
-        <div className="stream-status-bar">
-          {mangaStatus.map(st => (
-            <span key={st.source} className={'stream-pill ' + (st.ok ? 'ok' : 'warn')}
-                  title={st.error ?? `${st.durationMs} ms`}>
-              {st.name}：{st.ok ? `${st.count} 条` : (st.error ?? '失败')}
-            </span>
-          ))}
-        </div>
-      )}
-
       {searched && totalCount > 0 && (
         <div className="search-tabs" role="tablist" aria-label="结果分类">
           <button type="button" className={'mini ' + (tab === 'all' ? '' : 'ghost')} onClick={() => setTab('all')}>
-            全部 · {totalCount}
+            全部
           </button>
           <button type="button" className={'mini ' + (tab === 'anime' ? '' : 'ghost')} onClick={() => setTab('anime')}>
-            番剧 · {catalog.length}
+            番剧
           </button>
           <button type="button" className={'mini ' + (tab === 'manga' ? '' : 'ghost')} onClick={() => setTab('manga')}>
-            全流漫画 · {mangaHits.length}
+            漫画
           </button>
           <button type="button" className={'mini ' + (tab === 'local' ? '' : 'ghost')} onClick={() => setTab('local')}>
-            站内内容 · {hits.length}
+            站内内容
           </button>
         </div>
       )}
 
-      {loading && <p className="muted">正在并发搜索番剧与全部漫画流…</p>}
+      {loading && <p className="muted">搜索中…</p>}
 
       {showAnime && (
         <section className="search-section">
-          <h2>番剧（{catalog.length}）</h2>
+          <h2>番剧</h2>
           <div className="card-grid">
             {catalog.map(c => (
               <Link key={c.id} to={`/catalog/${c.id}`} className="work-card">
@@ -188,7 +171,6 @@ export default function Search() {
                     src={c.bangumiSubjectId ? `/api/v1/bangumi-covers/${c.bangumiSubjectId}?size=large` : c.coverUrl}
                     alt={c.name}
                   />
-                  {c.workId && <span className="badge-anim" style={{ background: 'var(--pub)' }}>在库</span>}
                 </div>
                 <div className="work-card-body">
                   <div className="work-card-title clamp">{c.name}</div>
@@ -202,40 +184,22 @@ export default function Search() {
 
       {showManga && (
         <section className="search-section">
-          <h2>全流漫画（{mangaHits.length}）</h2>
+          <h2>漫画</h2>
           <div className="card-grid">
             {mangaHits.map(m => {
               const href = mangaHref(m.primarySource, m.primaryId, m.title, m.workId)
               return (
-                <div key={`${m.primarySource}:${m.primaryId}`} className="work-card">
-                  <Link to={href} className="cover">
+                <Link key={`${m.primarySource}:${m.primaryId}`} to={href} className="work-card">
+                  <div className="cover">
                     <CoverImage src={m.coverUrl} alt={m.title} />
-                    {m.sourceCount > 1
-                      ? <span className="badge-anim">{m.sourceCount} 流可用</span>
-                      : <span className="badge-anim" style={m.workId ? { background: 'var(--pub)' } : undefined}>
-                          {m.primarySourceName}
-                        </span>}
-                  </Link>
-                  <div className="work-card-body">
-                    <Link to={href} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>
-                      {m.title}
-                    </Link>
-                    <div className="work-card-meta">
-                      <span className="clamp">{m.remarks || m.altTitle || m.primarySourceName}</span>
-                    </div>
-                    {m.streams.length > 1 && (
-                      <div className="stream-switch-row">
-                        {m.streams.map(st => (
-                          <Link key={`${st.source}:${st.id}`}
-                                to={mangaHref(st.source, st.id, m.title, st.workId)}
-                                className="stream-chip">
-                            {st.sourceName}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                </div>
+                  <div className="work-card-body">
+                    <div className="work-card-title clamp">{m.title}</div>
+                    <div className="work-card-meta">
+                      <span className="clamp">{m.remarks || m.altTitle || '漫画'}</span>
+                    </div>
+                  </div>
+                </Link>
               )
             })}
           </div>
@@ -244,7 +208,7 @@ export default function Search() {
 
       {showLocal && (
         <section className="search-section">
-          <h2>站内作品与对白（{hits.length}）</h2>
+          <h2>站内作品与台词</h2>
           <div className="stack">
             {hits.map((h, i) => (
               <div key={i} className="card">

@@ -22,7 +22,7 @@ export function useCatalogFavorites() {
 
   const toggle = useCallback(async (catalogItemId: string | null | undefined, title: string) => {
     if (!catalogItemId) {
-      showToast('该条目暂未收录到站内资源目录', 'info')
+      showToast('该作品暂未上线', 'info')
       return
     }
     if (!me) {

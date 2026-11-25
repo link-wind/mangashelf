@@ -301,7 +301,7 @@ export default function Home() {
                         {it.nameCn || it.name}
                       </Link>
                       <span className="muted">
-                        {it.airWeekday ? WEEKDAYS[it.airWeekday] : '本季'} · {it.remarks || (it.covered ? '可看' : '未收录')}
+                        {it.airWeekday ? WEEKDAYS[it.airWeekday] : '本季'} · {it.remarks || (it.covered ? '连载中' : '待更新')}
                       </span>
                     </div>
                     {typeof it.rating === 'number' && (
@@ -378,7 +378,7 @@ export default function Home() {
           <Link to="/anime" className="muted">全部番剧 →</Link>
         </div>
         {updates.length === 0
-          ? <p className="muted">目录为空——在设置页触发一次目录同步。</p>
+          ? <p className="muted">暂无更新内容。</p>
           : <div className="card-grid">
               {updates.map(it => (
                 <AnimePosterCard
@@ -387,8 +387,8 @@ export default function Home() {
                   coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
                   detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
                   playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
-                  topLeft={it.workId ? '在库' : (it.remarks?.includes('完结') ? '已完结' : '连载中')}
-                  topLeftVariant={it.workId ? 'pub' : 'dark'}
+                  topLeft={it.remarks?.includes('完结') ? '已完结' : '连载中'}
+                  topLeftVariant="dark"
                   bottomRight={it.remarks || `${it.episodeCount} 集`}
                   metaLeft={it.categoryName || '番剧'}
                   metaTag={it.episodeCount > 0 ? `${it.episodeCount} 集` : undefined}
@@ -413,7 +413,6 @@ export default function Home() {
           {genres.slice(0, 16).map(g => (
             <Link key={g.tag} to={`/anime?genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
               <span>{g.tag}</span>
-              {g.items > 0 && <span className="explore-tag-cnt tabular-nums">{g.items}</span>}
             </Link>
           ))}
         </div>
@@ -448,7 +447,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
 
   async function subscribe(it: CalendarEntry) {
     if (!it.catalogItemId) {
-      showToast('该条目暂未收录到资源目录', 'info')
+      showToast('该作品暂未上线', 'info')
       return
     }
     setBusy(it.catalogItemId)
@@ -464,7 +463,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
       <section className="hero">
         <div>
           <h1>MangaShelf</h1>
-          <p className="muted">追动画、读漫画、全流检索——你的个人影音漫画空间。</p>
+          <p className="muted">追动画、读漫画，简洁无广告的私人影音漫画空间。</p>
         </div>
         <div className="hero-search">
           <Link to="/anime" className="btn ghost pill">番剧索引 →</Link>
@@ -549,12 +548,7 @@ function WeeklyPreview({ items, favIds, busyId, onToggleFav }: {
   return (
     <section style={{ marginTop: 30 }}>
       <div className="section-head">
-        <h2>
-          新番时刻表{' '}
-          <span className="muted tabular-nums" style={{ fontSize: 13, fontWeight: 400 }}>
-            {WEEKDAYS[day]}放送 {list.length} 部
-          </span>
-        </h2>
+        <h2>新番时刻表</h2>
         <div className="row-inline">
           {[1, 2, 3, 4, 5, 6, 7].map(d => (
             <button type="button" key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
@@ -576,12 +570,12 @@ function WeeklyPreview({ items, favIds, busyId, onToggleFav }: {
               coverUrl={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
               detailHref={detailHref}
               playHref={playHref}
-              topLeft={it.covered ? '可看' : WEEKDAYS[day]}
-              topLeftVariant={it.covered ? 'pub' : 'dark'}
+              topLeft={WEEKDAYS[day]}
+              topLeftVariant="dark"
               rating={it.rating}
               bottomRight={it.remarks || (it.episodeCount ? `更新至 ${it.episodeCount} 集` : null)}
               metaLeft={it.categoryName || WEEKDAYS[day]}
-              metaTag={it.covered ? '站内可播' : '未收录'}
+              metaTag={it.covered ? '连载中' : '待更新'}
               canFavorite={Boolean(it.catalogItemId)}
               favorited={Boolean(it.catalogItemId && favIds.has(it.catalogItemId))}
               busy={busyId === it.catalogItemId}

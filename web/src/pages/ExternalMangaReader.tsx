@@ -591,7 +591,7 @@ export default function ExternalMangaReader() {
       <div className="reader-full">
         <div className="reader-full-inner muted">
           {source === 'bilibili' ? '正在确认哔哩章节页数…'
-            : slowSource ? '解析中…（浏览器源首次打开约需 5–15 秒，之后走缓存）' : '加载中…'}
+            : slowSource ? '章节加载中，请稍候…' : '加载中…'}
         </div>
       </div>
     )

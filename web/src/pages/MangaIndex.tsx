@@ -12,10 +12,6 @@ interface MangaCard {
   coverUrl: string | null; updatedAt: string
 }
 
-interface SourceInfo {
-  id: string; name: string; language: string; capabilities: string[]; genres: string[]; note: string
-}
-
 interface RankItem {
   source: string; id: string; title: string; authors: string[]; coverUrl: string | null
   finished: boolean; latestLabel: string; readable: boolean; externalUrl: string | null
@@ -41,11 +37,8 @@ interface UnifiedSearchItem {
   workId: string | null; readable: boolean; remarks: string
   sourceCount: number; streams: StreamEntry[]
 }
-interface SourceStatus {
-  source: string; name: string; count: number; ok: boolean; error: string | null; durationMs: number
-}
 interface UnifiedSearchResult {
-  query: string; items: UnifiedSearchItem[]; sourceStatus: SourceStatus[]
+  query: string; items: UnifiedSearchItem[]
 }
 
 interface MangaRecItem {
@@ -75,13 +68,12 @@ interface CatalogPage {
 }
 interface GenreTag { tag: string; items: number }
 
-const SOURCE_KEY = 'ms-manga-source'
-const ALL = 'all'
+const CACHE_KEY = 'ms-manga-cache:all'
 const CACHE_TTL_MS = 10 * 60 * 1000
 const INDEX_PAGE_SIZE = 28
 const MANGA_VIEW_KEY = 'ms-index-view'
 
-interface SectionCache { ts: number; sections: SourceSection[]; warnings: string[] }
+interface SectionCache { ts: number; sections: SourceSection[] }
 
 function readCache(key: string): SectionCache | null {
   try {
@@ -93,9 +85,9 @@ function readCache(key: string): SectionCache | null {
   } catch { return null }
 }
 
-function writeCache(key: string, sections: SourceSection[], warnings: string[]) {
+function writeCache(key: string, sections: SourceSection[]) {
   try {
-    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), sections, warnings }))
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), sections }))
   } catch { /* 超配额时忽略 */ }
 }
 
@@ -104,27 +96,15 @@ function mangaLink(source: string, id: string, title: string, workId?: string | 
   return `/manga-ext/${id}?${new URLSearchParams({ lang: 'all', source, title })}`
 }
 
-/**
- * 漫画专区（双 Tab + 全流搜索）：
- * - 顶部统一全流漫画搜索（并发检索全部在线源 + 目录库 + 本地书库，跨流去重可切流）；
- * - Tab 1「发现推荐」：精选 Hero + 继续阅读 + 为你推荐（可换一批）+ 多源融合榜单 + 本地漫画；
- * - Tab 2「分类索引」：来源流 / 题材 / 状态 / 排序 + 页码分页，参数双向同步 URL。
- */
+/** 漫画专区：发现推荐、分类索引与漫画搜索。 */
 export default function MangaIndex() {
   const [params, setParams] = useSearchParams()
   const rawTab = params.get('tab')
   const tab: 'discover' | 'index' = rawTab === 'index' ? 'index' : 'discover'
   const activeSearch = params.get('q') ?? ''
   const [searchInput, setSearchInput] = useState(activeSearch)
-  const [allSources, setAllSources] = useState<SourceInfo[]>([])
 
   useEffect(() => { setSearchInput(activeSearch) }, [activeSearch])
-
-  useEffect(() => {
-    void api.get<SourceInfo[]>('/api/v1/manga-sources')
-      .then(list => setAllSources(list.filter(s => s.language === 'zh')))
-      .catch(() => { /* 源列表加载失败不影响本地内容 */ })
-  }, [])
 
   function switchTab(nextTab: 'discover' | 'index') {
     const next = new URLSearchParams()
@@ -174,9 +154,9 @@ export default function MangaIndex() {
         <form className="manga-search-form" onSubmit={e => { e.preventDefault(); submitSearch() }}>
           <input className="search" value={searchInput}
                  onChange={e => setSearchInput(e.target.value)}
-                 placeholder="搜索全流漫画（腾讯 / 包子 / 哔哩 / 本地）…"
-                 aria-label="全流漫画搜索" />
-          <button type="submit" className="mini">全流搜索</button>
+                 placeholder="搜索漫画…"
+                 aria-label="搜索漫画" />
+          <button type="submit" className="mini">搜索</button>
           {activeSearch && (
             <button type="button" className="mini ghost" onClick={clearSearch}>清除</button>
           )}
@@ -184,12 +164,12 @@ export default function MangaIndex() {
       </div>
 
       {activeSearch ? (
-        <AllStreamSearchView query={activeSearch} onClear={clearSearch} />
+        <MangaSearchView query={activeSearch} onClear={clearSearch} />
       ) : tab === 'index' ? (
-        <MangaCatalogIndex sources={allSources} />
+        <MangaCatalogIndex />
       ) : (
         <>
-          <MangaDiscovery sources={allSources.filter(s => s.capabilities.includes('RANK'))} />
+          <MangaDiscovery />
           <LocalManga />
         </>
       )}
@@ -197,10 +177,8 @@ export default function MangaIndex() {
   )
 }
 
-/** 全流漫画搜索结果视图：并发覆盖全部在线搜索源 + 目录库 + 本地漫画，跨流去重与切流。 */
-function AllStreamSearchView({ query, onClear }: { query: string; onClear: () => void }) {
-  const [params, setParams] = useSearchParams()
-  const streamFilter = params.get('stream') ?? 'all'
+/** 漫画搜索结果视图。 */
+function MangaSearchView({ query, onClear }: { query: string; onClear: () => void }) {
   const [result, setResult] = useState<UnifiedSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -214,7 +192,7 @@ function AllStreamSearchView({ query, onClear }: { query: string; onClear: () =>
         const data = await api.get<UnifiedSearchResult>(`/api/v1/manga-discovery/search?${qs}`)
         if (!cancelled) setResult(data)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '全流搜索失败')
+        if (!cancelled) setError(e instanceof Error ? e.message : '搜索失败')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -222,62 +200,17 @@ function AllStreamSearchView({ query, onClear }: { query: string; onClear: () =>
     return () => { cancelled = true }
   }, [query])
 
-  function setStream(src: string) {
-    const next = new URLSearchParams(params)
-    if (src === 'all') next.delete('stream')
-    else next.set('stream', src)
-    setParams(next, { replace: true })
-  }
-
-  const allItems = result?.items ?? []
-  const streamCounts = useMemo(() => {
-    const map = new Map<string, { name: string; count: number }>()
-    for (const item of allItems) {
-      for (const st of item.streams) {
-        const cur = map.get(st.source)
-        map.set(st.source, { name: st.sourceName, count: (cur?.count ?? 0) + 1 })
-      }
-    }
-    return [...map.entries()]
-  }, [allItems])
-
-  const shown = streamFilter === 'all'
-    ? allItems
-    : allItems.filter(it => it.streams.some(s => s.source === streamFilter))
+  const shown = result?.items ?? []
 
   return (
     <section style={{ marginTop: 18 }}>
       <div className="section-head">
-        <h2>全流搜索：「{query}」<span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
-          {loading ? '正在并发检索各流…' : `去重后 ${shown.length} 部`}
-        </span></h2>
+        <h2>
+          搜索结果：「{query}」
+          {loading && <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>搜索中…</span>}
+        </h2>
         <button type="button" className="mini ghost" onClick={onClear}>返回漫画页</button>
       </div>
-
-      {result && result.sourceStatus.length > 0 && (
-        <div className="stream-status-bar">
-          {result.sourceStatus.map(st => (
-            <span key={st.source} className={'stream-pill ' + (st.ok ? 'ok' : 'warn')}
-                  title={st.error ?? `${st.durationMs} ms`}>
-              {st.name}：{st.ok ? `${st.count} 条` : (st.error ?? '失败')}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {streamCounts.length > 1 && (
-        <div className="row-inline" style={{ marginBottom: 14 }}>
-          <button type="button" className={'mini ' + (streamFilter === 'all' ? '' : 'ghost')}
-                  onClick={() => setStream('all')}>全部流 · {allItems.length}</button>
-          {streamCounts.map(([src, info]) => (
-            <button key={src} type="button"
-                    className={'mini ' + (streamFilter === src ? '' : 'ghost')}
-                    onClick={() => setStream(src)}>
-              {info.name} · {info.count}
-            </button>
-          ))}
-        </div>
-      )}
 
       {error && <p className="error">{error}</p>}
       {loading && (
@@ -293,46 +226,26 @@ function AllStreamSearchView({ query, onClear }: { query: string; onClear: () =>
       )}
 
       {!loading && shown.length === 0 && !error && (
-        <p className="muted">所有可用流均未找到「{query}」相关漫画，可以尝试换个简短关键词。</p>
+        <p className="muted">未找到「{query}」相关漫画，可以尝试换个关键词。</p>
       )}
 
       {!loading && shown.length > 0 && (
         <div className="card-grid">
           {shown.map(item => {
-            const activeStream = streamFilter === 'all'
-              ? item.streams.find(s => s.source === item.primarySource) ?? item.streams[0]
-              : item.streams.find(s => s.source === streamFilter) ?? item.streams[0]
+            const activeStream = item.streams.find(s => s.source === item.primarySource) ?? item.streams[0]
             const primaryHref = mangaLink(activeStream.source, activeStream.id, item.title, activeStream.workId)
             return (
-              <div key={`${item.primarySource}:${item.primaryId}`} className="work-card">
-                <Link to={primaryHref} className="cover">
+              <Link key={`${item.primarySource}:${item.primaryId}`} to={primaryHref} className="work-card">
+                <div className="cover">
                   <CoverImage src={item.coverUrl} alt={item.title} />
-                  {item.sourceCount > 1
-                    ? <span className="badge-anim">{item.sourceCount} 流可用</span>
-                    : <span className="badge-anim" style={item.workId ? { background: 'var(--pub)' } : undefined}>
-                        {activeStream.sourceName}
-                      </span>}
-                </Link>
-                <div className="work-card-body">
-                  <Link to={primaryHref} className="work-card-title clamp" style={{ color: 'inherit', textDecoration: 'none' }}>
-                    {item.title}
-                  </Link>
-                  <div className="work-card-meta">
-                    <span className="clamp">{item.remarks || item.altTitle || activeStream.sourceName}</span>
-                  </div>
-                  {item.streams.length > 1 && (
-                    <div className="stream-switch-row">
-                      {item.streams.map(st => (
-                        <Link key={`${st.source}:${st.id}`}
-                              to={mangaLink(st.source, st.id, item.title, st.workId)}
-                              className="stream-chip">
-                          {st.sourceName}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
+                <div className="work-card-body">
+                  <div className="work-card-title clamp">{item.title}</div>
+                  <div className="work-card-meta">
+                    <span className="clamp">{item.remarks || item.altTitle || '漫画'}</span>
+                  </div>
+                </div>
+              </Link>
             )
           })}
         </div>
@@ -341,25 +254,19 @@ function AllStreamSearchView({ query, onClear }: { query: string; onClear: () =>
   )
 }
 
-/** Tab 1 · 发现推荐：精选 Hero + 继续阅读 + 为你推荐（可换一批）+ 多源融合榜单。 */
-function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
+/** Tab 1 · 发现推荐：精选 Hero + 继续阅读 + 为你推荐 + 热门榜单。 */
+function MangaDiscovery() {
   const navigate = useNavigate()
   const { me } = useAuth()
-  const [source, setSource] = useState<string>(() => localStorage.getItem(SOURCE_KEY) ?? ALL)
   const [sections, setSections] = useState<SourceSection[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [warnings, setWarnings] = useState<string[]>([])
   const [heroIdx, setHeroIdx] = useState(0)
 
   const [continueManga, setContinueManga] = useState<ContinueRow[]>([])
   const [rec, setRec] = useState<MangaRecResult | null>(null)
   const [recOffset, setRecOffset] = useState(0)
   const [recLoading, setRecLoading] = useState(false)
-
-  useEffect(() => {
-    setSource(prev => (prev === ALL || sources.some(s => s.id === prev) ? prev : ALL))
-  }, [sources])
 
   useEffect(() => {
     if (!me) { setContinueManga([]); return }
@@ -379,47 +286,29 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
 
   useEffect(() => { void loadRec(0) }, [loadRec, me])
 
-  const load = useCallback(async (src: string) => {
-    if (!src) return
-    const cacheKey = `ms-manga-cache:${src}`
-    const cached = readCache(cacheKey)
+  const load = useCallback(async () => {
+    const cached = readCache(CACHE_KEY)
     setLoading(true); setError(''); setHeroIdx(0)
     if (cached) {
       setSections(cached.sections)
-      setWarnings(cached.warnings ?? [])
     } else {
-      setSections([]); setWarnings([])
+      setSections([])
     }
     try {
-      let rows: SourceSection[]
-      let warns: string[] = []
-      if (src === ALL) {
-        const result = await api.get<DiscoveryResult>('/api/v1/manga-discovery?limit=14')
-        rows = result.rows ?? []
-        warns = result.errors ?? []
-      } else {
-        rows = await api.get<SourceSection[]>(`/api/v1/manga-sources/${src}/sections?limit=14`)
-      }
+      const result = await api.get<DiscoveryResult>('/api/v1/manga-discovery?limit=14')
+      const rows = result.rows ?? []
       setSections(rows)
-      setWarnings(warns)
-      writeCache(cacheKey, rows, warns)
+      writeCache(CACHE_KEY, rows)
     } catch (e) {
       const message = e instanceof Error ? e.message : '推荐加载失败'
-      if (cached) setWarnings([message])
-      else setError(message)
+      if (!cached) setError(message)
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => {
-    if (!source) return
-    localStorage.setItem(SOURCE_KEY, source)
-    void load(source)
-  }, [source, load])
+  useEffect(() => { void load() }, [load])
 
-  const current = sources.find(s => s.id === source)
   const featuredSection = useMemo(
     () => sections.find(s => s.items.length > 0) ?? null, [sections])
-  // Hero 优先挑选站内可读的高共识条目，避免纯外链占头图
   const featured = useMemo(() => {
     if (!featuredSection) return []
     const readable = featuredSection.items.filter(it => it.readable || it.readId)
@@ -427,18 +316,13 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
     return pool.slice(0, 5)
   }, [featuredSection])
   const hero = featured[heroIdx] ?? null
-  const heroLabel = featuredSection
-    ? (featuredSection.sourceName
-        ? `${featuredSection.sourceName} · ${featuredSection.name}`
-        : `多源共识 · ${featuredSection.name}`)
-    : ''
-  const heroSources = hero?.sources ?? []
+  const heroLabel = featuredSection?.name || '热门推荐'
 
   useEffect(() => {
     if (featured.length < 2) return
     const timer = window.setInterval(() => setHeroIdx(i => (i + 1) % featured.length), 6000)
     return () => window.clearInterval(timer)
-  }, [featured.length, source])
+  }, [featured.length])
 
   function open(it: RankItem) {
     if (it.externalUrl && !it.readId) {
@@ -454,40 +338,18 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
     void loadRec(next)
   }
 
-  // 综合模式下精简展示：综合热榜 + 最多 4 个分区行，避免过长堆砌
-  const displaySections = useMemo(() => {
-    const nonEmpty = sections.filter(s => s.items.length > 0)
-    return source === ALL ? nonEmpty.slice(0, 5) : nonEmpty
-  }, [sections, source])
+  const displaySections = useMemo(
+    () => sections.filter(s => s.items.length > 0).slice(0, 5),
+    [sections]
+  )
 
   return (
     <section className="manga-discover">
-      <div className="discover-head">
-        <div className="source-tabs">
-          <button type="button" className={source === ALL ? 'mini' : 'mini ghost'}
-                  onClick={() => setSource(ALL)}>综合推荐</button>
-          {sources.map(s => (
-            <button type="button" key={s.id} className={s.id === source ? 'mini' : 'mini ghost'}
-                    onClick={() => setSource(s.id)}>{s.name}</button>
-          ))}
-        </div>
-        <span className="muted" style={{ fontSize: 12 }}>
-          {loading && sections.length > 0 ? '更新中…' : (source === ALL
-            ? '可读优先 + 跨源共识融合 + 同作者打散'
-            : current?.note ?? '按单源浏览推荐与榜单')}
-        </span>
-      </div>
-
       {error && (
         <div className="discover-error">
           <span className="error">{error}</span>
-          <button type="button" className="ghost mini" onClick={() => void load(source)}>重试</button>
+          <button type="button" className="ghost mini" onClick={() => void load()}>重试</button>
         </div>
-      )}
-      {warnings.length > 0 && (
-        <p className="muted" style={{ fontSize: 12, margin: '0 0 10px' }}>
-          部分源提示：{warnings.join('；')}
-        </p>
       )}
 
       {loading && sections.length === 0 && (
@@ -520,16 +382,10 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
               <div className="mh-chips">
                 {hero.latestLabel && <span className="chip">{hero.latestLabel}</span>}
                 {hero.finished && <span className="chip">已完结</span>}
-                {heroSources.length > 1 && (
-                  <span className="chip ghost" title={heroSources.join('、')}>
-                    {heroSources.length} 源共识
-                  </span>
-                )}
-                <span className="chip ghost">{hero.readable ? '站内可读' : hero.readId ? '有站内目录' : '站外阅读'}</span>
               </div>
               <div className="manga-hero-actions">
                 <button type="button" className="pill" onClick={() => open(hero)}>
-                  {hero.readable ? '开始阅读' : hero.readId ? '查看章节' : '前往原站'}
+                  {hero.readable || hero.readId ? '开始阅读' : '查看详情'}
                 </button>
               </div>
             </div>
@@ -569,7 +425,7 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
                     <span className="mt-multi">第 {r.pageOrdinal ?? 1} 页</span>
                   </div>
                   <div className="mt-title clamp">{r.title}</div>
-                  <div className="mt-meta clamp">{r.subtitle || (r.source ?? '本地漫画')}</div>
+                  <div className="mt-meta clamp">{r.subtitle || '继续阅读'}</div>
                 </Link>
               )
             })}
@@ -581,7 +437,7 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
         <section className="manga-section">
           <div className="section-head">
             <h2>
-              {rec.personalized ? '为你推荐' : '精选可读推荐'}
+              {rec.personalized ? '为你推荐' : '精选推荐'}
               {rec.topPreferences.length > 0 && (
                 <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
                   偏好：{rec.topPreferences.slice(0, 3).join(' · ')}
@@ -599,8 +455,6 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
               <Link key={`${it.source}:${it.id}`} to={mangaLink(it.source, it.id, it.title)} className="manga-tile">
                 <div className="mt-cover">
                   <CoverImage src={it.coverUrl} alt={it.title} />
-                  {it.sourceCount > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}
-                  {!it.readable && <span className="mt-outside">站外</span>}
                 </div>
                 <div className="mt-title clamp">{it.title}</div>
                 <div className="mt-reason clamp">{it.reason}</div>
@@ -617,7 +471,7 @@ function MangaDiscovery({ sources }: { sources: SourceInfo[] }) {
       ))}
 
       {!loading && !error && sections.length > 0 && sections.every(s => s.items.length === 0) && (
-        <p className="muted">该源暂无推荐内容。</p>
+        <p className="muted">暂无推荐内容。</p>
       )}
     </section>
   )
@@ -630,26 +484,15 @@ function SectionRow({ section, showRank, onOpen }: {
   return (
     <section className="manga-section">
       <div className="section-head">
-        <h2>
-          {section.name}
-          {section.sourceName && (
-            <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
-              {section.sourceName}
-            </span>
-          )}
-        </h2>
-        <span className="muted" style={{ fontSize: 12 }}>{section.items.length} 部</span>
+        <h2>{section.name}</h2>
       </div>
       <div className="manga-row">
         {section.items.map((it, i) => (
           <button type="button" key={it.source + it.id} className="manga-tile" onClick={() => onOpen(it)}
-                  title={(it.sources?.length ?? 0) > 1
-                    ? `${it.title}（${it.sources!.join('、')}）` : it.title}>
+                  title={it.title}>
             <div className="mt-cover">
               <CoverImage src={it.coverUrl} alt={it.title} />
               {showRank && <span className={'mt-rank' + (i < 3 ? ' top' : '')}>{i + 1}</span>}
-              {(it.sourceCount ?? 1) > 1 && <span className="mt-multi">{it.sourceCount} 源</span>}
-              {!it.readable && !it.readId && <span className="mt-outside">站外</span>}
             </div>
             <div className="mt-title clamp">{it.title}</div>
             <div className="mt-meta">{it.latestLabel || (it.finished ? '已完结' : '连载中')}</div>
@@ -660,10 +503,9 @@ function SectionRow({ section, showRank, onOpen }: {
   )
 }
 
-/** Tab 2 · 漫画分类分页索引：全流/单源 + 题材 + 状态 + 排序 + 页码分页。 */
-function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
+/** Tab 2 · 漫画分类分页索引：题材 + 状态 + 排序 + 页码分页。 */
+function MangaCatalogIndex() {
   const [params, setParams] = useSearchParams()
-  const source = params.get('source') ?? 'all'
   const genre = params.get('genre') ?? ''
   const status = params.get('status') ?? ''
   const sort = params.get('sort') ?? 'updated'
@@ -685,11 +527,10 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
   }
 
   useEffect(() => {
-    const qs = source && source !== 'all' ? `?source=${encodeURIComponent(source)}` : ''
-    void api.get<GenreTag[]>(`/api/v1/manga-catalog/genres${qs}`)
+    void api.get<GenreTag[]>('/api/v1/manga-catalog/genres')
       .then(setGenres)
       .catch(() => setGenres([]))
-  }, [source])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -701,7 +542,6 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
           page: String(page),
           sort,
         })
-        if (source && source !== 'all') qs.set('source', source)
         if (genre) qs.set('genre', genre)
         if (status) qs.set('status', status)
         const data = await api.get<CatalogPage>(`/api/v1/manga-catalog?${qs}`)
@@ -716,43 +556,22 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
       }
     })()
     return () => { cancelled = true }
-  }, [source, genre, status, sort, page])
+  }, [genre, status, sort, page])
 
   function updateFilter(patch: Record<string, string>, resetPage = true) {
     const next = new URLSearchParams(params)
     next.set('tab', 'index')
     for (const [k, v] of Object.entries(patch)) {
-      if (!v || (k === 'source' && v === 'all')) next.delete(k)
+      if (!v) next.delete(k)
       else next.set(k, v)
     }
     if (resetPage) next.delete('page')
     setParams(next)
   }
 
-  const sourceNames = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const s of sources) m.set(s.id, s.name)
-    return m
-  }, [sources])
-
   return (
     <section style={{ marginTop: 18 }}>
       <div className="index-filter-panel card">
-        <div className="filter-row">
-          <span className="filter-label">来源</span>
-          <div className="filter-pills">
-            <button type="button" className={'mini ' + (source === 'all' ? '' : 'ghost')}
-                    onClick={() => updateFilter({ source: 'all', genre: '' })}>全部流</button>
-            {sources.map(s => (
-              <button key={s.id} type="button"
-                      className={'mini ' + (source === s.id ? '' : 'ghost')}
-                      onClick={() => updateFilter({ source: s.id, genre: '' })}>
-                {s.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {genres.length > 0 && (
           <div className="filter-row">
             <span className="filter-label">题材</span>
@@ -763,13 +582,13 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
                 <button key={g.tag} type="button"
                         className={'mini ' + (genre === g.tag ? '' : 'ghost')}
                         onClick={() => updateFilter({ genre: g.tag })}>
-                  {g.tag} {g.items > 0 ? `(${g.items})` : ''}
+                  {g.tag}
                 </button>
               ))}
               {genres.length > 12 && (
                 <button type="button" className="mini ghost"
                         onClick={() => setExpandGenres(v => !v)}>
-                  {expandGenres ? '收起' : `更多 (+${genres.length - 12})`}
+                  {expandGenres ? '收起' : '更多'}
                 </button>
               )}
             </div>
@@ -795,7 +614,7 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
           <span className="filter-label">排序</span>
           <div className="filter-pills">
             <button type="button" className={'mini ' + (sort === 'updated' ? '' : 'ghost')}
-                    onClick={() => updateFilter({ sort: 'updated' })}>最近入库</button>
+                    onClick={() => updateFilter({ sort: 'updated' })}>最近更新</button>
             <button type="button" className={'mini ' + (sort === 'episodes' ? '' : 'ghost')}
                     onClick={() => updateFilter({ sort: 'episodes' })}>话数最多</button>
           </div>
@@ -806,7 +625,7 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
               <button type="button" className={'mini ' + (viewMode === 'list' ? '' : 'ghost')}
                       onClick={() => switchView('list')}>列表</button>
             </div>
-            {(source !== 'all' || genre || status || sort !== 'updated') && (
+            {(genre || status || sort !== 'updated') && (
               <button type="button" className="mini ghost"
                       onClick={() => setParams(new URLSearchParams({ tab: 'index' }))}>重置</button>
             )}
@@ -826,7 +645,7 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <p className="muted">目录库在当前筛选下暂无条目——可以使用上方「全流搜索」实时检索各漫画源（命中条目会自动沉淀进索引）。</p>
+        <p className="muted">当前筛选下暂无漫画，可以尝试搜索标题。</p>
       ) : viewMode === 'list' ? (
         <>
           <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
@@ -836,13 +655,12 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
                     className="index-list-card card" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <div className="index-list-poster">
                   <CoverImage src={r.coverUrl} alt={r.name} />
-                  <span className="badge-tl">{sourceNames.get(r.source) ?? r.source}</span>
                 </div>
                 <div className="index-list-body">
                   <div className="index-list-title">{r.name}</div>
                   {r.altTitle && <div className="muted clamp">{r.altTitle}</div>}
                   <div className="index-list-meta muted">
-                    <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载')}</span>
+                    <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载中')}</span>
                     {(r.tags ?? []).slice(0, 3).map(t => <span key={t} className="chip ghost">{t}</span>)}
                   </div>
                 </div>
@@ -862,7 +680,6 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
                     className="work-card">
                 <div className="cover">
                   <CoverImage src={r.coverUrl} alt={r.name} />
-                  <span className="badge-tl">{sourceNames.get(r.source) ?? r.source}</span>
                   {(r.remarks || r.episodeCount) && (
                     <span className="badge-br tabular-nums">
                       {r.remarks || `${r.episodeCount} 话`}
@@ -872,7 +689,7 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
                 <div className="work-card-body">
                   <div className="work-card-title">{r.name}</div>
                   <div className="work-card-meta">
-                    <span className="clamp">{r.altTitle || (sourceNames.get(r.source) ?? r.source)}</span>
+                    <span className="clamp">{r.altTitle || r.remarks || '连载中'}</span>
                   </div>
                 </div>
               </Link>
@@ -887,7 +704,7 @@ function MangaCatalogIndex({ sources }: { sources: SourceInfo[] }) {
   )
 }
 
-/** 本地漫画：保留站内上传的私人/公开本地漫画书库。 */
+/** 本地漫画：仅当用户有站内上传的漫画时展示。 */
 function LocalManga() {
   const [items, setItems] = useState<MangaCard[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
@@ -909,17 +726,16 @@ function LocalManga() {
 
   useEffect(() => { void load(null, true) }, [load])
 
+  if (!loading && !error && items.length === 0) return null
+
   return (
     <section className="manga-local">
       <div className="section-head" style={{ marginTop: 30 }}>
-        <h2>站内本地漫画 <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>{items.length} 部</span></h2>
+        <h2>我的书架漫画</h2>
         <Link to="/uploads">上传漫画 →</Link>
       </div>
 
       {error && <p className="error">{error}</p>}
-      {items.length === 0 && !loading && (
-        <p className="muted">还没有本地漫画——可在「我的素材」上传图片或 CBZ 发布章节。</p>
-      )}
 
       <div className="card-grid">
         {items.map(m => (
