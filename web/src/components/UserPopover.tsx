@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -219,8 +220,17 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
           </button>
         )}
 
-        {open && (
-          <div className="user-popover" role="dialog" aria-label={me ? '个人快捷卡片' : '访客账号面板'}>
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              className="user-popover"
+              role="dialog"
+              aria-label={me ? '个人快捷卡片' : '访客账号面板'}
+              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.97 }}
+              transition={{ type: 'spring', stiffness: 480, damping: 32 }}
+            >
             {me ? (
               <>
                 <div className="up-head">
@@ -394,8 +404,9 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                 </div>
               </>
             )}
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

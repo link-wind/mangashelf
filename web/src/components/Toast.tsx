@@ -1,44 +1,55 @@
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { Toaster, toast } from 'sonner'
 
 type ToastKind = 'success' | 'error' | 'info'
 
-interface ToastItem {
-  id: number
-  kind: ToastKind
-  message: string
+export interface ToastAction {
+  label: string
+  onClick: () => void
 }
 
 interface ToastContextValue {
-  showToast: (message: string, kind?: ToastKind) => void
+  showToast: (message: string, kind?: ToastKind, action?: ToastAction) => void
 }
 
 const ToastContext = createContext<ToastContextValue>({ showToast: () => {} })
 
-let nextId = 1
+function readDocTheme(): 'dark' | 'light' {
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+}
 
+/** 基于 Sonner 的全站现代堆叠通知系统（兼容旧 showToast API，新增可撤销 Action 支持）。 */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<ToastItem[]>([])
+  const [theme, setTheme] = useState<'dark' | 'light'>(readDocTheme)
 
-  const showToast = useCallback((message: string, kind: ToastKind = 'info') => {
-    const id = nextId++
-    setItems(prev => [...prev.slice(-3), { id, kind, message }])
-    window.setTimeout(() => {
-      setItems(prev => prev.filter(t => t.id !== id))
-    }, 2800)
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(readDocTheme()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
+  const showToast = useCallback((message: string, kind: ToastKind = 'info', action?: ToastAction) => {
+    const opts = action
+      ? { action: { label: action.label, onClick: action.onClick } }
+      : undefined
+    if (kind === 'success') toast.success(message, opts)
+    else if (kind === 'error') toast.error(message, opts)
+    else toast(message, opts)
   }, [])
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      {items.length > 0 && (
-        <div className="toast-viewport" role="status" aria-live="polite">
-          {items.map(t => (
-            <div key={t.id} className={`toast-item ${t.kind}`}>
-              <span>{t.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <Toaster
+        theme={theme}
+        position="bottom-right"
+        richColors
+        closeButton
+        toastOptions={{
+          duration: 3000,
+          className: 'ms-sonner-toast',
+        }}
+      />
     </ToastContext.Provider>
   )
 }

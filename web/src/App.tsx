@@ -1,7 +1,10 @@
+import { MotionConfig } from 'motion/react'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import { ToastProvider } from './components/Toast'
+import BrandLogo from './components/ui/BrandLogo'
+import CommandPalette, { pushRecentSearch } from './components/ui/CommandPalette'
 import UserPopover from './components/UserPopover'
 import {
   BookmarkIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
@@ -74,6 +77,7 @@ function Nav() {
   const [kw, setKw] = useState('')
   const [theme, setTheme] = useState<'dark' | 'light'>(currentTheme)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [cmdkOpen, setCmdkOpen] = useState(false)
 
   useEffect(() => {
     setMenuOpen(false)
@@ -89,6 +93,7 @@ function Nav() {
   function submit(e: React.FormEvent) {
     e.preventDefault()
     const q = kw.trim()
+    if (q) pushRecentSearch(q)
     navigate(q ? `/search?q=${encodeURIComponent(q)}` : '/search')
   }
 
@@ -100,7 +105,10 @@ function Nav() {
   return (
     <>
       <header className="nav">
-        <NavLink to="/" className="brand">MangaShelf</NavLink>
+        <NavLink to="/" className="brand">
+          <BrandLogo size={28} />
+          <span>MangaShelf</span>
+        </NavLink>
         <nav aria-label="主导航">
           {NAV_ENTRIES.map(e => (
             <NavLink key={e.to} to={e.to} end={e.to === '/'}>{e.label}</NavLink>
@@ -110,22 +118,36 @@ function Nav() {
           <span className="nav-search-icon"><SearchIcon size={15} /></span>
           <input value={kw} onChange={e => setKw(e.target.value)}
                  placeholder="搜索番剧、漫画…" aria-label="全站搜索" />
-          {kw && (
+          {kw ? (
             <button type="button" className="nav-search-clear" aria-label="清空搜索词"
                     onClick={() => setKw('')}>
               <CloseIcon size={13} />
+            </button>
+          ) : (
+            <button type="button" className="nav-kbd-btn" title="快速搜索与跳转 (⌘K)"
+                    aria-label="打开快速搜索面板" onClick={() => setCmdkOpen(true)}>
+              ⌘K
             </button>
           )}
           <button type="submit" className="pill">搜索</button>
         </form>
         <span className="spacer" />
 
-        <NavLink to="/search" className="nav-icon-btn nav-mobile-search" aria-label="站内搜索" title="站内搜索">
+        <button type="button" className="nav-icon-btn nav-mobile-search" aria-label="站内搜索" title="站内搜索"
+                onClick={() => setCmdkOpen(true)}>
           <SearchIcon size={16} />
-        </NavLink>
+        </button>
 
         <UserPopover me={me} theme={theme} onToggleTheme={toggleTheme} onLogout={logout} />
       </header>
+
+      <CommandPalette
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        me={me}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
 
       <button type="button" className={'nav-fab' + (menuOpen ? ' open' : '')}
               aria-label="导航菜单" aria-expanded={menuOpen}
@@ -187,10 +209,13 @@ export default function App() {
   }
 
   return (
-    <ToastProvider>
-      <Nav />
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
+    <MotionConfig reducedMotion="user">
+      <ToastProvider>
+        <div className="app-shell">
+          <Nav />
+          <div className="app-main">
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
           <Route path="/login" element={me ? <Navigate to="/" /> : <LoginPage />} />
           {/* 公开内容：访客与登录用户都可访问（访客只看 PUBLIC+PUBLISHED） */}
           <Route path="/" element={<Home />} />
@@ -220,8 +245,11 @@ export default function App() {
           <Route path="/works/:workId/external/:episodeId" element={<RequireAuth><ExternalWatch /></RequireAuth>} />
         </Routes>
       </Suspense>
+      </div>
       <Footer />
+      </div>
     </ToastProvider>
+    </MotionConfig>
   )
 }
 
@@ -253,13 +281,16 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** 页脚（无广告 / 无第三方统计）。 */
+/** 页脚（无广告 / 无第三方统计，自动贴底）。 */
 function Footer() {
   return (
     <footer className="site-footer">
       <div className="footer-inner">
         <div className="footer-col footer-brand">
-          <span className="brand">MangaShelf</span>
+          <span className="brand">
+            <BrandLogo size={22} />
+            <span>MangaShelf</span>
+          </span>
           <p className="muted">私人动画与漫画空间 · 简洁无广告</p>
         </div>
         <div className="footer-col">
@@ -270,16 +301,15 @@ function Footer() {
           <NavLink to="/schedule">新番时刻表</NavLink>
         </div>
         <div className="footer-col">
-          <h3>我的</h3>
-          <NavLink to="/me?tab=continue">继续追更</NavLink>
-          <NavLink to="/me?tab=favorites">我的收藏</NavLink>
-          <NavLink to="/me?tab=history">观看与阅读历史</NavLink>
+          <h3>个人空间</h3>
+          <NavLink to="/me?space=anime">动画空间</NavLink>
+          <NavLink to="/me?space=manga">漫画空间</NavLink>
           <NavLink to="/uploads">我的素材</NavLink>
         </div>
         <div className="footer-col">
           <h3>账号与搜索</h3>
           <NavLink to="/search">全站搜索</NavLink>
-          <NavLink to="/settings">设置与令牌</NavLink>
+          <NavLink to="/settings">账号与设置</NavLink>
         </div>
       </div>
     </footer>

@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 interface PaginationProps {
@@ -9,7 +10,7 @@ interface PaginationProps {
   onChange: (nextPage: number) => void
 }
 
-/** 通用页码分页组件：上一页/下一页、省略号页码、总数统计与页码直达跳转。 */
+/** 现代胶囊分页组件：与全站视觉方言一致，带柔和暗底页码与快速跳转。 */
 export default function Pagination({
   page, totalPages, total, loading = false, onChange,
 }: PaginationProps) {
@@ -37,38 +38,58 @@ export default function Pagination({
   return (
     <nav className="pagination-bar" aria-label="分页导航">
       <span className="pagination-summary muted tabular-nums">
-        第 {page} / {totalPages} 页
+        第 {page} / {totalPages} 页 · 共 {total} 项
       </span>
       {totalPages > 1 && (
         <div className="pagination-controls">
-          <button type="button" className="mini ghost" disabled={loading || page <= 1}
-                  onClick={() => go(page - 1)}>
-            ← 上一页
+          <button
+            type="button"
+            className="pg-btn"
+            disabled={loading || page <= 1}
+            onClick={() => go(page - 1)}
+          >
+            <ChevronLeft size={14} />
+            <span>上一页</span>
           </button>
           {pages.map((p, idx) =>
             p === 'ellipsis' ? (
               <span key={`e-${idx}`} className="pagination-ellipsis muted" aria-hidden="true">…</span>
             ) : (
-              <button key={p} type="button"
-                      className={'mini pagination-num tabular-nums' + (p === page ? '' : ' ghost')}
-                      aria-current={p === page ? 'page' : undefined}
-                      disabled={loading}
-                      onClick={() => go(p)}>
+              <button
+                key={p}
+                type="button"
+                className={'pg-btn pg-num tabular-nums' + (p === page ? ' is-active' : '')}
+                aria-current={p === page ? 'page' : undefined}
+                disabled={loading}
+                onClick={() => go(p)}
+              >
                 {p}
               </button>
-            )
+            ),
           )}
-          <button type="button" className="mini ghost" disabled={loading || page >= totalPages}
-                  onClick={() => go(page + 1)}>
-            下一页 →
+          <button
+            type="button"
+            className="pg-btn"
+            disabled={loading || page >= totalPages}
+            onClick={() => go(page + 1)}
+          >
+            <span>下一页</span>
+            <ChevronRight size={14} />
           </button>
           {totalPages > 5 && (
             <form className="pagination-jump" onSubmit={submitJump}>
               <span className="muted">跳至</span>
-              <input type="number" min={1} max={totalPages} value={jumpInput}
-                     onChange={e => setJumpInput(e.target.value)}
-                     placeholder={String(page)} aria-label="跳转页码" />
-              <button type="submit" className="mini ghost" disabled={loading || !jumpInput.trim()}>前往</button>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={jumpInput}
+                onChange={e => setJumpInput(e.target.value.replace(/\D/g, ''))}
+                placeholder={String(page)}
+                aria-label="跳转页码"
+              />
+              <button type="submit" className="pg-btn" disabled={loading || !jumpInput.trim()}>
+                前往
+              </button>
             </form>
           )}
         </div>
