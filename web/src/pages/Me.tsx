@@ -318,7 +318,7 @@ export default function Me() {
               <h2>继续观看 / 阅读</h2>
             </div>
             {shownContinue.length === 0 ? (
-              <p className="muted">还没有正在追的{kind === 'anime' ? '动画' : kind === 'manga' ? '漫画' : '内容'}——去<Link to="/anime">番剧</Link>或<Link to="/manga">漫画</Link>逛逛。</p>
+              <p className="muted">还没有正在追的{kind === 'anime' ? '番剧' : kind === 'manga' ? '漫画' : '内容'}——去<Link to="/">番剧</Link>或<Link to="/manga">漫画</Link>逛逛。</p>
             ) : (
               <div className="card-grid">
                 {shownContinue.map(a => {

@@ -225,9 +225,9 @@ export default function ExternalMangaDetail() {
     <main className="watch-page">
       {/* 面包屑 */}
       <nav className="breadcrumb" aria-label="面包屑">
-        <Link to="/">首页</Link>
-        <span>/</span>
         <Link to="/manga">漫画</Link>
+        <span>/</span>
+        <Link to="/index?kind=manga">索引</Link>
         <span>/</span>
         <span className="breadcrumb-cur">{manga.title}</span>
       </nav>
@@ -261,7 +261,7 @@ export default function ExternalMangaDetail() {
           {cleanTags.length > 0 && (
             <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
               {cleanTags.map(t => (
-                <Link key={t} to={`/manga?tab=index&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
+                <Link key={t} to={`/index?kind=manga&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
                   #{t}
                 </Link>
               ))}

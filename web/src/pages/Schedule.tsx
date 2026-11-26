@@ -214,13 +214,13 @@ export default function Schedule() {
   function playHrefOf(it: CalendarEntry): string {
     if (it.workId) return `/works/${it.workId}`
     if (it.catalogItemId) return `/browse/${it.catalogItemId}`
-    return `/anime?q=${encodeURIComponent(it.nameCn || it.name)}`
+    return `/index?q=${encodeURIComponent(it.nameCn || it.name)}`
   }
 
   function detailHrefOf(it: CalendarEntry): string {
     if (it.workId) return `/works/${it.workId}`
     if (it.catalogItemId) return `/catalog/${it.catalogItemId}`
-    return `/anime?q=${encodeURIComponent(it.nameCn || it.name)}`
+    return `/index?q=${encodeURIComponent(it.nameCn || it.name)}`
   }
 
   async function toggleFavorite(it: CalendarEntry) {
@@ -523,7 +523,7 @@ export default function Schedule() {
             <span className="muted">今日更新已全部上线</span>
           </div>
         ) : (
-          <Link to="/anime?category=season" className="muted" style={{ fontSize: 13 }}>
+          <Link to="/index?category=season" className="muted" style={{ fontSize: 13 }}>
             浏览全部本季新番 →
           </Link>
         )}

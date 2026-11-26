@@ -10,7 +10,7 @@ import {
 // 路由级代码分割：把播放器（hls.js）、阅读器、上传页从首屏主包拆出
 const LoginPage = lazy(() => import('./pages/Login'))
 const Home = lazy(() => import('./pages/Home'))
-const AnimeIndex = lazy(() => import('./pages/AnimeIndex'))
+const CatalogIndex = lazy(() => import('./pages/CatalogIndex'))
 const Schedule = lazy(() => import('./pages/Schedule'))
 const CatalogDetail = lazy(() => import('./pages/CatalogDetail'))
 const MangaIndex = lazy(() => import('./pages/MangaIndex'))
@@ -29,21 +29,22 @@ const ExternalWatch = lazy(() => import('./pages/ExternalWatch'))
 const BrowseWatch = lazy(() => import('./pages/BrowseWatch'))
 
 const NAV_ENTRIES = [
-  { to: '/', label: '首页', private: false },
-  { to: '/anime', label: '番剧', private: false },
+  { to: '/', label: '番剧', private: false },
   { to: '/manga', label: '漫画', private: false },
+  { to: '/index', label: '索引', private: false },
   { to: '/schedule', label: '时刻表', private: false },
   { to: '/me', label: '我的', private: true },
 ]
 
 const PAGE_TITLES: Array<[RegExp, string]> = [
-  [/^\/$/, '首页 · MangaShelf'],
+  [/^\/$/, '番剧 · MangaShelf'],
   [/^\/login$/, '登录 · MangaShelf'],
   [/^\/manga$/, '漫画 · MangaShelf'],
   [/^\/manga\//, '漫画详情 · MangaShelf'],
   [/^\/manga-ext\/read\//, '阅读中 · MangaShelf'],
   [/^\/manga-ext/, '漫画详情 · MangaShelf'],
-  [/^\/anime$/, '番剧 · MangaShelf'],
+  [/^\/index$/, '索引 · MangaShelf'],
+  [/^\/anime$/, '索引 · MangaShelf'],
   [/^\/schedule$/, '新番时刻表 · MangaShelf'],
   [/^\/me$/, '我的 · MangaShelf'],
   [/^\/search$/, '搜索 · MangaShelf'],
@@ -244,9 +245,10 @@ export default function App() {
           <Route path="/login" element={me ? <Navigate to="/" /> : <LoginPage />} />
           {/* 公开内容：访客与登录用户都可访问（访客只看 PUBLIC+PUBLISHED） */}
           <Route path="/" element={<Home />} />
-          <Route path="/anime" element={<AnimeIndex />} />
+          <Route path="/index" element={<CatalogIndex />} />
+          <Route path="/anime" element={<LegacyAnimeRedirect />} />
           <Route path="/manga" element={<MangaIndex />} />
-          <Route path="/manga-index" element={<Navigate to="/manga?tab=index" replace />} />
+          <Route path="/manga-index" element={<Navigate to="/index?kind=manga" replace />} />
           <Route path="/manga/:id" element={<MangaDetailPage />} />
           <Route path="/manga-ext" element={<Navigate to="/manga" replace />} />
           <Route path="/manga-ext/read/:chapterId" element={<ExternalMangaReader />} />
@@ -274,6 +276,12 @@ export default function App() {
   )
 }
 
+/** 兼容旧路由 /anime?... → /index?... */
+function LegacyAnimeRedirect() {
+  const location = useLocation()
+  return <Navigate to={`/index${location.search}`} replace />
+}
+
 /** 私有页面守卫：未登录时原地展示登录提示（不跳转），登录后回到原页面。 */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { me } = useAuth()
@@ -287,7 +295,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
           <p className="muted">该页面需要登录后才能访问（追更、收藏、观看/阅读记录、我的素材与设置均为私有数据）。</p>
           <div className="login-required-actions">
             <NavLink to={`/login?next=${next}`} className="pill nav-login-btn">去登录</NavLink>
-            <NavLink to="/" className="ghost pill">返回首页</NavLink>
+            <NavLink to="/" className="ghost pill">返回番剧</NavLink>
           </div>
         </div>
       </main>
@@ -307,9 +315,9 @@ function Footer() {
         </div>
         <div className="footer-col">
           <h3>发现内容</h3>
-          <NavLink to="/anime">番剧索引</NavLink>
-          <NavLink to="/manga">漫画发现</NavLink>
-          <NavLink to="/manga?tab=index">漫画索引</NavLink>
+          <NavLink to="/">番剧</NavLink>
+          <NavLink to="/manga">漫画</NavLink>
+          <NavLink to="/index">番剧与漫画索引</NavLink>
           <NavLink to="/schedule">新番时刻表</NavLink>
         </div>
         <div className="footer-col">

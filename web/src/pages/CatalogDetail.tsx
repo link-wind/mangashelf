@@ -169,13 +169,13 @@ export default function CatalogDetail() {
     <main className="watch-page">
       {/* 面包屑 */}
       <nav className="breadcrumb" aria-label="面包屑">
-        <Link to="/">首页</Link>
+        <Link to="/">番剧</Link>
         <span>/</span>
-        <Link to="/anime">番剧索引</Link>
+        <Link to="/index">索引</Link>
         {item.categoryId ? (
           <>
             <span>/</span>
-            <Link to={`/anime?category=${item.categoryId}`}>{item.categoryName}</Link>
+            <Link to={`/index?category=${item.categoryId}`}>{item.categoryName}</Link>
           </>
         ) : null}
         <span>/</span>
@@ -222,7 +222,7 @@ export default function CatalogDetail() {
           {cleanTags.length > 0 && (
             <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
               {cleanTags.map(t => (
-                <Link key={t} to={`/anime?genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
+                <Link key={t} to={`/index?genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
                   #{t}
                 </Link>
               ))}
@@ -331,7 +331,7 @@ export default function CatalogDetail() {
         <section id="similar" style={{ marginTop: 28 }}>
           <div className="section-head">
             <h2>相似推荐</h2>
-            <Link to="/anime" className="muted">浏览更多 →</Link>
+            <Link to="/index" className="muted">浏览更多 →</Link>
           </div>
           <div className="card-grid">
             {similar.map(s => (

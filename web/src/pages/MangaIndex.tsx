@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import { BookOpenIcon, HeartIcon, InfoIcon } from '../components/Icons'
-import Pagination from '../components/Pagination'
 import { hdCover } from '../externalManga'
 import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
@@ -61,22 +60,13 @@ interface ContinueRow {
   pageOrdinal: number | null; source: string | null; mangaId: string | null
 }
 
-interface CatalogEntry {
-  source: string; sourceItemId: string; name: string; altTitle: string
-  coverUrl: string | null; remarks: string | null; tags: string[]; episodeCount: number | null
-}
-interface CatalogPage {
-  items: CatalogEntry[]; nextCursor: string | null; total: number
-  page: number; limit: number; totalPages: number
-}
 interface GenreTag { tag: string; items: number }
 
 type MangaRankTab = 'hot' | 'rise' | 'new'
+type MangaFavHook = ReturnType<typeof useMangaFavorites>
 
 const CACHE_KEY = 'ms-manga-cache:v2:all'
 const CACHE_TTL_MS = 10 * 60 * 1000
-const INDEX_PAGE_SIZE = 28
-const MANGA_VIEW_KEY = 'ms-index-view'
 
 interface SectionCache { ts: number; sections: SourceSection[] }
 
@@ -114,78 +104,31 @@ function statusOf(remarks: string | null | undefined, finished?: boolean): strin
   return '连载中'
 }
 
-/** 漫画专区：发现推荐（对齐动画首页 70/30 布局 + 统一悬停阅读/收藏海报卡）、分类索引与漫画搜索。 */
+/** 漫画主页（与番剧主页对称：首屏高清 Hero → 继续阅读 → 70/30 推荐+多榜 → 精选专题 → 快捷探索）。 */
 export default function MangaIndex() {
   const [params, setParams] = useSearchParams()
-  const rawTab = params.get('tab')
-  const tab: 'discover' | 'index' = rawTab === 'index' ? 'index' : 'discover'
-  const activeSearch = params.get('q') ?? ''
-  const [searchInput, setSearchInput] = useState(activeSearch)
   const fav = useMangaFavorites()
 
-  useEffect(() => { setSearchInput(activeSearch) }, [activeSearch])
-
-  function switchTab(nextTab: 'discover' | 'index') {
-    const next = new URLSearchParams()
-    if (nextTab === 'index') next.set('tab', 'index')
-    setParams(next)
-  }
-
-  function submitSearch() {
-    const trimmed = searchInput.trim()
+  // 兼容旧链接 /manga?tab=index&... → 重定向到统一索引页 /index?kind=manga&...
+  if (params.get('tab') === 'index') {
     const next = new URLSearchParams(params)
-    if (trimmed) {
-      next.set('q', trimmed)
-      next.delete('page')
-    } else {
-      next.delete('q')
-    }
-    setParams(next)
+    next.delete('tab')
+    next.set('kind', 'manga')
+    return <Navigate to={`/index?${next.toString()}`} replace />
   }
+
+  const activeSearch = params.get('q') ?? ''
 
   function clearSearch() {
-    setSearchInput('')
     const next = new URLSearchParams(params)
     next.delete('q')
-    next.delete('stream')
     setParams(next)
   }
 
   return (
-    <main className="watch-page">
-      <div className="manga-header-bar">
-        <div className="manga-header-left">
-          <h1 style={{ margin: 0 }}>漫画</h1>
-          <div className="row-inline" role="tablist" aria-label="漫画视图切换">
-            <button type="button" role="tab" aria-selected={!activeSearch && tab === 'discover'}
-                    className={'pill ' + (!activeSearch && tab === 'discover' ? '' : 'ghost')}
-                    onClick={() => switchTab('discover')}>
-              发现推荐
-            </button>
-            <button type="button" role="tab" aria-selected={!activeSearch && tab === 'index'}
-                    className={'pill ' + (!activeSearch && tab === 'index' ? '' : 'ghost')}
-                    onClick={() => switchTab('index')}>
-              分类索引
-            </button>
-          </div>
-        </div>
-
-        <form className="manga-search-form" onSubmit={e => { e.preventDefault(); submitSearch() }}>
-          <input className="search" value={searchInput}
-                 onChange={e => setSearchInput(e.target.value)}
-                 placeholder="搜索漫画…"
-                 aria-label="搜索漫画" />
-          <button type="submit" className="mini">搜索</button>
-          {activeSearch && (
-            <button type="button" className="mini ghost" onClick={clearSearch}>清除</button>
-          )}
-        </form>
-      </div>
-
+    <main className="home-page">
       {activeSearch ? (
         <MangaSearchView query={activeSearch} onClear={clearSearch} fav={fav} />
-      ) : tab === 'index' ? (
-        <MangaCatalogIndex fav={fav} />
       ) : (
         <>
           <MangaDiscovery fav={fav} />
@@ -196,9 +139,7 @@ export default function MangaIndex() {
   )
 }
 
-type MangaFavHook = ReturnType<typeof useMangaFavorites>
-
-/** 漫画搜索结果视图（统一悬停阅读 + 一键收藏海报卡）。 */
+/** 漫画搜索结果视图（支持 /manga?q=... 快捷入口）。 */
 function MangaSearchView({ query, onClear, fav }: { query: string; onClear: () => void; fav: MangaFavHook }) {
   const [result, setResult] = useState<UnifiedSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -224,13 +165,13 @@ function MangaSearchView({ query, onClear, fav }: { query: string; onClear: () =
   const shown = result?.items ?? []
 
   return (
-    <section style={{ marginTop: 18 }}>
+    <section>
       <div className="section-head">
         <h2>
           搜索结果：「{query}」
           {loading && <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>搜索中…</span>}
         </h2>
-        <button type="button" className="mini ghost" onClick={onClear}>返回漫画页</button>
+        <button type="button" className="mini ghost" onClick={onClear}>返回漫画</button>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -282,7 +223,7 @@ function MangaSearchView({ query, onClear, fav }: { query: string; onClear: () =
   )
 }
 
-/** Tab 1 · 发现推荐：高清 Hero → 继续阅读 → 70/30 推荐网格+多榜侧栏 → 精选专题横滑 → 热门探索。 */
+/** 漫画发现主体：高清 Hero → 继续阅读 → 70/30 推荐网格+多榜侧栏 → 精选专题横滑 → 快捷探索。 */
 function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const navigate = useNavigate()
   const { me } = useAuth()
@@ -369,7 +310,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
     return () => window.clearInterval(timer)
   }, [featured.length, heroPaused])
 
-  // 精简精选专题行（最多 2 行：编辑精选 + 人气长篇），避免冗长重复
   const curatedRows = useMemo(() => {
     const usedIds = new Set<string>([hotRow?.id ?? '', riseRow?.id ?? '', newRow?.id ?? ''])
     const pick = (pred: (s: SourceSection) => boolean, title: string) => {
@@ -383,7 +323,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
     if (editor) out.push(editor)
     const binge = pick(s => s.id.includes('pay') || s.id.includes('hot') || s.name.includes('畅销') || s.name.includes('真香'), '人气长篇')
     if (binge) out.push(binge)
-    // 若数据源结构不同导致不足 2 行，补齐剩余非空行
     if (out.length < 2) {
       for (const s of sections) {
         if (usedIds.has(s.id) || s.items.length === 0) continue
@@ -415,7 +354,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const heroBusy = hero ? fav.busyKey === mangaFavKey(heroSource, heroId) : false
 
   return (
-    <section className="manga-discover">
+    <section className="manga-discover" style={{ marginTop: 0 }}>
       {error && (
         <div className="discover-error">
           <span className="error">{error}</span>
@@ -438,7 +377,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
         </>
       )}
 
-      {/* 高清 Hero 轮播（对齐动画首页：开始阅读 + 一键收藏 + 详情） */}
+      {/* 高清 Hero 轮播 */}
       {hero && (
         <section className="manga-hero-banner"
                  onMouseEnter={() => setHeroPaused(true)}
@@ -539,7 +478,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
         </section>
       )}
 
-      {/* 70/30 非对称探索区：左侧 4×2 推荐网格 + 右侧多 Tab 漫画榜单 */}
+      {/* 70/30 非对称探索区 */}
       {(forYou.length > 0 || activeRankItems.length > 0) && (
         <section className="home-split-grid" style={{ marginTop: 30 }}>
           <div className="home-split-main">
@@ -631,12 +570,12 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
         </section>
       )}
 
-      {/* 精选专题横滑（编辑精选 + 人气长篇） */}
+      {/* 精选专题横滑 */}
       {curatedRows.map(row => (
         <section key={row.id} style={{ marginTop: 30 }}>
           <div className="section-head">
             <h2>{row.title}</h2>
-            <Link to="/manga?tab=index" className="muted">全部漫画 →</Link>
+            <Link to="/index?kind=manga" className="muted">全部漫画 →</Link>
           </div>
           <div className="hscroll">
             {row.items.map(it => {
@@ -666,242 +605,27 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
         </section>
       ))}
 
-      {/* 底部快捷探索卡片（对齐动画首页） */}
+      {/* 底部快捷探索 */}
       <section className="card home-explore-card" style={{ marginTop: 32 }}>
         <div className="section-head" style={{ marginBottom: 10 }}>
           <h2>快捷探索</h2>
           <div className="row-inline">
-            <Link to="/manga?tab=index" className="muted">漫画分类索引 →</Link>
-            <Link to="/anime" className="muted">番剧索引 →</Link>
+            <Link to="/index?kind=manga" className="muted">漫画索引 →</Link>
+            <Link to="/index" className="muted">番剧索引 →</Link>
           </div>
         </div>
         <div className="explore-tags">
-          <Link to="/manga?tab=index&status=ongoing" className="explore-tag-pill">连载新作</Link>
-          <Link to="/manga?tab=index&status=completed" className="explore-tag-pill">完结一口气读</Link>
-          <Link to="/manga?tab=index&sort=episodes" className="explore-tag-pill">长篇必看</Link>
-          <Link to="/manga?tab=index&sort=updated" className="explore-tag-pill">最近更新</Link>
+          <Link to="/index?kind=manga&status=ongoing" className="explore-tag-pill">连载新作</Link>
+          <Link to="/index?kind=manga&status=completed" className="explore-tag-pill">完结一口气读</Link>
+          <Link to="/index?kind=manga&sort=episodes" className="explore-tag-pill">长篇必看</Link>
+          <Link to="/index?kind=manga&sort=updated" className="explore-tag-pill">最近更新</Link>
           {genres.slice(0, 12).map(g => (
-            <Link key={g.tag} to={`/manga?tab=index&genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
+            <Link key={g.tag} to={`/index?kind=manga&genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
               {g.tag}
             </Link>
           ))}
         </div>
       </section>
-    </section>
-  )
-}
-
-/** Tab 2 · 漫画分类分页索引：对齐番剧索引（统一悬停海报卡 / 双栏列表卡 + 筛选 + 分页）。 */
-function MangaCatalogIndex({ fav }: { fav: MangaFavHook }) {
-  const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
-  const genre = params.get('genre') ?? ''
-  const status = params.get('status') ?? ''
-  const sort = params.get('sort') ?? 'updated'
-  const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
-
-  const [genres, setGenres] = useState<GenreTag[]>([])
-  const [expandGenres, setExpandGenres] = useState(false)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>(
-    () => (localStorage.getItem(MANGA_VIEW_KEY) === 'list' ? 'list' : 'grid'))
-  const [items, setItems] = useState<CatalogEntry[]>([])
-  const [total, setTotal] = useState(0)
-  const [totalPages, setTotalPages] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  function switchView(next: 'grid' | 'list') {
-    setViewMode(next)
-    localStorage.setItem(MANGA_VIEW_KEY, next)
-  }
-
-  useEffect(() => {
-    void api.get<GenreTag[]>('/api/v1/manga-catalog/genres')
-      .then(setGenres)
-      .catch(() => setGenres([]))
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true); setError('')
-      try {
-        const qs = new URLSearchParams({
-          limit: String(INDEX_PAGE_SIZE),
-          page: String(page),
-          sort,
-        })
-        if (genre) qs.set('genre', genre)
-        if (status) qs.set('status', status)
-        const data = await api.get<CatalogPage>(`/api/v1/manga-catalog?${qs}`)
-        if (cancelled) return
-        setItems(data.items)
-        setTotal(data.total)
-        setTotalPages(data.totalPages || 1)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '漫画索引加载失败')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [genre, status, sort, page])
-
-  function updateFilter(patch: Record<string, string>, resetPage = true) {
-    const next = new URLSearchParams(params)
-    next.set('tab', 'index')
-    for (const [k, v] of Object.entries(patch)) {
-      if (!v) next.delete(k)
-      else next.set(k, v)
-    }
-    if (resetPage) next.delete('page')
-    setParams(next)
-  }
-
-  return (
-    <section style={{ marginTop: 18 }}>
-      <div className="index-filter-panel card">
-        {genres.length > 0 && (
-          <div className="filter-row">
-            <span className="filter-label">题材</span>
-            <div className="filter-pills">
-              <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
-                      onClick={() => updateFilter({ genre: '' })}>全部</button>
-              {(expandGenres ? genres : genres.slice(0, 12)).map(g => (
-                <button key={g.tag} type="button"
-                        className={'mini ' + (genre === g.tag ? '' : 'ghost')}
-                        onClick={() => updateFilter({ genre: g.tag })}>
-                  {g.tag}
-                </button>
-              ))}
-              {genres.length > 12 && (
-                <button type="button" className="mini ghost"
-                        onClick={() => setExpandGenres(v => !v)}>
-                  {expandGenres ? '收起' : '更多'}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="filter-row">
-          <span className="filter-label">状态</span>
-          <div className="filter-pills">
-            {[
-              { v: '', label: '全部状态' },
-              { v: 'ongoing', label: '连载中' },
-              { v: 'completed', label: '已完结' },
-            ].map(st => (
-              <button key={st.v} type="button"
-                      className={'mini ' + (status === st.v ? '' : 'ghost')}
-                      onClick={() => updateFilter({ status: st.v })}>{st.label}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="filter-row filter-row-actions">
-          <span className="filter-label">排序</span>
-          <div className="filter-pills">
-            <button type="button" className={'mini ' + (sort === 'updated' ? '' : 'ghost')}
-                    onClick={() => updateFilter({ sort: 'updated' })}>最近更新</button>
-            <button type="button" className={'mini ' + (sort === 'episodes' ? '' : 'ghost')}
-                    onClick={() => updateFilter({ sort: 'episodes' })}>话数最多</button>
-          </div>
-          <div className="row-inline" style={{ marginLeft: 'auto' }}>
-            <div className="view-toggle" role="group" aria-label="视图切换">
-              <button type="button" className={'mini ' + (viewMode === 'grid' ? '' : 'ghost')}
-                      onClick={() => switchView('grid')}>网格</button>
-              <button type="button" className={'mini ' + (viewMode === 'list' ? '' : 'ghost')}
-                      onClick={() => switchView('list')}>列表</button>
-            </div>
-            {(genre || status || sort !== 'updated') && (
-              <button type="button" className="mini ghost"
-                      onClick={() => setParams(new URLSearchParams({ tab: 'index' }))}>重置</button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {error && <p className="error">{error}</p>}
-      {loading && items.length === 0 ? (
-        <div className="card-grid">
-          {Array.from({ length: 14 }).map((_, i) => (
-            <div key={i}>
-              <div className="skeleton-box card-skeleton-cover" />
-              <div className="skeleton-box card-skeleton-line" />
-              <div className="skeleton-box card-skeleton-line short" />
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <p className="muted">当前筛选下暂无漫画，可以尝试切换条件或搜索标题。</p>
-      ) : viewMode === 'list' ? (
-        <>
-          <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
-            {items.map(r => {
-              const href = mangaLink(r.source, r.sourceItemId, r.name)
-              const isFav = fav.isFavorited(r.source, r.sourceItemId)
-              const key = mangaFavKey(r.source, r.sourceItemId)
-              return (
-                <article key={`${r.source}-${r.sourceItemId}`} className="index-list-card card">
-                  <Link to={href} className="index-list-poster">
-                    <CoverImage src={hdCover(r.coverUrl)} alt={r.name} />
-                  </Link>
-                  <div className="index-list-body">
-                    <Link to={href} className="index-list-title">{r.name}</Link>
-                    <div className="index-list-meta muted">
-                      <span>{r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : '连载中')}</span>
-                      {r.altTitle && <span className="clamp">{r.altTitle}</span>}
-                      {(r.tags ?? []).slice(0, 3).map(t => <span key={t} className="chip ghost">{t}</span>)}
-                    </div>
-                    <div className="row-inline" style={{ marginTop: 'auto' }}>
-                      <button type="button" className="mini" onClick={() => navigate(href)}>阅读</button>
-                      <button type="button" className={'mini ' + (isFav ? '' : 'ghost')}
-                              disabled={fav.busyKey === key}
-                              onClick={() => void fav.toggle(r.source, r.sourceItemId, r.name)}>
-                        {isFav ? '已收藏' : '收藏'}
-                      </button>
-                      <Link className="btn mini ghost" to={href}>详情</Link>
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-          <Pagination page={page} totalPages={totalPages} total={total}
-                      loading={loading}
-                      onChange={p => updateFilter({ page: String(p) }, false)} />
-        </>
-      ) : (
-        <>
-          <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
-            {items.map(r => {
-              const href = mangaLink(r.source, r.sourceItemId, r.name)
-              const key = mangaFavKey(r.source, r.sourceItemId)
-              return (
-                <AnimePosterCard
-                  key={`${r.source}-${r.sourceItemId}`}
-                  actionKind="read"
-                  title={r.name}
-                  coverUrl={hdCover(r.coverUrl)}
-                  detailHref={href}
-                  playHref={href}
-                  topLeft={statusOf(r.remarks)}
-                  bottomRight={r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : null)}
-                  metaLeft={r.altTitle || '漫画'}
-                  metaTag={r.episodeCount ? `${r.episodeCount} 话` : (r.tags?.[0] || undefined)}
-                  favorited={fav.isFavorited(r.source, r.sourceItemId)}
-                  busy={fav.busyKey === key}
-                  onToggleFavorite={() => void fav.toggle(r.source, r.sourceItemId, r.name)}
-                />
-              )
-            })}
-          </div>
-          <Pagination page={page} totalPages={totalPages} total={total}
-                      loading={loading}
-                      onChange={p => updateFilter({ page: String(p) }, false)} />
-        </>
-      )}
     </section>
   )
 }

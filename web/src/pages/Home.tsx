@@ -293,11 +293,11 @@ export default function Home() {
                     <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'} className="home-rank-thumb">
+                    <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-thumb">
                       <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} />
                     </Link>
                     <div className="home-rank-info">
-                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/anime'} className="home-rank-title">
+                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-title">
                         {it.nameCn || it.name}
                       </Link>
                       <span className="muted">
@@ -348,7 +348,7 @@ export default function Home() {
                 一口气看完 · 高分完结
               </span>
             </h2>
-            <Link to="/anime?status=completed&sort=rating" className="muted">全部完结番剧 →</Link>
+            <Link to="/index?status=completed&sort=rating" className="muted">全部完结番剧 →</Link>
           </div>
           <div className="hscroll">
             {completed.map(it => (
@@ -375,7 +375,7 @@ export default function Home() {
       <section style={{ marginTop: 30 }}>
         <div className="section-head">
           <h2>最近更新</h2>
-          <Link to="/anime" className="muted">全部番剧 →</Link>
+          <Link to="/index" className="muted">全部番剧 →</Link>
         </div>
         {updates.length === 0
           ? <p className="muted">暂无更新内容。</p>
@@ -405,13 +405,13 @@ export default function Home() {
         <div className="section-head" style={{ marginBottom: 10 }}>
           <h2>热门题材探索</h2>
           <div className="row-inline">
-            <Link to="/anime?sort=rating" className="muted">高分番剧库 →</Link>
-            <Link to="/manga?tab=index" className="muted">漫画索引 →</Link>
+            <Link to="/index?sort=rating" className="muted">高分番剧 →</Link>
+            <Link to="/index?kind=manga" className="muted">漫画索引 →</Link>
           </div>
         </div>
         <div className="explore-tags">
           {genres.slice(0, 16).map(g => (
-            <Link key={g.tag} to={`/anime?genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
+            <Link key={g.tag} to={`/index?genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
               <span>{g.tag}</span>
             </Link>
           ))}
@@ -441,7 +441,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
 
   function play(it: CalendarEntry) {
     if (it.workId) { navigate(`/works/${it.workId}`); return }
-    if (!it.catalogItemId) { navigate('/anime'); return }
+    if (!it.catalogItemId) { navigate('/index'); return }
     navigate(`/browse/${it.catalogItemId}`)
   }
 
@@ -466,7 +466,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
           <p className="muted">追动画、读漫画，简洁无广告的私人影音漫画空间。</p>
         </div>
         <div className="hero-search">
-          <Link to="/anime" className="btn ghost pill">番剧索引 →</Link>
+          <Link to="/index" className="btn ghost pill">浏览索引 →</Link>
         </div>
       </section>
     )
@@ -561,8 +561,8 @@ function WeeklyPreview({ items, favIds, busyId, onToggleFav }: {
       <div className="hscroll">
         {list.map(it => {
           const title = it.nameCn || it.name
-          const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : `/anime?q=${encodeURIComponent(title)}`)
-          const playHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : `/anime?q=${encodeURIComponent(title)}`)
+          const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
+          const playHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
           return (
             <AnimePosterCard
               key={it.subjectId}
