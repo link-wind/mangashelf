@@ -5,6 +5,7 @@ export interface Me {
   id: string
   login: string
   role: string
+  createdAt?: string | null
 }
 
 interface AuthState {

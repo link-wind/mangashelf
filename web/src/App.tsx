@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import { ToastProvider } from './components/Toast'
+import UserPopover from './components/UserPopover'
 import {
-  ChevronDownIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
+  BookmarkIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
   SearchIcon, SettingsIcon, SunIcon, UploadIcon,
 } from './components/Icons'
 
@@ -29,11 +30,10 @@ const ExternalWatch = lazy(() => import('./pages/ExternalWatch'))
 const BrowseWatch = lazy(() => import('./pages/BrowseWatch'))
 
 const NAV_ENTRIES = [
-  { to: '/', label: '番剧', private: false },
-  { to: '/manga', label: '漫画', private: false },
-  { to: '/index', label: '索引', private: false },
-  { to: '/schedule', label: '时刻表', private: false },
-  { to: '/me', label: '我的', private: true },
+  { to: '/', label: '番剧' },
+  { to: '/manga', label: '漫画' },
+  { to: '/index', label: '索引' },
+  { to: '/schedule', label: '时刻表' },
 ]
 
 const PAGE_TITLES: Array<[RegExp, string]> = [
@@ -43,7 +43,7 @@ const PAGE_TITLES: Array<[RegExp, string]> = [
   [/^\/index$/, '索引 · MangaShelf'],
   [/^\/anime$/, '索引 · MangaShelf'],
   [/^\/schedule$/, '新番时刻表 · MangaShelf'],
-  [/^\/me$/, '我的 · MangaShelf'],
+  [/^\/me$/, '个人空间 · MangaShelf'],
   [/^\/search$/, '搜索 · MangaShelf'],
   [/^\/uploads$/, '我的素材 · MangaShelf'],
   [/^\/settings$/, '设置 · MangaShelf'],
@@ -74,31 +74,10 @@ function Nav() {
   const [kw, setKw] = useState('')
   const [theme, setTheme] = useState<'dark' | 'light'>(currentTheme)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [userOpen, setUserOpen] = useState(false)
-  const userWrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setMenuOpen(false)
-    setUserOpen(false)
   }, [location.pathname])
-
-  useEffect(() => {
-    if (!userOpen) return
-    function onDocClick(e: MouseEvent) {
-      if (userWrapRef.current && !userWrapRef.current.contains(e.target as Node)) {
-        setUserOpen(false)
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setUserOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [userOpen])
 
   function toggleTheme() {
     const next = currentTheme() === 'dark' ? 'light' : 'dark'
@@ -118,15 +97,12 @@ function Nav() {
     navigate('/login')
   }
 
-  const avatarChar = (me?.login || 'U').slice(0, 1).toUpperCase()
-  const visibleNav = NAV_ENTRIES.filter(e => !e.private || me)
-
   return (
     <>
       <header className="nav">
         <NavLink to="/" className="brand">MangaShelf</NavLink>
         <nav aria-label="主导航">
-          {visibleNav.map(e => (
+          {NAV_ENTRIES.map(e => (
             <NavLink key={e.to} to={e.to} end={e.to === '/'}>{e.label}</NavLink>
           ))}
         </nav>
@@ -148,39 +124,7 @@ function Nav() {
           <SearchIcon size={16} />
         </NavLink>
 
-        <div className="nav-actions">
-          <button type="button" className="nav-icon-btn" onClick={toggleTheme}
-                  aria-label="切换明暗主题" title={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}>
-            {theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-          </button>
-
-          {me ? (
-            <div className="user-menu-wrap" ref={userWrapRef}>
-              <button type="button" className="user-trigger" aria-expanded={userOpen}
-                      onClick={() => setUserOpen(v => !v)}>
-                <span className="user-avatar">{avatarChar}</span>
-                <span className="user-name">{me.login}</span>
-                <ChevronDownIcon size={13} />
-              </button>
-              {userOpen && (
-                <div className="user-menu" role="menu">
-                  <div className="user-menu-head">
-                    <strong>{me.login}</strong>
-                    <span>{me.role === 'ADMIN' ? '站点管理员' : '登录用户'}</span>
-                  </div>
-                  <NavLink to="/me" role="menuitem">我的追更与收藏</NavLink>
-                  <NavLink to="/uploads" role="menuitem"><UploadIcon />我的素材</NavLink>
-                  <NavLink to="/settings" role="menuitem"><SettingsIcon />设置与令牌</NavLink>
-                  <button type="button" className="danger" role="menuitem" onClick={() => void doLogout()}>
-                    <LogOutIcon />退出登录
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <NavLink to="/login" className="pill nav-login-btn">登录</NavLink>
-          )}
-        </div>
+        <UserPopover me={me} theme={theme} onToggleTheme={toggleTheme} onLogout={logout} />
       </header>
 
       <button type="button" className={'nav-fab' + (menuOpen ? ' open' : '')}
@@ -191,13 +135,14 @@ function Nav() {
       {menuOpen && (
         <div className="nav-overlay" onClick={() => setMenuOpen(false)}>
           <nav className="nav-mobile-menu" aria-label="移动端导航" onClick={e => e.stopPropagation()}>
-            {visibleNav.map(e => (
+            {NAV_ENTRIES.map(e => (
               <NavLink key={e.to} to={e.to} end={e.to === '/'}>{e.label}</NavLink>
             ))}
             <NavLink to="/search"><SearchIcon size={15} />全站搜索</NavLink>
             <div className="nav-mobile-sep" />
             {me ? (
               <>
+                <NavLink to="/me"><BookmarkIcon size={15} />个人空间</NavLink>
                 <NavLink to="/uploads"><UploadIcon size={15} />我的素材</NavLink>
                 <NavLink to="/settings"><SettingsIcon size={15} />设置与令牌</NavLink>
               </>

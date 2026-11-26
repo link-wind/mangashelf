@@ -210,3 +210,51 @@ export function TagIcon({ size = 18, ...p }: IconProps) {
     </svg>
   )
 }
+
+export function BookmarkIcon({ size = 16, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M6.5 4h11A1.5 1.5 0 0 1 19 5.5v15l-7-4.2L5 20.5v-15A1.5 1.5 0 0 1 6.5 4Z" />
+    </svg>
+  )
+}
+
+export function UserIcon({ size = 16, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <circle cx="12" cy="8.5" r="4" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  )
+}
+
+export function GridIcon({ size = 15, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </svg>
+  )
+}
+
+export function ListIcon({ size = 15, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <circle cx="4.5" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function SparklesIcon({ size = 15, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z" />
+      <path d="M19 3v3m-1.5-1.5h3M5 17v3m-1.5-1.5h3" />
+    </svg>
+  )
+}

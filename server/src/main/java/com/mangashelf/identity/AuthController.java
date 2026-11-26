@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /** 注册 / 登录 / 登出 / 当前用户（DESIGN 16.1 身份）。仅 API 角色装配。 */
@@ -42,7 +43,10 @@ public class AuthController {
     public record LoginRequest(@NotBlank String login, @NotBlank String password) {
     }
 
-    public record MeResponse(UUID id, String login, String role) {
+    public record MeResponse(UUID id, String login, String role, Instant createdAt) {
+        public MeResponse(UUID id, String login, String role) {
+            this(id, login, role, null);
+        }
     }
 
     private final UserRepository users;
@@ -68,7 +72,8 @@ public class AuthController {
         users.insert(new User(id, request.login(),
                 passwordEncoder.encode(request.password()),
                 User.ROLE_USER, User.STATUS_ACTIVE, null, null));
-        return ResponseEntity.status(HttpStatus.CREATED).body(new MeResponse(id, request.login(), User.ROLE_USER));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new MeResponse(id, request.login(), User.ROLE_USER, Instant.now()));
     }
 
     @PostMapping("/login")
@@ -85,7 +90,7 @@ public class AuthController {
             context.setAuthentication(sessionAuth);
             SecurityContextHolder.setContext(context);
             securityContextRepository.saveContext(context, httpRequest, httpResponse);
-            return new MeResponse(principal.id(), principal.login(), principal.role());
+            return new MeResponse(principal.id(), principal.login(), principal.role(), user.createdAt());
         } catch (AuthenticationException e) {
             // 不区分账户不存在与密码错误（规格：不暴露账户是否存在）
             throw new ApiException(401, "INVALID_CREDENTIALS", "登录名或密码不正确。");
@@ -103,6 +108,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public MeResponse me(@AuthUser CurrentUser user) {
-        return new MeResponse(user.id(), user.login(), user.role());
+        Instant createdAt = users.findById(user.id()).map(User::createdAt).orElse(null);
+        return new MeResponse(user.id(), user.login(), user.role(), createdAt);
     }
 }

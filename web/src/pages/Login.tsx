@@ -51,7 +51,7 @@ export default function LoginPage() {
         <label>
           登录名
           <input value={login} onChange={e => setLogin(e.target.value)}
-                 pattern="[a-zA-Z0-9_-]{3,32}" placeholder="输入登录名"
+                 pattern="[a-zA-Z0-9_\-]{3,32}" placeholder="输入登录名"
                  autoComplete="username"
                  title="3-32 位字母数字下划线连字符" required />
         </label>
