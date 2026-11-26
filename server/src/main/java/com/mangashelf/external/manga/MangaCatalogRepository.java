@@ -448,6 +448,138 @@ public class MangaCatalogRepository {
                 .toList();
     }
 
+    public record EditorPickItem(UUID id, String source, String sourceItemId, String name,
+                                 String altTitle, String coverUrl, String remarks,
+                                 List<String> tags, Integer episodeCount,
+                                 Double rating, String region, int sourceCount) {}
+
+    /**
+     * 全站口碑精选（编辑精选）：
+     * 直接基于本地去重目录库，按「日本 → 国产 → 韩国」均衡配额（约 55% / 22% / 23%）
+     * 筛选高贝叶斯评分（真实 ★ 评分 ≥ 7.0 优先）+ 多源共识 + 高推荐分佳作，零外网依赖。
+     */
+    public List<EditorPickItem> editorPicks(int limit) {
+        int size = Math.min(Math.max(limit, 1), 24);
+        int jpQuota = Math.max(1, Math.round(size * 0.55f));
+        int cnQuota = Math.max(1, Math.round(size * 0.22f));
+        int krQuota = Math.max(1, size - jpQuota - cnQuota);
+
+        String sql = """
+                WITH base AS (
+                    SELECT DISTINCT ON (%1$s)
+                           %1$s AS group_key,
+                           id, source, source_item_id, name, alt_title, cover_url, remarks,
+                           episode_count, synced_at, first_seen_at
+                      FROM manga_catalog_items
+                     ORDER BY %1$s,
+                              CASE source
+                                  WHEN 'copymanga' THEN 0
+                                  WHEN 'tencent' THEN 1
+                                  WHEN 'bilibili' THEN 2
+                                  ELSE 3
+                              END ASC,
+                              (cover_url <> '') DESC,
+                              COALESCE(episode_count, NULLIF(substring(remarks FROM '([0-9]+)'), '')::int, 0) DESC,
+                              synced_at DESC
+                ),
+                best_reg AS (
+                    SELECT DISTINCT ON (%1$s)
+                           %1$s AS group_key,
+                           region, region_rank
+                      FROM manga_catalog_items
+                     ORDER BY %1$s,
+                              region_confidence DESC,
+                              region_rank ASC,
+                              synced_at DESC
+                ),
+                agg AS (
+                    SELECT %2$s AS group_key,
+                           COUNT(DISTINCT m.source)::int AS source_count,
+                           COALESCE(array_agg(DISTINCT u.t ORDER BY u.t) FILTER (WHERE u.t IS NOT NULL AND u.t <> ''), '{}'::text[]) AS tags,
+                           MAX(COALESCE(m.episode_count, NULLIF(substring(m.remarks FROM '([0-9]+)'), '')::int)) AS best_ep,
+                           MAX(NULLIF(m.remarks, '')) AS best_remarks,
+                           MAX(m.rating) AS best_rating,
+                           MAX(m.bayesian_rating) AS best_bayesian_rating,
+                           MAX(m.recommend_score) AS best_recommend_score
+                      FROM manga_catalog_items m
+                      LEFT JOIN LATERAL unnest(m.tags) AS u(t) ON TRUE
+                     GROUP BY 1
+                ),
+                pool AS (
+                    SELECT b.id, b.source, b.source_item_id, b.name, b.alt_title, b.cover_url,
+                           COALESCE(NULLIF(b.remarks, ''), a.best_remarks, '') AS remarks,
+                           a.tags,
+                           COALESCE(b.episode_count, a.best_ep) AS episode_count,
+                           a.best_rating::double precision AS rating,
+                           a.best_bayesian_rating AS bayesian_rating,
+                           a.best_recommend_score AS recommend_score,
+                           br.region, br.region_rank,
+                           a.source_count,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY br.region
+                               ORDER BY (a.best_bayesian_rating IS NOT NULL AND a.best_rating >= 7.0) DESC,
+                                        a.best_bayesian_rating DESC NULLS LAST,
+                                        a.source_count DESC,
+                                        a.best_recommend_score DESC,
+                                        b.id DESC
+                           ) AS rn
+                      FROM base b
+                      JOIN best_reg br ON br.group_key = b.group_key
+                      JOIN agg a ON a.group_key = b.group_key
+                     WHERE b.cover_url <> ''
+                       AND br.region IN ('JP', 'CN', 'KR')
+                ),
+                ranked AS (
+                    SELECT *,
+                           CASE
+                               WHEN (region = 'JP' AND rn <= ?)
+                                 OR (region = 'CN' AND rn <= ?)
+                                 OR (region = 'KR' AND rn <= ?)
+                               THEN 0 ELSE 1
+                           END AS pick_tier
+                      FROM pool
+                ),
+                picked AS (
+                    SELECT *
+                      FROM ranked
+                     ORDER BY pick_tier ASC,
+                              region_rank ASC,
+                              bayesian_rating DESC NULLS LAST,
+                              source_count DESC,
+                              recommend_score DESC,
+                              id DESC
+                     LIMIT ?
+                )
+                SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
+                       tags, episode_count, rating, region, source_count
+                  FROM picked
+                 ORDER BY region_rank ASC,
+                          bayesian_rating DESC NULLS LAST,
+                          source_count DESC,
+                          recommend_score DESC,
+                          id DESC
+                """.formatted(GROUP_KEY_EXPR, GROUP_KEY_EXPR_M);
+
+        return jdbc.query(sql, (rs, i) -> {
+            var array = rs.getArray("tags");
+            List<String> tags = array == null ? List.of() : List.of((String[]) array.getArray());
+            Number ratingNum = (Number) rs.getObject("rating");
+            return new EditorPickItem(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("source"),
+                    rs.getString("source_item_id"),
+                    rs.getString("name"),
+                    rs.getString("alt_title"),
+                    rs.getString("cover_url"),
+                    rs.getString("remarks"),
+                    tags,
+                    (Integer) rs.getObject("episode_count"),
+                    ratingNum == null ? null : ratingNum.doubleValue(),
+                    rs.getString("region"),
+                    rs.getInt("source_count"));
+        }, jpQuota, cnQuota, krQuota, size);
+    }
+
     public Optional<MangaCatalogItem> find(String source, String sourceItemId) {
         return jdbc.query("""
                 SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,

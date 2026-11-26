@@ -52,6 +52,20 @@ interface MangaRecResult {
 
 interface GenreTag { tag: string; items: number }
 
+interface EditorPickEntry {
+  source: string; sourceItemId: string; name: string; altTitle: string
+  coverUrl: string | null; remarks: string | null; tags: string[]
+  episodeCount: number | null; rating: number | null; region: string | null
+  sourceCount: number
+}
+
+const REGION_LABEL: Record<string, string> = {
+  JP: '日本',
+  CN: '国产',
+  KR: '韩国',
+  OVERSEAS: '海外',
+}
+
 type MangaRankTab = 'hot' | 'rise' | 'new'
 type MangaFavHook = ReturnType<typeof useMangaFavorites>
 
@@ -215,6 +229,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const { me } = useAuth()
   const [sections, setSections] = useState<SourceSection[]>([])
   const [genres, setGenres] = useState<GenreTag[]>([])
+  const [editorPicks, setEditorPicks] = useState<EditorPickEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [heroIdx, setHeroIdx] = useState(0)
@@ -229,6 +244,9 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
     void api.get<GenreTag[]>('/api/v1/manga-catalog/genres')
       .then(setGenres)
       .catch(() => setGenres([]))
+    void api.get<EditorPickEntry[]>('/api/v1/manga-catalog/editor-picks?limit=14')
+      .then(setEditorPicks)
+      .catch(() => setEditorPicks([]))
   }, [])
 
   const loadRec = useCallback(async (offset: number) => {
@@ -297,20 +315,25 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
       return { id: hit.id, title, items: hit.items }
     }
     const out: { id: string; title: string; items: DiscoveryItem[] }[] = []
-    const editor = pick(s => s.id.includes('recommend') || s.name.includes('推荐'), '编辑精选')
-    if (editor) out.push(editor)
+    // 当站内口碑「编辑精选」已就绪时，仅保留「人气长篇」作为跨源热榜补充；否则回退上游推荐行
+    if (editorPicks.length === 0) {
+      const editor = pick(s => s.id.includes('recommend') || s.name.includes('推荐'), '编辑精选')
+      if (editor) out.push(editor)
+    }
     const binge = pick(s => s.id.includes('pay') || s.id.includes('hot') || s.name.includes('畅销') || s.name.includes('真香'), '人气长篇')
     if (binge) out.push(binge)
-    if (out.length < 2) {
+    const targetCount = editorPicks.length > 0 ? 1 : 2
+    if (out.length < targetCount) {
       for (const s of sections) {
         if (usedIds.has(s.id) || s.items.length === 0) continue
+        if (editorPicks.length > 0 && (s.id.includes('recommend') || s.name.includes('推荐'))) continue
         usedIds.add(s.id)
         out.push({ id: s.id, title: s.name === '热门' ? '人气佳作' : s.name, items: s.items })
-        if (out.length >= 2) break
+        if (out.length >= targetCount) break
       }
     }
     return out
-  }, [sections, hotRow, riseRow, newRow])
+  }, [sections, hotRow, riseRow, newRow, editorPicks.length])
 
   const activeRankItems = useMemo(() => {
     if (rankTab === 'rise') return riseRow?.items ?? []
@@ -513,6 +536,49 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
               查看全部漫画索引 →
             </Link>
           </aside>
+        </section>
+      )}
+
+      {/* 编辑精选：本地库高分口碑 × 日/国/韩均衡配额（独立于上游推荐位，秒开且带真实评分） */}
+      {editorPicks.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div className="section-head">
+            <h2>
+              编辑精选
+              <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
+                全站口碑 · 日 / 国 / 韩高分佳作
+              </span>
+            </h2>
+            <Link to="/index?kind=manga&sort=rating" className="muted">高分漫画榜 →</Link>
+          </div>
+          <CarouselRail ariaLabel="编辑精选">
+            {editorPicks.map(it => {
+              const href = mangaLink(it.source, it.sourceItemId, it.name)
+              const key = mangaFavKey(it.source, it.sourceItemId)
+              const cleanLatest = cleanMangaRemarks(it.remarks) || (it.episodeCount ? `${it.episodeCount} 话` : null)
+              const status = statusOf(it.remarks)
+              const regText = it.region ? REGION_LABEL[it.region] : undefined
+              const author = cleanSubtitle(it.altTitle)
+              return (
+                <AnimePosterCard
+                  key={`${it.source}:${it.sourceItemId}`}
+                  actionKind="read"
+                  title={it.name}
+                  coverUrl={hdCover(it.coverUrl)}
+                  detailHref={href}
+                  playHref={href}
+                  topLeft={status}
+                  rating={it.rating}
+                  bottomRight={cleanLatest}
+                  metaLeft={regText ? (author ? `${regText} · ${author}` : `${regText}精选`) : (author || '口碑佳作')}
+                  metaTag={it.sourceCount > 1 ? `${it.sourceCount} 源` : undefined}
+                  favorited={fav.isFavorited(it.source, it.sourceItemId)}
+                  busy={fav.busyKey === key}
+                  onToggleFavorite={() => void fav.toggle(it.source, it.sourceItemId, it.name)}
+                />
+              )
+            })}
+          </CarouselRail>
         </section>
       )}
 

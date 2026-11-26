@@ -258,6 +258,7 @@ public class CatalogRankingService {
                   FROM grp g
                  WHERE COALESCE(NULLIF(m.title_key, ''), m.source || ':' || m.source_item_id) = g.gk
                 """);
+        hotspotCache.invalidate("manga_editor_picks");
         return updated;
     }
 

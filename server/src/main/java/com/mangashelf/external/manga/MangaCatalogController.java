@@ -1,6 +1,7 @@
 package com.mangashelf.external.manga;
 
 import com.mangashelf.config.ApiException;
+import com.mangashelf.config.HotspotCache;
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
 import com.mangashelf.identity.OptionalAuthUser;
@@ -30,18 +31,26 @@ public class MangaCatalogController {
     private final MangaSourceRegistry registry;
     private final JobCreationService jobCreation;
     private final ObjectMapper objectMapper;
+    private final HotspotCache hotspotCache;
 
     @Autowired
     public MangaCatalogController(MangaCatalogRepository catalog, MangaSourceRegistry registry,
-                                  JobCreationService jobCreation, ObjectMapper objectMapper) {
+                                  JobCreationService jobCreation, ObjectMapper objectMapper,
+                                  HotspotCache hotspotCache) {
         this.catalog = catalog;
         this.registry = registry;
         this.jobCreation = jobCreation;
         this.objectMapper = objectMapper;
+        this.hotspotCache = hotspotCache;
+    }
+
+    MangaCatalogController(MangaCatalogRepository catalog, MangaSourceRegistry registry,
+                           JobCreationService jobCreation, ObjectMapper objectMapper) {
+        this(catalog, registry, jobCreation, objectMapper, null);
     }
 
     MangaCatalogController(MangaCatalogRepository catalog) {
-        this(catalog, null, null, null);
+        this(catalog, null, null, null, null);
     }
 
     public record CatalogPage(List<CatalogItemView> items, String nextCursor, long total,
@@ -50,6 +59,10 @@ public class MangaCatalogController {
     public record CatalogItemView(String source, String sourceItemId, String name, String altTitle,
                                   String coverUrl, String remarks, List<String> tags,
                                   Integer episodeCount, Double rating, String region) {}
+
+    public record EditorPickView(String source, String sourceItemId, String name, String altTitle,
+                                 String coverUrl, String remarks, List<String> tags,
+                                 Integer episodeCount, Double rating, String region, int sourceCount) {}
 
     @GetMapping
     public CatalogPage page(@OptionalAuthUser CurrentUser user,
@@ -101,6 +114,25 @@ public class MangaCatalogController {
     public List<MangaCatalogRepository.GenreTag> genres(@OptionalAuthUser CurrentUser user,
                                                         @RequestParam(required = false) String source) {
         return catalog.genres(source);
+    }
+
+    /** 全站口碑精选（编辑精选）：按日本→国产→韩国配额返回本地库高分多源佳作，2 分钟热点缓存。 */
+    @GetMapping("/editor-picks")
+    public List<EditorPickView> editorPicks(@OptionalAuthUser CurrentUser user,
+                                            @RequestParam(defaultValue = "14") int limit) {
+        int size = Math.min(Math.max(limit, 1), 24);
+        java.util.function.Supplier<List<EditorPickView>> loader = () -> catalog.editorPicks(size).stream()
+                .map(it -> new EditorPickView(
+                        it.source(), it.sourceItemId(), it.name(), it.altTitle(),
+                        it.coverUrl().isBlank() ? null : it.coverUrl(),
+                        it.remarks().isBlank() ? null : it.remarks(),
+                        it.tags(), it.episodeCount(), it.rating(), it.region(), it.sourceCount()))
+                .toList();
+        if (hotspotCache != null) {
+            return hotspotCache.getOrLoad("manga_editor_picks", "manga-editor-picks:" + size,
+                    java.time.Duration.ofMinutes(2), loader);
+        }
+        return loader.get();
     }
 
     /** 管理员触发单源漫画目录同步（派发 manga.catalog.sync 异步任务，可选 maxPages 控制抓取深度）。 */
