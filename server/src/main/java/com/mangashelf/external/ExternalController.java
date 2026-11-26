@@ -36,18 +36,26 @@ public class ExternalController {
     private final ExternalCatalogService catalog;
     private final BangumiService bangumi;
     private final CoverCacheService coverCache;
+    private final CatalogRankingService ranking;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ExternalController(ExternalService externals, ExternalCatalogService catalog,
-                              BangumiService bangumi, CoverCacheService coverCache) {
+                              BangumiService bangumi, CoverCacheService coverCache,
+                              CatalogRankingService ranking) {
         this.externals = externals;
         this.catalog = catalog;
         this.bangumi = bangumi;
         this.coverCache = coverCache;
+        this.ranking = ranking;
+    }
+
+    public ExternalController(ExternalService externals, ExternalCatalogService catalog,
+                              BangumiService bangumi, CoverCacheService coverCache) {
+        this(externals, catalog, bangumi, coverCache, null);
     }
 
     ExternalController(ExternalService externals, ExternalCatalogService catalog, BangumiService bangumi) {
-        this(externals, catalog, bangumi, null);
+        this(externals, catalog, bangumi, null, null);
     }
 
     // ── 规则源管理（管理员）──
@@ -180,13 +188,14 @@ public class ExternalController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) UUID sourceId,
             @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) String region,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String genre,
             @RequestParam(required = false) Boolean season,
             @RequestParam(required = false) String year,
             @RequestParam(required = false) Integer page) {
-        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, year, page);
+        return catalog.listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, year, region, page);
     }
 
     @GetMapping("/catalog-items/genres")
@@ -249,6 +258,39 @@ public class ExternalController {
             throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行高清横幅与封面补齐。");
         }
         return bangumi.batchEnrichHdAssets(banners, catalog);
+    }
+
+    /** 管理员：立即重算全站番剧与漫画的跨源地区传播、贝叶斯评分与综合推荐分。 */
+    @PostMapping("/admin/catalog-ranking/recompute")
+    public CatalogRankingService.RecomputeStats recomputeRanking(@AuthUser CurrentUser user) {
+        if (!user.isAdmin()) {
+            throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行推荐分重算。");
+        }
+        return ranking.recomputeAll();
+    }
+
+    /** 管理员：批量补齐番剧 Bangumi + AniList 真实评分与地区（支持断点续跑）。 */
+    @PostMapping("/admin/catalog-ranking/enrich-anime")
+    public CatalogRankingService.AnimeEnrichStats enrichAnimeRanking(
+            @AuthUser CurrentUser user,
+            @RequestParam(defaultValue = "80") int limit) {
+        if (!user.isAdmin()) {
+            throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行番剧评分与地区补齐。");
+        }
+        return ranking.enrichAnimeRatingsAndRegions(limit);
+    }
+
+    /** 管理员：批量补齐漫画哔哩官方分地区/人气 + Bangumi 书籍 + AniList Manga 真实评分与地区。 */
+    @PostMapping("/admin/catalog-ranking/enrich-manga")
+    public CatalogRankingService.MangaEnrichStats enrichMangaRanking(
+            @AuthUser CurrentUser user,
+            @RequestParam(defaultValue = "80") int limit,
+            @RequestParam(defaultValue = "true") boolean bilibiliAreas,
+            @RequestParam(defaultValue = "25") int bilibiliPages) {
+        if (!user.isAdmin()) {
+            throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行漫画地区与评分补齐。");
+        }
+        return ranking.enrichMangaRatingsAndRegions(limit, bilibiliAreas, bilibiliPages);
     }
 
     /** 高清宽幅横幅代理：/bangumi-banners/{subjectId}（仅读库内白名单 banner_url，防 SSRF），持久化缓存 + ETag/304。 */

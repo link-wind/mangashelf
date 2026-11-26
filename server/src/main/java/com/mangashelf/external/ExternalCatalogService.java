@@ -128,55 +128,57 @@ public class ExternalCatalogService {
     public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
                                      Integer categoryId, String status, String sort, String genre,
                                      Boolean season, Integer page) {
-        return listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, null, page);
+        return listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, null, null, page);
     }
 
     public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
                                      Integer categoryId, String status, String sort, String genre,
                                      Boolean season, String year, Integer page) {
+        return listItems(cursor, limit, q, sourceId, categoryId, status, sort, genre, season, year, null, page);
+    }
+
+    public CatalogItemPage listItems(String cursor, int limit, String q, UUID sourceId,
+                                     Integer categoryId, String status, String sort, String genre,
+                                     Boolean season, String year, String region, Integer page) {
         int effectiveLimit = Math.min(Math.max(limit, 1), 60);
         boolean hasQuery = q != null && !q.isBlank();
-        String effectiveSort = (sort == null || sort.isBlank()) ? "updated" : sort;
-        boolean pagedMode = page != null || "episodes".equals(effectiveSort) || "rating".equals(effectiveSort);
-        String countKey = "catalog-count:" + sourceId + ":" + categoryId + ":" + status + ":"
+        String effectiveSort = (sort == null || sort.isBlank()) ? "recommended" : sort.trim().toLowerCase();
+        boolean useLegacyCursor = cursor != null && !cursor.isBlank() && page == null && "updated".equals(effectiveSort);
+        String countKey = "catalog-count:" + sourceId + ":" + categoryId + ":" + region + ":" + status + ":"
                 + genre + ":" + season + ":" + year + ":" + (hasQuery ? q.trim() : "");
 
-        if (!hasQuery && !pagedMode && (cursor == null || cursor.isBlank())) {
-            String pageKey = "catalog-page:" + effectiveLimit + ":" + sourceId + ":" + categoryId
-                    + ":" + status + ":" + genre + ":" + season + ":" + year;
+        int currentPage = Math.max(page == null ? 1 : page, 1);
+        if (!hasQuery && !useLegacyCursor && currentPage == 1) {
+            String pageKey = "catalog-page:" + effectiveSort + ":" + effectiveLimit + ":" + sourceId + ":"
+                    + categoryId + ":" + region + ":" + status + ":" + genre + ":" + season + ":" + year;
             return hotspotCache.getOrLoad("catalog_page", pageKey, Duration.ofSeconds(30), () -> {
-                Cursor c = decodeCursor(null);
                 List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, null, status,
-                        effectiveSort, genre, season, year, c.updatedAt, c.id, null, effectiveLimit));
-                String next = items.size() == effectiveLimit
-                        ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
-                                items.getLast().id())
-                        : null;
+                        effectiveSort, genre, season, year, region, null, null, 0, effectiveLimit));
                 long total = hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
-                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year));
+                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year, region));
                 int totalPages = total == 0 ? 1 : (int) ((total + effectiveLimit - 1) / effectiveLimit);
+                String next = 1 < totalPages ? "page:2" : null;
                 return new CatalogItemPage(List.copyOf(items), next, total, 1, effectiveLimit, totalPages);
             });
         }
 
         long total = hasQuery
-                ? catalogItems.count(sourceId, categoryId, q, status, genre, season, year)
+                ? catalogItems.count(sourceId, categoryId, q, status, genre, season, year, region)
                 : hotspotCache.getOrLoad("catalog_count", countKey, Duration.ofSeconds(60),
-                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year));
+                        () -> catalogItems.count(sourceId, categoryId, null, status, genre, season, year, region));
         int totalPages = total == 0 ? 1 : (int) ((total + effectiveLimit - 1) / effectiveLimit);
 
-        if (pagedMode) {
-            int currentPage = Math.max(page == null ? 1 : page, 1);
+        if (!useLegacyCursor) {
             int offset = (currentPage - 1) * effectiveLimit;
             List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status,
-                    effectiveSort, genre, season, year, null, null, offset, effectiveLimit));
+                    effectiveSort, genre, season, year, region, null, null, offset, effectiveLimit));
             String next = currentPage < totalPages ? "page:" + (currentPage + 1) : null;
             return new CatalogItemPage(items, next, total, currentPage, effectiveLimit, totalPages);
         }
 
         Cursor c = decodeCursor(cursor);
         List<ExternalCatalogItem> items = rewriteCovers(catalogItems.page(sourceId, categoryId, q, status,
-                effectiveSort, genre, season, year, c.updatedAt, c.id, null, effectiveLimit));
+                effectiveSort, genre, season, year, region, c.updatedAt, c.id, null, effectiveLimit));
         String next = items.size() == effectiveLimit
                 ? encodeCursor(coalesce(items.getLast().resourceUpdatedAt(), items.getLast().syncedAt()),
                         items.getLast().id())
@@ -294,7 +296,7 @@ public class ExternalCatalogService {
         return new CatalogDetail(displayItem,
                 b == null ? null : b.orig(),
                 b == null ? null : b.cn(),
-                b == null ? null : b.rating(),
+                (b != null && b.rating() != null) ? b.rating() : item.rating(),
                 b == null ? null : b.summary(),
                 b == null ? null : b.weekday(),
                 b == null ? null : b.airDate(),

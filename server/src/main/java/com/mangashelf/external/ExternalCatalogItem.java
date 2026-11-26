@@ -19,12 +19,24 @@ public record ExternalCatalogItem(
         UUID workId,
         Long bangumiSubjectId,
         Instant resourceUpdatedAt,
-        Instant syncedAt) {
+        Instant syncedAt,
+        Double rating,
+        String region) {
+
+    public ExternalCatalogItem(UUID id, UUID sourceId, long vodId, String name, String coverUrl,
+                               String remarks, int categoryId, String categoryName, String playFrom,
+                               String playGroups, int episodeCount, UUID workId, Long bangumiSubjectId,
+                               Instant resourceUpdatedAt, Instant syncedAt) {
+        this(id, sourceId, vodId, name, coverUrl, remarks, categoryId, categoryName,
+                playFrom, playGroups, episodeCount, workId, bangumiSubjectId, resourceUpdatedAt, syncedAt,
+                null, null);
+    }
 
     /** 返回封面重写后的副本（指向同源持久化封面缓存代理，避免前端直连慢外链）。 */
     public ExternalCatalogItem withCoverUrl(String rewrittenCoverUrl) {
         return new ExternalCatalogItem(
                 id, sourceId, vodId, name, rewrittenCoverUrl, remarks, categoryId, categoryName,
-                playFrom, playGroups, episodeCount, workId, bangumiSubjectId, resourceUpdatedAt, syncedAt);
+                playFrom, playGroups, episodeCount, workId, bangumiSubjectId, resourceUpdatedAt, syncedAt,
+                rating, region);
     }
 }

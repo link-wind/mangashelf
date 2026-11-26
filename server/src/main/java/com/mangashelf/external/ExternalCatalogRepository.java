@@ -37,12 +37,29 @@ public class ExternalCatalogRepository {
                                int categoryId, String categoryName, String playFrom, String playGroups,
                                int episodeCount, Instant resourceUpdatedAt,
                                List<String> tags, Integer releaseYear) {
+        CatalogRanking.RegionInfo reg = CatalogRanking.fromVodArea(null, categoryId, name, tags);
+        return upsert(sourceId, vodId, name, coverUrl, remarks, categoryId, categoryName,
+                playFrom, playGroups, episodeCount, resourceUpdatedAt, tags, releaseYear,
+                reg.region(), reg.confidence(), null, 0);
+    }
+
+    /** 单条 upsert（含题材标签、上映年份、地区置信度、源站评分与点击热度）。 */
+    public UpsertedItem upsert(UUID sourceId, long vodId, String name, String coverUrl, String remarks,
+                               int categoryId, String categoryName, String playFrom, String playGroups,
+                               int episodeCount, Instant resourceUpdatedAt,
+                               List<String> tags, Integer releaseYear,
+                               String region, int regionConfidence,
+                               Double sourceScore, int sourceHits) {
         List<String> cleanTags = TagNormalizer.normalize(tags);
+        String normRegion = CatalogRanking.normalizeRegionValue(region);
+        int regionRank = CatalogRanking.regionRank(normRegion);
+        int safeConf = CatalogRanking.REGION_UNKNOWN.equals(normRegion) ? 0 : Math.max(0, regionConfidence);
         return jdbc.queryForObject("""
                 INSERT INTO external_catalog_items
                     (id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
-                     play_from, play_groups, episode_count, resource_updated_at, tags, release_year)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+                     play_from, play_groups, episode_count, resource_updated_at, tags, release_year,
+                     region, region_rank, region_confidence, source_score, source_hits)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source_id, vod_id) DO UPDATE SET
                     name = EXCLUDED.name, cover_url = EXCLUDED.cover_url, remarks = EXCLUDED.remarks,
                     category_id = EXCLUDED.category_id, category_name = EXCLUDED.category_name,
@@ -51,6 +68,15 @@ public class ExternalCatalogRepository {
                     resource_updated_at = EXCLUDED.resource_updated_at,
                     tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE external_catalog_items.tags END,
                     release_year = COALESCE(EXCLUDED.release_year, external_catalog_items.release_year),
+                    region = CASE WHEN EXCLUDED.region_confidence >= external_catalog_items.region_confidence
+                                       AND EXCLUDED.region <> 'UNKNOWN'
+                                  THEN EXCLUDED.region ELSE external_catalog_items.region END,
+                    region_rank = CASE WHEN EXCLUDED.region_confidence >= external_catalog_items.region_confidence
+                                            AND EXCLUDED.region <> 'UNKNOWN'
+                                       THEN EXCLUDED.region_rank ELSE external_catalog_items.region_rank END,
+                    region_confidence = GREATEST(external_catalog_items.region_confidence, EXCLUDED.region_confidence),
+                    source_score = COALESCE(EXCLUDED.source_score, external_catalog_items.source_score),
+                    source_hits = GREATEST(external_catalog_items.source_hits, EXCLUDED.source_hits),
                     synced_at = now()
                 RETURNING id, work_id
                 """,
@@ -59,88 +85,114 @@ public class ExternalCatalogRepository {
                         rs.getObject("work_id", UUID.class)),
                 UUID.randomUUID(), sourceId, vodId, name, coverUrl, remarks, categoryId,
                 categoryName, playFrom, playGroups, episodeCount, JdbcTime.t(resourceUpdatedAt),
-                cleanTags.toArray(new String[0]), releaseYear);
+                cleanTags.toArray(new String[0]), releaseYear,
+                normRegion, regionRank, safeConf, sourceScore, Math.max(0, sourceHits));
     }
 
     /** 列表页精简投影：跳过平均 ~20KB/行的 play_groups 巨型 JSONB（详情接口 findItem 仍返回完整列）。 */
     private static final String LIST_COLUMNS = """
             e.id, e.source_id, e.vod_id, e.name, e.cover_url, e.remarks, e.category_id, e.category_name,
             e.play_from, '' AS play_groups, e.episode_count, e.work_id, e.bangumi_subject_id,
-            e.resource_updated_at, e.synced_at
+            e.resource_updated_at, e.synced_at,
+            COALESCE(e.external_rating, b.rating)::double precision AS rating,
+            e.region
             """;
 
     /**
-     * 目录分页（benchmark-db-and-hotspot-cache + revamp-discovery-search-index-and-nav）：
+     * 目录分页：
      * - 精简列投影消除列表页巨型 JSONB 传输与序列化放大；
-     * - genre 使用 tags @> ARRAY[?] 命中 bangumi_subjects GIN 索引；
-     * - 支持 year 筛选、rating/episodes/updated 排序以及统一的偏移页码分页（保留旧游标兼容）。
+     * - 支持 region（JP/CN/KR/OVERSEAS）、genre、year、status、season 筛选；
+     * - 支持 recommended（默认，严格地区分层 JP→CN→KR→OVERSEAS + 推荐分）、
+     *   rating（贝叶斯评分最高）、updated（按北京时间更新日降序 + 同日内地区分层）。
      */
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
                                           String status, String sort, String genre, Boolean season,
                                           Instant beforeUpdated, UUID beforeId,
                                           int offset, int limit) {
-        return page(sourceId, categoryId, q, status, sort, genre, season, null,
-                beforeUpdated, beforeId, "episodes".equals(sort) ? offset : null, limit);
+        return page(sourceId, categoryId, q, status, sort, genre, season, null, null,
+                beforeUpdated, beforeId, offset, limit);
     }
 
     public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
                                           String status, String sort, String genre, Boolean season,
                                           String year, Instant beforeUpdated, UUID beforeId,
                                           Integer offset, int limit) {
+        return page(sourceId, categoryId, q, status, sort, genre, season, year, null,
+                beforeUpdated, beforeId, offset, limit);
+    }
+
+    public List<ExternalCatalogItem> page(UUID sourceId, Integer categoryId, String q,
+                                          String status, String sort, String genre, Boolean season,
+                                          String year, String region, Instant beforeUpdated, UUID beforeId,
+                                          Integer offset, int limit) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
-        appendFilters(where, args, sourceId, categoryId, q, status, genre, season, year);
+        appendFilters(where, args, sourceId, categoryId, q, status, genre, season, year, region);
 
-        boolean byRating = "rating".equals(sort);
-        boolean byEpisodes = "episodes".equals(sort);
-        if (byRating) {
-            args.add(Math.max(offset == null ? 0 : offset, 0));
+        String effectiveSort = (sort == null || sort.isBlank()) ? "recommended" : sort.trim().toLowerCase();
+        boolean useCursor = offset == null && beforeUpdated != null && beforeId != null && "updated".equals(effectiveSort);
+        if (useCursor) {
+            where.append(" AND (COALESCE(e.resource_updated_at, e.synced_at), e.id) < (?, ?) ");
+            args.add(JdbcTime.t(beforeUpdated));
+            args.add(beforeId);
             args.add(limit);
             return jdbc.query("""
                     SELECT %s
                       FROM external_catalog_items e
                       LEFT JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id
                     %s
-                     ORDER BY b.rating DESC NULLS LAST,
-                              COALESCE(e.resource_updated_at, e.synced_at) DESC,
-                              e.id DESC
-                    OFFSET ? LIMIT ?
+                    ORDER BY COALESCE(e.resource_updated_at, e.synced_at) DESC, e.id DESC
+                    LIMIT ?
                     """.formatted(LIST_COLUMNS, where), mapper, args.toArray());
         }
-        if (byEpisodes || offset != null) {
-            String orderBy = byEpisodes
-                    ? " ORDER BY e.episode_count DESC, e.id DESC "
-                    : " ORDER BY COALESCE(e.resource_updated_at, e.synced_at) DESC, e.id DESC ";
-            args.add(Math.max(offset == null ? 0 : offset, 0));
-            args.add(limit);
-            return jdbc.query("""
-                    SELECT %s FROM external_catalog_items e
-                    %s
-                    %s
-                    OFFSET ? LIMIT ?
-                    """.formatted(LIST_COLUMNS, where, orderBy), mapper, args.toArray());
-        }
-        where.append(" AND (COALESCE(e.resource_updated_at, e.synced_at), e.id) < (?, ?) ");
-        args.add(JdbcTime.t(beforeUpdated));
-        args.add(beforeId);
+
+        String orderBy = switch (effectiveSort) {
+            case "rating" -> """
+                     ORDER BY e.bayesian_rating DESC NULLS LAST,
+                              e.region_rank ASC,
+                              e.recommend_score DESC,
+                              COALESCE(e.resource_updated_at, e.synced_at) DESC,
+                              e.id DESC
+                    """;
+            case "updated" -> """
+                     ORDER BY DATE(COALESCE(e.resource_updated_at, e.synced_at) AT TIME ZONE 'Asia/Shanghai') DESC,
+                              e.region_rank ASC,
+                              COALESCE(e.resource_updated_at, e.synced_at) DESC,
+                              e.id DESC
+                    """;
+            default -> """
+                     ORDER BY e.region_rank ASC,
+                              e.recommend_score DESC,
+                              COALESCE(e.resource_updated_at, e.synced_at) DESC,
+                              e.id DESC
+                    """;
+        };
+        args.add(Math.max(offset == null ? 0 : offset, 0));
         args.add(limit);
         return jdbc.query("""
-                SELECT %s FROM external_catalog_items e
+                SELECT %s
+                  FROM external_catalog_items e
+                  LEFT JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id
                 %s
-                ORDER BY COALESCE(e.resource_updated_at, e.synced_at) DESC, e.id DESC
-                LIMIT ?
-                """.formatted(LIST_COLUMNS, where), mapper, args.toArray());
+                %s
+                OFFSET ? LIMIT ?
+                """.formatted(LIST_COLUMNS, where, orderBy), mapper, args.toArray());
     }
 
     public long count(UUID sourceId, Integer categoryId, String status, String genre, Boolean season) {
-        return count(sourceId, categoryId, null, status, genre, season, null);
+        return count(sourceId, categoryId, null, status, genre, season, null, null);
     }
 
     public long count(UUID sourceId, Integer categoryId, String q,
                       String status, String genre, Boolean season, String year) {
+        return count(sourceId, categoryId, q, status, genre, season, year, null);
+    }
+
+    public long count(UUID sourceId, Integer categoryId, String q,
+                      String status, String genre, Boolean season, String year, String region) {
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new java.util.ArrayList<>();
-        appendFilters(where, args, sourceId, categoryId, q, status, genre, season, year);
+        appendFilters(where, args, sourceId, categoryId, q, status, genre, season, year, region);
         Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM external_catalog_items e %s".formatted(where), Long.class, args.toArray());
         return total == null ? 0L : total;
@@ -197,10 +249,15 @@ public class ExternalCatalogRepository {
 
     private static void appendFilters(StringBuilder where, List<Object> args,
                                       UUID sourceId, Integer categoryId, String q,
-                                      String status, String genre, Boolean season, String year) {
+                                      String status, String genre, Boolean season, String year, String region) {
         if (sourceId != null) {
             where.append(" AND e.source_id = ? ");
             args.add(sourceId);
+        }
+        String normRegion = CatalogRanking.normalizeRegionFilter(region);
+        if (normRegion != null) {
+            where.append(" AND e.region = ? ");
+            args.add(normRegion);
         }
         if (genre != null && !genre.isBlank()) {
             String[] aliases = TagNormalizer.aliasesFor(genre);
@@ -254,11 +311,14 @@ public class ExternalCatalogRepository {
 
     public Optional<ExternalCatalogItem> findItem(UUID id) {
         return jdbc.query("""
-                SELECT id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
-                       play_from, play_groups, episode_count, work_id, bangumi_subject_id,
-                       resource_updated_at, synced_at
-                  FROM external_catalog_items
-                 WHERE id = ?
+                SELECT e.id, e.source_id, e.vod_id, e.name, e.cover_url, e.remarks, e.category_id, e.category_name,
+                       e.play_from, e.play_groups, e.episode_count, e.work_id, e.bangumi_subject_id,
+                       e.resource_updated_at, e.synced_at,
+                       COALESCE(e.external_rating, b.rating)::double precision AS rating,
+                       e.region
+                  FROM external_catalog_items e
+                  LEFT JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id
+                 WHERE e.id = ?
                 """, mapper, id).stream().findFirst();
     }
 

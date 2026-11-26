@@ -34,15 +34,24 @@ public class CatalogSyncHandler implements JobHandler {
     private final CatalogItemWriter itemWriter;
     private final ObjectMapper objectMapper;
     private final HotspotCache hotspotCache;
+    private final CatalogRankingService rankingService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(HTTP_TIMEOUT).build();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public CatalogSyncHandler(ExternalRepository externals, CatalogItemWriter itemWriter,
-                              ObjectMapper objectMapper, HotspotCache hotspotCache) {
+                              ObjectMapper objectMapper, HotspotCache hotspotCache,
+                              CatalogRankingService rankingService) {
         this.externals = externals;
         this.itemWriter = itemWriter;
         this.objectMapper = objectMapper;
         this.hotspotCache = hotspotCache;
+        this.rankingService = rankingService;
+    }
+
+    public CatalogSyncHandler(ExternalRepository externals, CatalogItemWriter itemWriter,
+                              ObjectMapper objectMapper, HotspotCache hotspotCache) {
+        this(externals, itemWriter, objectMapper, hotspotCache, null);
     }
 
     @Override
@@ -72,6 +81,13 @@ public class CatalogSyncHandler implements JobHandler {
             }
             for (JsonNode c : cats) {
                 total += syncCategory(ctx, source, c.asInt(), c.asText());
+            }
+        }
+        if (rankingService != null) {
+            try {
+                rankingService.recomputeAnimeScores();
+            } catch (Exception e) {
+                log.warn("recompute anime scores after sync failed: {}", e.getMessage());
             }
         }
         hotspotCache.invalidatePrefix("catalog-");

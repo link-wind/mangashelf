@@ -55,15 +55,21 @@ public class CatalogItemWriter {
         }
         String groupsJson = groups.toString();
         String remarks = v.path("vod_remarks").asText("");
+        String name = v.path("vod_name").asText();
+        int categoryId = v.path("type_id").asInt();
         List<String> tags = TagNormalizer.parseDelimited(
                 v.path("vod_class").asText(""),
                 v.path("vod_tag").asText(""));
         Integer releaseYear = TagNormalizer.parseYear(v.path("vod_year").asText(""));
-        var upserted = catalogItems.upsert(sourceId, v.path("vod_id").asLong(), v.path("vod_name").asText(),
+        CatalogRanking.RegionInfo region = CatalogRanking.fromVodArea(
+                v.path("vod_area").asText(""), categoryId, name, tags);
+        Double sourceScore = CatalogRanking.parseVodScore(v);
+        int sourceHits = CatalogRanking.parseVodHits(v);
+        var upserted = catalogItems.upsert(sourceId, v.path("vod_id").asLong(), name,
                 v.path("vod_pic").asText(""), remarks,
-                v.path("type_id").asInt(), v.path("type_name").asText(""),
+                categoryId, v.path("type_name").asText(""),
                 playFrom, groupsJson, episodeCount, parseTime(v.path("vod_time").asText("")),
-                tags, releaseYear);
+                tags, releaseYear, region.region(), region.confidence(), sourceScore, sourceHits);
         if (externals != null && upserted != null) {
             syncExistingEpisodesIfNeeded(sourceId, upserted, groupsJson, remarks);
         }

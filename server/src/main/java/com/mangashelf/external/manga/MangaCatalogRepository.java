@@ -1,5 +1,6 @@
 package com.mangashelf.external.manga;
 
+import com.mangashelf.external.CatalogRanking;
 import com.mangashelf.external.TagNormalizer;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,7 +17,8 @@ import java.util.UUID;
  * 漫画目录（manga-catalog-sync）：全量/渐进式同步的条目，按 (source, source_item_id) 唯一。
  * 全源查询（source 为空/all）按归一化 title_key（繁转简 + 去标点括号）跨源去重：
  * - 底层保留各源记录（多线路不丢失）；
- * - 索引展示按阅读完整度优选主源（copymanga > tencent > bilibili），并取跨源标签并集与最高话数。
+ * - 索引展示按阅读完整度优选主源（copymanga > tencent > bilibili），并取跨源标签并集、最高置信度地区、
+ *   最高真实评分与最高推荐分。
  */
 @Repository
 public class MangaCatalogRepository {
@@ -42,11 +44,25 @@ public class MangaCatalogRepository {
                           COALESCE(episode_count, NULLIF(substring(remarks FROM '([0-9]+)'), '')::int, 0) DESC,
                           synced_at DESC
             ),
+            best_reg AS (
+                SELECT DISTINCT ON (%1$s)
+                       %1$s AS group_key,
+                       region, region_rank
+                  FROM manga_catalog_items
+                 ORDER BY %1$s,
+                          region_confidence DESC,
+                          region_rank ASC,
+                          synced_at DESC
+            ),
             agg AS (
                 SELECT %2$s AS group_key,
                        COALESCE(array_agg(DISTINCT u.t ORDER BY u.t) FILTER (WHERE u.t IS NOT NULL AND u.t <> ''), '{}'::text[]) AS tags,
                        MAX(COALESCE(m.episode_count, NULLIF(substring(m.remarks FROM '([0-9]+)'), '')::int)) AS best_ep,
-                       MAX(NULLIF(m.remarks, '')) AS best_remarks
+                       MAX(NULLIF(m.remarks, '')) AS best_remarks,
+                       MAX(m.rating) AS best_rating,
+                       MAX(m.bayesian_rating) AS best_bayesian_rating,
+                       MAX(m.recommend_score) AS best_recommend_score,
+                       MAX(m.synced_at) AS latest_synced_at
                   FROM manga_catalog_items m
                   LEFT JOIN LATERAL unnest(m.tags) AS u(t) ON TRUE
                  GROUP BY 1
@@ -56,8 +72,14 @@ public class MangaCatalogRepository {
                        COALESCE(NULLIF(b.remarks, ''), a.best_remarks, '') AS remarks,
                        a.tags,
                        COALESCE(b.episode_count, a.best_ep) AS episode_count,
-                       b.synced_at, b.first_seen_at, b.title_key
+                       a.latest_synced_at AS synced_at,
+                       b.first_seen_at, b.title_key,
+                       br.region, br.region_rank,
+                       a.best_rating::double precision AS rating,
+                       a.best_bayesian_rating AS bayesian_rating,
+                       a.best_recommend_score AS recommend_score
                   FROM base b
+                  JOIN best_reg br ON br.group_key = b.group_key
                   JOIN agg a ON a.group_key = b.group_key
             )
             """.formatted(GROUP_KEY_EXPR, GROUP_KEY_EXPR_M);
@@ -68,13 +90,16 @@ public class MangaCatalogRepository {
         var array = rs.getArray("tags");
         List<String> tags = array == null ? List.of()
                 : List.of((String[]) array.getArray());
+        Number ratingNum = (Number) rs.getObject("rating");
+        Double rating = ratingNum == null ? null : ratingNum.doubleValue();
         return new MangaCatalogItem(
                 rs.getObject("id", UUID.class), rs.getString("source"),
                 rs.getString("source_item_id"), rs.getString("name"),
                 rs.getString("alt_title"), rs.getString("cover_url"), rs.getString("remarks"),
                 tags, (Integer) rs.getObject("episode_count"),
                 rs.getObject("synced_at", OffsetDateTime.class).toInstant(),
-                rs.getObject("first_seen_at", OffsetDateTime.class).toInstant());
+                rs.getObject("first_seen_at", OffsetDateTime.class).toInstant(),
+                rating, rs.getString("region"));
     };
 
     public MangaCatalogRepository(JdbcTemplate jdbc) {
@@ -100,16 +125,30 @@ public class MangaCatalogRepository {
         return source != null && !source.isBlank() && !"all".equalsIgnoreCase(source);
     }
 
-    /** upsert：新条目记录 first_seen_at；已存在时增量合并非空字段，题材标签做去重并集累加，同时更新繁简归一化 title_key。 */
+    /** upsert（基础重载）：使用源默认地区先验，不覆盖已有高置信度地区与热度。 */
     public void upsert(UUID id, String source, String sourceItemId, String name, String altTitle,
                        String coverUrl, String remarks, List<String> tags, Integer episodeCount) {
+        CatalogRanking.RegionInfo reg = CatalogRanking.defaultMangaRegionForSource(source);
+        upsert(id, source, sourceItemId, name, altTitle, coverUrl, remarks, tags, episodeCount,
+                reg.region(), reg.confidence(), 0.0);
+    }
+
+    /** upsert（含地区置信度与源站归一化人气分）：高置信度地区不被低置信度覆盖，热度取历史最大值。 */
+    public void upsert(UUID id, String source, String sourceItemId, String name, String altTitle,
+                       String coverUrl, String remarks, List<String> tags, Integer episodeCount,
+                       String region, int regionConfidence, double popularityScore) {
         List<String> cleanTags = TagNormalizer.normalize(tags);
         Integer resolvedEpisodes = resolveEpisodeCount(episodeCount, remarks);
         String titleKey = MangaMatcher.titleKey(name, source, sourceItemId);
+        String normRegion = CatalogRanking.normalizeRegionValue(region);
+        int regionRank = CatalogRanking.regionRank(normRegion);
+        int safeConf = CatalogRanking.REGION_UNKNOWN.equals(normRegion) ? 0 : Math.max(0, regionConfidence);
+        double safePop = Math.min(100.0, Math.max(0.0, popularityScore));
         jdbc.update("""
                 INSERT INTO manga_catalog_items
-                    (id, source, source_item_id, name, alt_title, cover_url, remarks, tags, episode_count, title_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, source, source_item_id, name, alt_title, cover_url, remarks, tags, episode_count, title_key,
+                     region, region_rank, region_confidence, popularity_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (source, source_item_id) DO UPDATE SET
                     name = EXCLUDED.name,
                     alt_title = CASE WHEN EXCLUDED.alt_title <> '' THEN EXCLUDED.alt_title ELSE manga_catalog_items.alt_title END,
@@ -123,70 +162,120 @@ public class MangaCatalogRepository {
                     episode_count = GREATEST(COALESCE(EXCLUDED.episode_count, 0), COALESCE(manga_catalog_items.episode_count, 0))
                         * CASE WHEN EXCLUDED.episode_count IS NULL AND manga_catalog_items.episode_count IS NULL THEN NULL ELSE 1 END,
                     title_key = CASE WHEN EXCLUDED.title_key <> '' THEN EXCLUDED.title_key ELSE manga_catalog_items.title_key END,
+                    region = CASE WHEN EXCLUDED.region_confidence >= manga_catalog_items.region_confidence
+                                       AND EXCLUDED.region <> 'UNKNOWN'
+                                  THEN EXCLUDED.region ELSE manga_catalog_items.region END,
+                    region_rank = CASE WHEN EXCLUDED.region_confidence >= manga_catalog_items.region_confidence
+                                            AND EXCLUDED.region <> 'UNKNOWN'
+                                       THEN EXCLUDED.region_rank ELSE manga_catalog_items.region_rank END,
+                    region_confidence = GREATEST(manga_catalog_items.region_confidence, EXCLUDED.region_confidence),
+                    popularity_score = GREATEST(manga_catalog_items.popularity_score, EXCLUDED.popularity_score),
                     synced_at = now()
                 """, id, source, sourceItemId, name, altTitle == null ? "" : altTitle,
                 coverUrl == null ? "" : coverUrl, remarks == null ? "" : remarks,
-                cleanTags.toArray(new String[0]), resolvedEpisodes, titleKey);
+                cleanTags.toArray(new String[0]), resolvedEpisodes, titleKey,
+                normRegion, regionRank, safeConf, safePop);
     }
 
     public record MangaCatalogItem(UUID id, String source, String sourceItemId, String name,
                                    String altTitle, String coverUrl, String remarks,
                                    List<String> tags, Integer episodeCount,
-                                   Instant syncedAt, Instant firstSeenAt) {}
+                                   Instant syncedAt, Instant firstSeenAt,
+                                   Double rating, String region) {
+        public MangaCatalogItem(UUID id, String source, String sourceItemId, String name,
+                                String altTitle, String coverUrl, String remarks,
+                                List<String> tags, Integer episodeCount,
+                                Instant syncedAt, Instant firstSeenAt) {
+            this(id, source, sourceItemId, name, altTitle, coverUrl, remarks,
+                    tags, episodeCount, syncedAt, firstSeenAt, null, null);
+        }
+    }
 
-    /** 索引页分页：单源直查，全源按 title_key 跨源去重选主卡并合并标签。 */
+    /** 索引页分页：单源直查，全源按 title_key 跨源去重选主卡并合并标签、地区与评分。 */
     public List<MangaCatalogItem> page(String source, String genre, String status, String q,
                                        Instant beforeSynced, UUID beforeId, int limit) {
-        return page(source, genre, status, q, "updated", beforeSynced, beforeId, null, limit);
+        return page(source, genre, status, q, null, "updated", beforeSynced, beforeId, null, limit);
     }
 
     public List<MangaCatalogItem> page(String source, String genre, String status, String q,
                                        String sort, Instant beforeSynced, UUID beforeId,
                                        Integer offset, int limit) {
+        return page(source, genre, status, q, null, sort, beforeSynced, beforeId, offset, limit);
+    }
+
+    public List<MangaCatalogItem> page(String source, String genre, String status, String q,
+                                       String region, String sort, Instant beforeSynced, UUID beforeId,
+                                       Integer offset, int limit) {
         boolean singleSource = isSingleSource(source);
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new ArrayList<>();
-        appendFilters(where, args, singleSource ? source : null, genre, status, q);
-        boolean byEpisodes = "episodes".equals(sort);
+        appendFilters(where, args, singleSource ? source : null, genre, status, q, region);
+        String effectiveSort = (sort == null || sort.isBlank()) ? "recommended" : sort.trim().toLowerCase();
         String prefix = singleSource ? "" : DEDUP_CTE;
         String table = singleSource ? "manga_catalog_items" : "deduped";
+        String ratingCol = singleSource ? "rating::double precision AS rating" : "rating";
 
-        if (offset != null || byEpisodes) {
-            String orderBy = byEpisodes
-                    ? " ORDER BY COALESCE(episode_count, NULLIF(substring(remarks FROM '([0-9]+)'), '')::int, 0) DESC, synced_at DESC, id DESC "
-                    : " ORDER BY synced_at DESC, id DESC ";
-            args.add(Math.max(offset == null ? 0 : offset, 0));
+        boolean useCursor = offset == null && beforeSynced != null && beforeId != null && "updated".equals(effectiveSort);
+        if (useCursor) {
+            where.append(" AND (synced_at, id) < (?, ?) ");
+            args.add(OffsetDateTime.ofInstant(beforeSynced, java.time.ZoneOffset.UTC));
+            args.add(beforeId);
             args.add(limit);
             return jdbc.query("""
                     %s
                     SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
-                           tags, episode_count, synced_at, first_seen_at
+                           tags, episode_count, synced_at, first_seen_at, %s, region
                       FROM %s
                     %s
-                    %s
-                    OFFSET ? LIMIT ?
-                    """.formatted(prefix, table, where, orderBy), mapper, args.toArray());
+                    ORDER BY synced_at DESC, id DESC
+                    LIMIT ?
+                    """.formatted(prefix, ratingCol, table, where), mapper, args.toArray());
         }
-        where.append(" AND (synced_at, id) < (?, ?) ");
-        args.add(OffsetDateTime.ofInstant(beforeSynced, java.time.ZoneOffset.UTC));
-        args.add(beforeId);
+
+        String orderBy = switch (effectiveSort) {
+            case "rating" -> """
+                     ORDER BY bayesian_rating DESC NULLS LAST,
+                              region_rank ASC,
+                              recommend_score DESC,
+                              synced_at DESC,
+                              id DESC
+                    """;
+            case "updated" -> """
+                     ORDER BY DATE(synced_at AT TIME ZONE 'Asia/Shanghai') DESC,
+                              region_rank ASC,
+                              synced_at DESC,
+                              id DESC
+                    """;
+            default -> """
+                     ORDER BY region_rank ASC,
+                              recommend_score DESC,
+                              synced_at DESC,
+                              id DESC
+                    """;
+        };
+        args.add(Math.max(offset == null ? 0 : offset, 0));
         args.add(limit);
         return jdbc.query("""
                 %s
                 SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
-                       tags, episode_count, synced_at, first_seen_at
+                       tags, episode_count, synced_at, first_seen_at, %s, region
                   FROM %s
                 %s
-                ORDER BY synced_at DESC, id DESC
-                LIMIT ?
-                """.formatted(prefix, table, where), mapper, args.toArray());
+                %s
+                OFFSET ? LIMIT ?
+                """.formatted(prefix, ratingCol, table, where, orderBy), mapper, args.toArray());
     }
 
     public long count(String source, String genre, String status, String q) {
+        return count(source, genre, status, q, null);
+    }
+
+    public long count(String source, String genre, String status, String q, String region) {
         boolean singleSource = isSingleSource(source);
         boolean hasFilter = (genre != null && !genre.isBlank())
                 || (status != null && !status.isBlank())
-                || (q != null && !q.isBlank());
+                || (q != null && !q.isBlank())
+                || (region != null && !region.isBlank());
         if (!singleSource && !hasFilter) {
             Long total = jdbc.queryForObject(
                     "SELECT count(DISTINCT %s) FROM manga_catalog_items".formatted(GROUP_KEY_EXPR),
@@ -195,7 +284,7 @@ public class MangaCatalogRepository {
         }
         StringBuilder where = new StringBuilder(" WHERE TRUE ");
         List<Object> args = new ArrayList<>();
-        appendFilters(where, args, singleSource ? source : null, genre, status, q);
+        appendFilters(where, args, singleSource ? source : null, genre, status, q, region);
         String prefix = singleSource ? "" : DEDUP_CTE;
         String table = singleSource ? "manga_catalog_items" : "deduped";
         Long total = jdbc.queryForObject(
@@ -215,7 +304,8 @@ public class MangaCatalogRepository {
         String escapedKey = escapeLike(normKey);
         StringBuilder sql = new StringBuilder("""
                 SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
-                       tags, episode_count, synced_at, first_seen_at
+                       tags, episode_count, synced_at, first_seen_at,
+                       rating::double precision AS rating, region
                   FROM manga_catalog_items
                  WHERE (name ILIKE ? ESCAPE '\\' OR alt_title ILIKE ? ESCAPE '\\'
                 """);
@@ -237,6 +327,8 @@ public class MangaCatalogRepository {
                             WHEN name ILIKE ? ESCAPE '\\' THEN 1
                             ELSE 2
                           END,
+                          region_rank ASC,
+                          recommend_score DESC,
                           synced_at DESC
                  LIMIT ?
                 """);
@@ -251,18 +343,24 @@ public class MangaCatalogRepository {
     public List<MangaCatalogItem> recent(int limit) {
         return jdbc.query("""
                 SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
-                       tags, episode_count, synced_at, first_seen_at
+                       tags, episode_count, synced_at, first_seen_at,
+                       rating::double precision AS rating, region
                   FROM manga_catalog_items
-                 ORDER BY synced_at DESC, id DESC
+                 ORDER BY region_rank ASC, recommend_score DESC, synced_at DESC, id DESC
                  LIMIT ?
                 """, mapper, Math.min(Math.max(limit, 1), 300));
     }
 
     private static void appendFilters(StringBuilder where, List<Object> args,
-                                      String source, String genre, String status, String q) {
+                                      String source, String genre, String status, String q, String region) {
         if (source != null && !source.isBlank() && !"all".equalsIgnoreCase(source)) {
             where.append(" AND source = ? ");
             args.add(source);
+        }
+        String normRegion = CatalogRanking.normalizeRegionFilter(region);
+        if (normRegion != null) {
+            where.append(" AND region = ? ");
+            args.add(normRegion);
         }
         if (genre != null && !genre.isBlank()) {
             where.append(" AND tags && ?::text[] ");
@@ -353,7 +451,8 @@ public class MangaCatalogRepository {
     public Optional<MangaCatalogItem> find(String source, String sourceItemId) {
         return jdbc.query("""
                 SELECT id, source, source_item_id, name, alt_title, cover_url, remarks,
-                       tags, episode_count, synced_at, first_seen_at
+                       tags, episode_count, synced_at, first_seen_at,
+                       rating::double precision AS rating, region
                   FROM manga_catalog_items
                  WHERE source = ? AND source_item_id = ?
                 """, mapper, source, sourceItemId).stream().findFirst();

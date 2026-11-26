@@ -1,5 +1,7 @@
 package com.mangashelf.external.manga;
 
+import com.mangashelf.external.CatalogRanking;
+import com.mangashelf.external.CatalogRankingService;
 import com.mangashelf.external.TagNormalizer;
 import com.mangashelf.ingestion.Job;
 import com.mangashelf.ingestion.JobContext;
@@ -149,6 +151,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
     private final BilibiliHttpClient bilibiliClient;
     private final String copyMangaProxy;
     private final Sleeper sleeper;
+    private final CatalogRankingService rankingService;
 
     /** 可注入的休眠（测试跳过真实等待）。 */
     interface Sleeper {
@@ -158,24 +161,33 @@ public class MangaCatalogSyncHandler implements JobHandler {
     @Autowired
     public MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
                                    ObjectMapper objectMapper, BilibiliHttpClient bilibiliClient,
-                                   @Value("${mangashelf.copymanga.proxy:}") String copyMangaProxy) {
-        this(registry, catalog, objectMapper, bilibiliClient, copyMangaProxy, Thread::sleep);
+                                   @Value("${mangashelf.copymanga.proxy:}") String copyMangaProxy,
+                                   CatalogRankingService rankingService) {
+        this(registry, catalog, objectMapper, bilibiliClient, copyMangaProxy, Thread::sleep, rankingService);
     }
 
     MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
                             ObjectMapper objectMapper, Sleeper sleeper) {
-        this(registry, catalog, objectMapper, null, "", sleeper);
+        this(registry, catalog, objectMapper, null, "", sleeper, null);
     }
 
     MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
                             ObjectMapper objectMapper, BilibiliHttpClient bilibiliClient,
                             String copyMangaProxy, Sleeper sleeper) {
+        this(registry, catalog, objectMapper, bilibiliClient, copyMangaProxy, sleeper, null);
+    }
+
+    MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
+                            ObjectMapper objectMapper, BilibiliHttpClient bilibiliClient,
+                            String copyMangaProxy, Sleeper sleeper,
+                            CatalogRankingService rankingService) {
         this.registry = registry;
         this.catalog = catalog;
         this.objectMapper = objectMapper;
         this.bilibiliClient = bilibiliClient;
         this.copyMangaProxy = copyMangaProxy == null ? "" : copyMangaProxy.trim();
         this.sleeper = sleeper;
+        this.rankingService = rankingService;
     }
 
     @Override
@@ -204,6 +216,13 @@ public class MangaCatalogSyncHandler implements JobHandler {
                 yield syncProgressive(ctx, source);
             }
         };
+        if (rankingService != null) {
+            try {
+                rankingService.recomputeMangaScores();
+            } catch (Exception e) {
+                log.warn("recompute manga scores after sync failed: {}", e.getMessage());
+            }
+        }
         log.info("manga catalog sync {}: {} items", sourceId, saved);
         return JobResult.success("synced:" + saved);
     }
@@ -246,7 +265,13 @@ public class MangaCatalogSyncHandler implements JobHandler {
                         String author = joinNames(item.path("author"));
                         String cover = item.path("cover").asText("").replaceFirst("\\.\\d+x\\d+\\.jpg$", "");
                         String remarks = item.path("status").path("display").asText("");
-                        catalog.upsert(UUID.randomUUID(), "copymanga", id, name, author, cover, remarks, tags, null);
+                        CatalogRanking.RegionInfo region = CatalogRanking.fromCopyMangaItem(item, name, tags);
+                        double popScore = CatalogRanking.popularityFromCopyPopular(item.path("popular").asLong(0));
+                        if (popScore <= 0.0) {
+                            popScore = CatalogRanking.popularityFromRank(offset + count, pagesPerTheme * COPY_PAGE_SIZE);
+                        }
+                        catalog.upsert(UUID.randomUUID(), "copymanga", id, name, author, cover, remarks, tags, null,
+                                region.region(), region.confidence(), popScore);
                         saved++;
                         count++;
                     }
@@ -333,7 +358,9 @@ public class MangaCatalogSyncHandler implements JobHandler {
                 .build();
     }
 
-    // ── 哔哩哔哩漫画（ClassPage 全站热度 + 官方 15 题材）──
+    // ── 哔哩哔哩漫画（ClassPage 分地区官方热度 + 官方 15 题材）──
+
+    static final int[] BILI_AREAS = {2, 1, 6, 5}; // 2=日本, 1=大陆, 6=韩国, 5=其他
 
     private int syncBilibili(JobContext ctx, Integer maxPagesOverride) throws Exception {
         if (bilibiliClient == null) {
@@ -342,25 +369,31 @@ public class MangaCatalogSyncHandler implements JobHandler {
         int hotPages = maxPagesOverride != null
                 ? Math.min(Math.max(maxPagesOverride, 1), 150)
                 : BILI_DEFAULT_HOT_PAGES;
+        int pagesPerArea = Math.max(10, hotPages / 2);
         int saved = 0;
 
-        // 阶段 1：全站热度榜翻页
-        for (int page = 1; page <= hotPages; page++) {
-            if (page == 1 || page % 10 == 0) {
-                ctx.progress().emit("sync", "哔哩全站热度 页 " + page + "/" + hotPages);
-            }
-            try {
-                JsonNode list = bilibiliClient.classPage(-1, page, BILI_PAGE_SIZE);
-                int count = upsertBiliPage(list, null);
-                saved += count;
-                if (count < BILI_PAGE_SIZE) break;
-                sleeper.sleep(BILI_PAGE_SLEEP_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw e;
-            } catch (Exception e) {
-                log.warn("bilibili hot page {} failed: {}", page, e.getMessage());
-                break;
+        // 阶段 1：按官方 area_id 分地区抓取（每条精确获得 JP/CN/KR/OVERSEAS 置信度 30 与热度排位分）
+        for (int areaId : BILI_AREAS) {
+            CatalogRanking.RegionInfo areaReg = CatalogRanking.fromBilibiliAreaId(areaId);
+            int limitPages = areaId == 5 ? Math.min(pagesPerArea, 15) : pagesPerArea;
+            for (int page = 1; page <= limitPages; page++) {
+                if (page == 1 || page % 10 == 0) {
+                    ctx.progress().emit("sync", "哔哩地区 " + areaReg.region() + " 页 " + page + "/" + limitPages);
+                }
+                try {
+                    JsonNode list = bilibiliClient.classPage(-1, areaId, page, BILI_PAGE_SIZE);
+                    int baseRank = (page - 1) * BILI_PAGE_SIZE;
+                    int count = upsertBiliPage(list, null, areaReg, baseRank, limitPages * BILI_PAGE_SIZE);
+                    saved += count;
+                    if (count < BILI_PAGE_SIZE) break;
+                    sleeper.sleep(BILI_PAGE_SLEEP_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                } catch (Exception e) {
+                    log.warn("bilibili area {} page {} failed: {}", areaId, page, e.getMessage());
+                    break;
+                }
             }
         }
 
@@ -370,8 +403,8 @@ public class MangaCatalogSyncHandler implements JobHandler {
             ctx.progress().emit("sync", "哔哩题材 " + style.name() + "（" + (si + 1) + "/" + BILI_STYLES.size() + "）");
             try {
                 for (int page = 1; page <= BILI_STYLE_PAGES; page++) {
-                    JsonNode list = bilibiliClient.classPage(style.id(), page, BILI_PAGE_SIZE);
-                    int count = upsertBiliPage(list, style.name());
+                    JsonNode list = bilibiliClient.classPage(style.id(), -1, page, BILI_PAGE_SIZE);
+                    int count = upsertBiliPage(list, style.name(), null, -1, 0);
                     saved += count;
                     if (count < BILI_PAGE_SIZE) break;
                     sleeper.sleep(BILI_PAGE_SLEEP_MS);
@@ -386,7 +419,8 @@ public class MangaCatalogSyncHandler implements JobHandler {
         return saved;
     }
 
-    private int upsertBiliPage(JsonNode list, String extraStyleTag) {
+    private int upsertBiliPage(JsonNode list, String extraStyleTag,
+                               CatalogRanking.RegionInfo areaRegion, int baseRank, int horizon) {
         if (list == null || !list.isArray()) return 0;
         int count = 0;
         for (JsonNode c : list) {
@@ -419,7 +453,12 @@ public class MangaCatalogSyncHandler implements JobHandler {
                 if (!t.isBlank()) tags.add(t);
             });
             String author = joinNames(c.path("author"));
-            catalog.upsert(UUID.randomUUID(), "bilibili", id, title, author, cover, remarks, tags, epCount);
+            CatalogRanking.RegionInfo reg = areaRegion != null
+                    ? areaRegion
+                    : CatalogRanking.RegionInfo.of(CatalogRanking.REGION_UNKNOWN, CatalogRanking.CONF_NONE);
+            double popScore = baseRank >= 0 ? CatalogRanking.popularityFromRank(baseRank + count, horizon) : 0.0;
+            catalog.upsert(UUID.randomUUID(), "bilibili", id, title, author, cover, remarks, tags, epCount,
+                    reg.region(), reg.confidence(), popScore);
             count++;
         }
         return count;
@@ -444,7 +483,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
             try {
                 for (int page = 1; page <= themePages; page++) {
                     String url = String.format(TENCENT_THEME_URL, theme.id(), page);
-                    int n = fetchAndUpsertTencentPage(client, url, theme.name());
+                    int n = fetchAndUpsertTencentPage(client, url, theme.name(), -1, 0);
                     saved += n;
                     if (n == 0) break;
                     sleeper.sleep(TENCENT_PAGE_SLEEP_MS);
@@ -467,7 +506,8 @@ public class MangaCatalogSyncHandler implements JobHandler {
             }
             try {
                 String url = String.format(TENCENT_ALL_HOT_URL, page);
-                int n = fetchAndUpsertTencentPage(client, url, null);
+                int baseRank = (page - 1) * 12;
+                int n = fetchAndUpsertTencentPage(client, url, null, baseRank, hotPages * 12);
                 saved += n;
                 if (n == 0) break;
                 sleeper.sleep(TENCENT_PAGE_SLEEP_MS);
@@ -485,7 +525,8 @@ public class MangaCatalogSyncHandler implements JobHandler {
         return saved;
     }
 
-    private int fetchAndUpsertTencentPage(HttpClient client, String url, String themeName) throws Exception {
+    private int fetchAndUpsertTencentPage(HttpClient client, String url, String themeName,
+                                          int baseRank, int horizon) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))
                 .header("User-Agent", WEB_UA)
@@ -498,9 +539,12 @@ public class MangaCatalogSyncHandler implements JobHandler {
             return 0;
         }
         List<ParsedTencentItem> items = parseTencentListPage(resp.body(), themeName);
-        for (ParsedTencentItem item : items) {
+        for (int idx = 0; idx < items.size(); idx++) {
+            ParsedTencentItem item = items.get(idx);
+            double popScore = baseRank >= 0 ? CatalogRanking.popularityFromRank(baseRank + idx, horizon) : 0.0;
             catalog.upsert(UUID.randomUUID(), "tencent", item.id(), item.title(),
-                    item.author(), item.coverUrl(), item.remarks(), item.tags(), null);
+                    item.author(), item.coverUrl(), item.remarks(), item.tags(), null,
+                    CatalogRanking.REGION_CN, CatalogRanking.CONF_PRIOR, popScore);
         }
         return items.size();
     }
