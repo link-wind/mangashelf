@@ -107,7 +107,6 @@ function Nav() {
         <NavLink to="/" className="brand" title={`${BRAND_NAME} · ${BRAND_NAME_ZH}`}>
           <BrandLogo size={30} />
           <span className="brand-text">{BRAND_NAME}</span>
-          <span className="brand-zh">{BRAND_NAME_ZH}</span>
         </NavLink>
         <nav aria-label="主导航">
           {NAV_ENTRIES.map(e => (
@@ -289,7 +288,6 @@ function Footer() {
           <span className="brand">
             <BrandLogo size={26} />
             <span>{BRAND_NAME}</span>
-            <span className="brand-zh">{BRAND_NAME_ZH}</span>
           </span>
           <p className="muted">杰米猫 · 私人番剧与漫画空间 · 简洁无广告</p>
         </div>
