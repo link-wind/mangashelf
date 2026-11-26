@@ -4,7 +4,9 @@ import { api } from '../api'
 import { useAuth } from '../auth'
 import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
-import { BookOpenIcon, HeartIcon } from '../components/Icons'
+import {
+  BookOpenIcon, CalendarIcon, CheckCircleIcon, HeartIcon, LayersIcon, TagIcon,
+} from '../components/Icons'
 import { useToast } from '../components/Toast'
 import { hdCover } from '../externalManga'
 import { formatMangaLine } from '../lineLabel'
@@ -66,7 +68,6 @@ export default function ExternalMangaDetail() {
   const [asc, setAsc] = useState(true)
   const [chunkIdx, setChunkIdx] = useState(0)
   const [showAllBiliChapters, setShowAllBiliChapters] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [resume, setResume] = useState<{ chapterId: string; page: number } | null>(null)
@@ -221,7 +222,9 @@ export default function ExternalMangaDetail() {
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
   const cleanTags = (manga.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 12).slice(0, 8)
-  const statusLabel = manga.status?.includes('完结') ? '已完结' : (manga.status || '连载中')
+  const isCompleted = Boolean(manga.status?.includes('完结'))
+  const statusLabel = isCompleted ? '已完结' : (manga.status || '连载中')
+  const totalLines = switchSources.length + 1
 
   const open = (c: ExtChapter) =>
     navigate(`/manga-ext/read/${c.id}?mangaId=${manga.id}&lang=${lang}&source=${source}` +
@@ -229,111 +232,194 @@ export default function ExternalMangaDetail() {
 
   return (
     <main className="watch-page">
-      {/* 面包屑 */}
-      <nav className="breadcrumb" aria-label="面包屑">
-        <Link to="/manga">漫画</Link>
-        <span>/</span>
-        <Link to="/index?kind=manga">索引</Link>
-        <span>/</span>
-        <span className="breadcrumb-cur">{manga.title}</span>
-      </nav>
+      {/* 面包屑 + 状态胶囊 */}
+      <div className="detail-crumb-row">
+        <nav className="breadcrumb" aria-label="面包屑">
+          <Link to="/manga">漫画</Link>
+          <span>/</span>
+          <Link to="/index?kind=manga">索引</Link>
+          <span>/</span>
+          <span className="breadcrumb-cur">{manga.title}</span>
+        </nav>
+        <div className="detail-crumb-pills">
+          {readable.length > 0 && (
+            <span className="detail-crumb-pill is-live tabular-nums">
+              <span className="detail-crumb-dot" aria-hidden="true" />
+              共 {readable.length} 话可阅读
+            </span>
+          )}
+          <span className="detail-crumb-pill">{statusLabel}</span>
+        </div>
+      </div>
 
       {/* 吸顶分区锚点条 */}
       <div className="detail-anchor-bar">
-        <a href="#overview" className="mini ghost btn">简介</a>
+        <a href="#overview" className="mini btn active-anchor">总览介绍</a>
+        <a href="#synopsis" className="mini ghost btn">剧情简介</a>
         <a href="#chapters" className="mini ghost btn">章节目录</a>
         {recommended.length > 0 && <a href="#recommend" className="mini ghost btn">更多推荐</a>}
       </div>
 
-      {/* gugufan 式总览头卡：左侧放大竖版大海报 + 柔和氛围背景 + 右侧结构化信息 */}
-      <section id="overview" className="detail-hero card">
-        {hdCover(manga.coverUrl) && (
-          <div className="detail-hero-bg" style={{ backgroundImage: `url(${hdCover(manga.coverUrl)})` }} aria-hidden="true" />
-        )}
-        <div className="detail-cover-col">
-          <div className="detail-cover">
+      {/* gugu.fan 分层总览区：左 312px 融合角标大海报 + 阅读概览副卡；右 身份/行动/KPI/足迹与线路 */}
+      <section id="overview" className="detail-overview-grid">
+        <div className="detail-left-col">
+          <div className="detail-poster-card">
             <CoverImage src={hdCover(manga.coverUrl)} alt={manga.title} loading="eager" fetchPriority="high" />
+            <div className="dpc-top-left">
+              {manga.year && <span className="dpc-pill tabular-nums">{manga.year}</span>}
+              <span className={'dpc-pill ' + (isCompleted ? 'is-pub' : 'is-cyan')}>{statusLabel}</span>
+            </div>
+            {readable.length > 0 && (
+              <span className="dpc-top-right">{readable.length} 话</span>
+            )}
+            <div className="dpc-bottom">
+              <div className="dpc-bottom-meta">
+                <span className="dpc-bottom-k">{continueCh ? '上次读到' : '连载进度'}</span>
+                <span className="dpc-bottom-v">
+                  {continueCh
+                    ? `第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}`
+                    : (readable.length > 0 ? `已收录 ${readable.length} 话` : '站内直读')}
+                </span>
+              </div>
+              <span className="dpc-bottom-chip tabular-nums">{totalLines} 条线路</span>
+            </div>
+          </div>
+
+          <div className="detail-score-card">
+            <div className="detail-score-card-title">阅读概览</div>
+            <div className="detail-score-tiles">
+              <div className="detail-score-tile">
+                <span className="detail-score-tile-k">总话数</span>
+                <span className="detail-score-tile-v is-rose">
+                  {readable.length > 0 ? readable.length : '—'}
+                </span>
+                <span className="detail-score-tile-sub">{statusLabel}</span>
+              </div>
+              <div className="detail-score-tile">
+                <span className="detail-score-tile-k">阅读进度</span>
+                <span className="detail-score-tile-v">
+                  {continueCh ? `第${continueCh.chapter || '?'}话` : '未读'}
+                </span>
+                <span className="detail-score-tile-sub">
+                  {resume ? `第 ${resume.page} 页` : '从头开始'}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="detail-info">
-          <div className="row-inline" style={{ marginBottom: 8 }}>
-            <span className="tag pub">漫画</span>
-            <span className="sched-ep-tag">{statusLabel}</span>
-            {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已读完</span>}
-          </div>
-          <div className="detail-title-row">
+        <div className="detail-right-col">
+          {/* 1. 身份头部 */}
+          <div className="detail-identity">
+            <div className="detail-micro-row">
+              <span className="detail-micro-pill is-rose">{statusLabel}</span>
+              <span className="detail-micro-pill">漫画</span>
+              {manga.year && <span className="detail-micro-pill is-cyan tabular-nums">{manga.year}</span>}
+              {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已读完</span>}
+            </div>
             <h1>{manga.title}</h1>
-          </div>
-          {manga.altTitle && (
-            <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5 }}>{manga.altTitle}</p>
-          )}
-
-          {cleanTags.length > 0 && (
-            <div className="explore-tags" style={{ margin: '12px 0 2px' }}>
-              {cleanTags.map(t => (
-                <Link key={t} to={`/index?kind=manga&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
-                  #{t}
-                </Link>
-              ))}
-            </div>
-          )}
-
-          <div className="detail-meta-grid">
-            <div className="detail-meta-item">
-              <span className="detail-meta-k">状态</span>
-              <span className="detail-meta-v">{statusLabel}</span>
-            </div>
-            <div className="detail-meta-item">
-              <span className="detail-meta-k">话数</span>
-              <span className="detail-meta-v tabular-nums">{readable.length > 0 ? `共 ${readable.length} 话` : '—'}</span>
-            </div>
-            <div className="detail-meta-item">
-              <span className="detail-meta-k">年份</span>
-              <span className="detail-meta-v tabular-nums">{manga.year || '—'}</span>
-            </div>
-            <div className="detail-meta-item">
-              <span className="detail-meta-k">作者</span>
-              <span className="detail-meta-v">{manga.altTitle || '—'}</span>
-            </div>
-          </div>
-
-          <div className="detail-intro-box">
-            <div className="detail-intro-label">简介</div>
-            <p className={'manga-desc detail-summary' + (expanded ? ' expanded' : '')}>
-              {manga.description || '暂无简介，可直接点击下方「开始阅读」浏览章节。'}
-            </p>
-            {manga.description && manga.description.length > 120 && (
-              <button type="button" className="link-btn" onClick={() => setExpanded(v => !v)}>
-                {expanded ? '收起简介' : '展开完整简介'}
-              </button>
+            {manga.altTitle && (
+              <p className="detail-subtitle">作者：{manga.altTitle}</p>
+            )}
+            {cleanTags.length > 0 && (
+              <div className="explore-tags" style={{ marginTop: 2 }}>
+                {cleanTags.map(t => (
+                  <Link key={t} to={`/index?kind=manga&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
+                    #{t}
+                  </Link>
+                ))}
+              </div>
             )}
           </div>
 
-          <div className="detail-actions">
-            {startCh
-              ? <button type="button" className="pill" onClick={() => open(startCh)}>
-                  <BookOpenIcon size={15} />
+          {/* 2. 行动卡 */}
+          <div className="detail-action-card">
+            <div className="detail-action-status">
+              <div className="detail-action-status-main">
+                <span className="detail-action-dot" aria-hidden="true" />
+                <span>
                   {continueCh
-                    ? `继续阅读（第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}）`
+                    ? `上次读到 第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}`
+                    : (readable.length > 0 ? `共 ${readable.length} 话可在线阅读` : '暂无可阅读章节')}
+                </span>
+              </div>
+              <span className="detail-action-status-sub">
+                {statusLabel} · 支持单页滚动 / 双页翻页与自动下一话
+              </span>
+            </div>
+            <div className="detail-action-btns">
+              {startCh ? (
+                <button type="button" className="detail-cta-primary" onClick={() => open(startCh)}>
+                  <BookOpenIcon size={16} />
+                  {continueCh
+                    ? `继续阅读（第 ${continueCh.chapter || '?'} 话）`
                     : `开始阅读（第 ${startCh.chapter || 1} 话）`}
                 </button>
-              : <span className="muted">暂无章节</span>}
-            <button type="button" className={'pill ' + (favorited ? '' : 'ghost')}
-                    onClick={() => void toggleFavorite()}>
-              <HeartIcon size={15} filled={favorited} />
-              {favorited ? '已收藏' : '收藏'}
-            </button>
-            <button type="button" className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
-                    onClick={() => void toggleCompleted()}>
-              {favStatus === 'COMPLETED' ? '✓ 已读完' : '标记已读完'}
-            </button>
-            {officialLink}
+              ) : (
+                <span className="muted">暂无章节</span>
+              )}
+              <button type="button" className={'detail-cta-fav' + (favorited ? ' active' : '')}
+                      onClick={() => void toggleFavorite()}>
+                <HeartIcon size={16} filled={favorited} />
+                {favorited ? '已收藏' : '收藏'}
+              </button>
+              <button type="button"
+                      className={'detail-cta-circle' + (favStatus === 'COMPLETED' ? ' active' : '')}
+                      title={favStatus === 'COMPLETED' ? '已读完（点击改回在追）' : '标记已读完'}
+                      aria-label={favStatus === 'COMPLETED' ? '已读完' : '标记已读完'}
+                      aria-pressed={favStatus === 'COMPLETED'}
+                      onClick={() => void toggleCompleted()}>
+                <CheckCircleIcon size={19} />
+              </button>
+              {officialLink}
+            </div>
           </div>
 
-          {switchSources.length > 0 && (
-            <div className="manga-switch">
-              <span className="muted">切换线路：</span>
+          {/* 3. 四格彩色图标 KPI 卡片 */}
+          <div className="detail-kpi-card">
+            <div className="detail-kpi-item">
+              <span className="detail-kpi-icon is-cyan"><BookOpenIcon size={20} /></span>
+              <div className="detail-kpi-body">
+                <span className="detail-kpi-val tabular-nums">{readable.length > 0 ? `${readable.length} 话` : '—'}</span>
+                <span className="detail-kpi-lbl">可读话数</span>
+              </div>
+            </div>
+            <div className="detail-kpi-item">
+              <span className="detail-kpi-icon is-rose"><TagIcon size={19} /></span>
+              <div className="detail-kpi-body">
+                <span className="detail-kpi-val">{cleanTags[0] || '漫画'}</span>
+                <span className="detail-kpi-lbl">{cleanTags.length > 1 ? `共 ${cleanTags.length} 个题材` : '作品分类'}</span>
+              </div>
+            </div>
+            <div className="detail-kpi-item">
+              <span className="detail-kpi-icon is-slate"><LayersIcon size={19} /></span>
+              <div className="detail-kpi-body">
+                <span className="detail-kpi-val tabular-nums">{totalLines} 条</span>
+                <span className="detail-kpi-lbl">可用线路</span>
+              </div>
+            </div>
+            <div className="detail-kpi-item">
+              <span className="detail-kpi-icon is-amber"><CalendarIcon size={19} /></span>
+              <div className="detail-kpi-body">
+                <span className="detail-kpi-val tabular-nums">{manga.year || statusLabel}</span>
+                <span className="detail-kpi-lbl">{manga.year ? '首发年份' : '连载状态'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. 阅读足迹与线路切换条 */}
+          <div className="detail-footprint-bar">
+            <div className="detail-footprint-left">
+              <span className="detail-footprint-title">阅读足迹与线路切换</span>
+              <span className="detail-footprint-sub">
+                {favStatus === 'COMPLETED'
+                  ? '已标记为「已读完」· 阅读进度自动云端同步'
+                  : favorited
+                    ? '已加入收藏 · 跨设备自动同步阅读位置'
+                    : '如章节不全或加载慢，可点击右侧切换其他阅读线路'}
+              </span>
+            </div>
+            <div className="row-inline" style={{ gap: 8 }}>
               {switchSources.map((s, idx) => {
                 const label = formatMangaLine(idx)
                 return (
@@ -341,11 +427,13 @@ export default function ExternalMangaDetail() {
                           onClick={() => void findIn(s, label)}>{label}</button>
                 )
               })}
-              {switchLoading && <span className="muted" style={{ fontSize: 12 }}>加载中…</span>}
+              {switchLoading && <span className="muted" style={{ fontSize: 12 }}>查找中…</span>}
+              <a href="#chapters" className="detail-footprint-link">章节目录 →</a>
             </div>
-          )}
+          </div>
+
           {(switchItems.length > 0 || switchError) && (
-            <div className="switch-panel">
+            <div className="switch-panel" style={{ marginTop: 0 }}>
               <div className="switch-panel-head">
                 {switchError || `${switchLabel}匹配结果`}
               </div>
@@ -368,10 +456,69 @@ export default function ExternalMangaDetail() {
         </div>
       </section>
 
+      {/* 下方 8:4 剧情简介 + 作品资料分栏 */}
+      <section id="synopsis" className="detail-synopsis-grid">
+        <div>
+          <div className="detail-sec-head">
+            <h2 className="detail-sec-title">
+              <span className="detail-sec-bar" aria-hidden="true" />
+              剧情简介
+            </h2>
+          </div>
+          <div className="detail-synopsis-card">
+            <p className="detail-synopsis-text">
+              {manga.description || '暂无简介，可直接点击上方「开始阅读」或下方章节目录浏览。'}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div className="detail-sec-head">
+            <h2 className="detail-sec-title">
+              <span className="detail-sec-bar is-rose" aria-hidden="true" />
+              作品资料
+            </h2>
+          </div>
+          <div className="detail-facts-card">
+            <dl className="detail-facts-dl">
+              <div className="detail-facts-row">
+                <dt>类型</dt>
+                <dd>漫画</dd>
+              </div>
+              <div className="detail-facts-row">
+                <dt>状态</dt>
+                <dd>{statusLabel}</dd>
+              </div>
+              <div className="detail-facts-row">
+                <dt>作者</dt>
+                <dd title={manga.altTitle || ''}>{manga.altTitle || '—'}</dd>
+              </div>
+              <div className="detail-facts-row">
+                <dt>年份</dt>
+                <dd className="tabular-nums">{manga.year || '—'}</dd>
+              </div>
+              <div className="detail-facts-row">
+                <dt>总话数</dt>
+                <dd className="tabular-nums">{readable.length > 0 ? `共 ${readable.length} 话` : '—'}</dd>
+              </div>
+              {cleanTags.length > 0 && (
+                <div className="detail-facts-row">
+                  <dt>题材</dt>
+                  <dd title={cleanTags.join(' / ')}>{cleanTags.slice(0, 4).join(' / ')}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </div>
+      </section>
+
       {/* 卡片化章节目录 */}
-      <section id="chapters" className="card" style={{ marginTop: 24, padding: 18, borderRadius: 16 }}>
-        <div className="section-head">
-          <h2>章节目录</h2>
+      <section id="chapters" style={{ marginTop: 32 }}>
+        <div className="detail-sec-head">
+          <h2 className="detail-sec-title">
+            <span className="detail-sec-bar" aria-hidden="true" />
+            章节目录
+          </h2>
           <div className="row-inline">
             {officialBiliUrl && chapters.length > readable.length && (
               <button type="button" className="mini ghost" onClick={() => setShowAllBiliChapters(v => !v)}>
@@ -383,51 +530,55 @@ export default function ExternalMangaDetail() {
             </button>
           </div>
         </div>
+        <div className="card" style={{ padding: 20, borderRadius: 16 }}>
+          {useChunks && (
+            <div className="row-inline ep-chunks" style={{ marginBottom: 14 }}>
+              {Array.from({ length: Math.ceil(ordered.length / CHUNK) }, (_, idx) => {
+                const s = idx * CHUNK + 1
+                const e = Math.min(ordered.length, (idx + 1) * CHUNK)
+                return (
+                  <button key={idx} type="button"
+                          className={'mini tabular-nums ' + (idx === safeChunkIdx ? '' : 'ghost')}
+                          onClick={() => setChunkIdx(idx)}>
+                    {s}–{e} 话
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
-        {useChunks && (
-          <div className="row-inline ep-chunks" style={{ marginBottom: 12 }}>
-            {Array.from({ length: Math.ceil(ordered.length / CHUNK) }, (_, idx) => {
-              const s = idx * CHUNK + 1
-              const e = Math.min(ordered.length, (idx + 1) * CHUNK)
-              return (
-                <button key={idx} type="button"
-                        className={'mini tabular-nums ' + (idx === safeChunkIdx ? '' : 'ghost')}
-                        onClick={() => setChunkIdx(idx)}>
-                  {s}–{e} 话
+          {loading && <p className="muted">加载章节…</p>}
+          {displayedChapters.length > 0 ? (
+            <div className="chapter-grid">
+              {displayedChapters.map(c => c.external && officialBiliUrl ? (
+                <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
+                   target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
+                  <span className="cc-no">{c.chapter || '?'}</span>
+                  <span className="cc-sub">正版</span>
+                </a>
+              ) : (
+                <button key={c.id} type="button" className="chapter-cell" onClick={() => open(c)}
+                        title={c.title || `第 ${c.chapter} 话`}>
+                  <span className="cc-no">{c.chapter || '?'}</span>
+                  <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : ''}</span>
                 </button>
-              )
-            })}
-          </div>
-        )}
-
-        {loading && <p className="muted">加载章节…</p>}
-        {displayedChapters.length > 0 ? (
-          <div className="chapter-grid">
-            {displayedChapters.map(c => c.external && officialBiliUrl ? (
-              <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
-                 target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
-                <span className="cc-no">{c.chapter || '?'}</span>
-                <span className="cc-sub">正版</span>
-              </a>
-            ) : (
-              <button key={c.id} type="button" className="chapter-cell" onClick={() => open(c)}
-                      title={c.title || `第 ${c.chapter} 话`}>
-                <span className="cc-no">{c.chapter || '?'}</span>
-                <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : ''}</span>
-              </button>
-            ))}
-          </div>
-        ) : !loading && (
-          <p className="muted" style={{ margin: 0 }}>暂无章节。</p>
-        )}
+              ))}
+            </div>
+          ) : !loading && (
+            <p className="muted" style={{ margin: 0 }}>暂无章节。</p>
+          )}
+        </div>
       </section>
 
-      {/* 底部更多推荐（7 列网格闭环） */}
+      {/* 底部更多推荐 */}
       {recommended.length > 0 && (
-        <section id="recommend" style={{ marginTop: 28 }}>
-          <div className="section-head">
-            <h2>更多推荐</h2>
-            <Link to="/manga" className="muted">浏览更多 →</Link>
+        <section id="recommend" style={{ marginTop: 32 }}>
+          <div className="detail-sec-head">
+            <h2 className="detail-sec-title">
+              <span className="detail-sec-bar is-rose" aria-hidden="true" />
+              更多推荐
+            </h2>
+            <Link to="/manga" className="detail-footprint-link">浏览更多 →</Link>
           </div>
           <div className="card-grid">
             {recommended.map(r => {

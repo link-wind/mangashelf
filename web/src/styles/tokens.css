@@ -25,6 +25,10 @@
   --warn: #ff9500;
   --warn-text: #a35f00;
   --danger: #e5484d;
+  --rose: #f25c8a;
+  --rose-soft: #fff0f5;
+  --rose-text: #c2255c;
+  --rose-border: rgba(242, 92, 138, 0.28);
 
   /* 液态玻璃材质（亮色模式） */
   --glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(246, 249, 252, 0.58));
@@ -61,6 +65,10 @@
   --pub: #4cc79a;
   --pub-text: #7bdcb5;
   --priv: #d3a860;
+  --rose: #fc739a;
+  --rose-soft: rgba(252, 115, 154, 0.16);
+  --rose-text: #ff9ebb;
+  --rose-border: rgba(252, 115, 154, 0.32);
 
   /* 液态玻璃材质（暗色模式） */
   --glass-bg: linear-gradient(135deg, rgba(28, 34, 42, 0.76), rgba(18, 22, 28, 0.62));

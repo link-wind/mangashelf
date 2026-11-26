@@ -156,3 +156,57 @@ export function BookOpenIcon({ size = 16, ...p }: IconProps) {
     </svg>
   )
 }
+
+export function CheckCircleIcon({ size = 18, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.2 2.3 2.3 4.7-4.8" />
+    </svg>
+  )
+}
+
+export function StarIcon({ size = 16, filled = true, ...p }: IconProps & { filled?: boolean }) {
+  return (
+    <svg {...base(size, p)} fill={filled ? 'currentColor' : 'none'}>
+      <path d="m12 3.2 2.65 5.37 5.93.86-4.29 4.18 1.01 5.9L12 16.72l-5.3 2.79 1.01-5.9-4.29-4.18 5.93-.86L12 3.2Z" />
+    </svg>
+  )
+}
+
+export function FilmIcon({ size = 18, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4" />
+    </svg>
+  )
+}
+
+export function LayersIcon({ size = 18, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
+      <path d="m3 12 9 4.5 9-4.5" />
+      <path d="m3 16.5 9 4.5 9-4.5" />
+    </svg>
+  )
+}
+
+export function CalendarIcon({ size = 18, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <rect x="3" y="5" width="18" height="16" rx="2.5" />
+      <path d="M16 3v4M8 3v4M3 10h18" />
+    </svg>
+  )
+}
+
+export function TagIcon({ size = 18, ...p }: IconProps) {
+  return (
+    <svg {...base(size, p)}>
+      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V4h9l8.6 8.6a2 2 0 0 1 0 2.8Z" />
+      <circle cx="8" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}

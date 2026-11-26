@@ -9,7 +9,7 @@ export interface AnimePosterCardProps {
   playHref: string
   actionKind?: 'play' | 'read'
   topLeft?: string | null
-  topLeftVariant?: 'dark' | 'accent' | 'pub'
+  topLeftVariant?: 'dark' | 'accent' | 'pub' | 'rose'
   rating?: number | null
   bottomLeft?: string | null
   bottomRight?: string | null
