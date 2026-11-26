@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
-import EpisodePlayerShell, { type SimilarAnime } from '../components/EpisodePlayerShell'
+import EpisodePlayerShell, { type PlayerWorkOverview, type SimilarAnime } from '../components/EpisodePlayerShell'
+import { HeartIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import { formatAnimeLine } from '../lineLabel'
+import { formatEpisodeTitle } from '../lib/mediaFormat'
 import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BrowseEpisode {
@@ -27,6 +29,7 @@ export default function BrowseWatch() {
   const [error, setError] = useState('')
   const [favorited, setFavorited] = useState(false)
   const [similar, setSimilar] = useState<SimilarAnime[]>([])
+  const [overview, setOverview] = useState<PlayerWorkOverview | null>(null)
   const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
     useEpisodePlayback(episodeId)
 
@@ -39,6 +42,24 @@ export default function BrowseWatch() {
         setError(e instanceof ApiError ? e.message : '加载剧集失败')
       }
     })()
+  }, [itemId])
+
+  useEffect(() => {
+    if (!itemId) return
+    void api.get<{
+      item: { coverUrl: string; categoryName?: string | null; remarks?: string | null; bangumiSubjectId?: number | null }
+      rating: number | null; summary: string | null; airDate: string | null; tags: string[]
+    }>(`/api/v1/catalog-items/${itemId}`)
+      .then(d => setOverview({
+        coverUrl: d.item.bangumiSubjectId ? `/api/v1/bangumi-covers/${d.item.bangumiSubjectId}?size=large` : d.item.coverUrl,
+        rating: d.rating,
+        summary: d.summary,
+        tags: d.tags,
+        categoryName: d.item.categoryName,
+        airDate: d.airDate,
+        remarks: d.item.remarks,
+      }))
+      .catch(() => setOverview(null))
   }, [itemId])
 
   useEffect(() => {
@@ -73,11 +94,11 @@ export default function BrowseWatch() {
 
   useEffect(() => {
     if (data?.item.name) {
-      document.title = current?.title
-        ? `${data.item.name} · ${current.title} · MangaShelf`
+      document.title = current
+        ? `${data.item.name} · ${formatEpisodeTitle(current.ordinal, current.title)} · MangaShelf`
         : `${data.item.name} · MangaShelf`
     }
-  }, [data?.item.name, current?.title, episodeId])
+  }, [data?.item.name, current?.ordinal, current?.title, episodeId])
 
   async function toggleFavorite() {
     if (!itemId) return
@@ -139,9 +160,15 @@ export default function BrowseWatch() {
       episodes={episodes}
       onSelectEpisode={goto}
       similar={similar}
+      overview={overview}
       extraActions={
-        <button className="pill" onClick={() => void toggleFavorite()}>
-          {favorited ? '取消收藏' : '收藏'}
+        <button
+          type="button"
+          className={'watch-fav-pill' + (favorited ? ' is-fav' : '')}
+          onClick={() => void toggleFavorite()}
+        >
+          <HeartIcon size={14} filled={favorited} />
+          {favorited ? '已追番' : '追番'}
         </button>
       }
     />
