@@ -55,10 +55,15 @@ public class CatalogItemWriter {
         }
         String groupsJson = groups.toString();
         String remarks = v.path("vod_remarks").asText("");
+        List<String> tags = TagNormalizer.parseDelimited(
+                v.path("vod_class").asText(""),
+                v.path("vod_tag").asText(""));
+        Integer releaseYear = TagNormalizer.parseYear(v.path("vod_year").asText(""));
         var upserted = catalogItems.upsert(sourceId, v.path("vod_id").asLong(), v.path("vod_name").asText(),
                 v.path("vod_pic").asText(""), remarks,
                 v.path("type_id").asInt(), v.path("type_name").asText(""),
-                playFrom, groupsJson, episodeCount, parseTime(v.path("vod_time").asText("")));
+                playFrom, groupsJson, episodeCount, parseTime(v.path("vod_time").asText("")),
+                tags, releaseYear);
         if (externals != null && upserted != null) {
             syncExistingEpisodesIfNeeded(sourceId, upserted, groupsJson, remarks);
         }

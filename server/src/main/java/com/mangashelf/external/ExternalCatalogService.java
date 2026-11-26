@@ -237,6 +237,11 @@ public class ExternalCatalogService {
         } catch (Exception ignored) {
             // 线路解析失败只影响详情展示
         }
+        List<String> mergedTags = new ArrayList<>();
+        if (b != null && b.tags() != null) {
+            mergedTags.addAll(b.tags());
+        }
+        mergedTags.addAll(catalogItems.findTags(itemId));
         return new CatalogDetail(rewriteCover(item),
                 b == null ? null : b.orig(),
                 b == null ? null : b.cn(),
@@ -244,7 +249,7 @@ public class ExternalCatalogService {
                 b == null ? null : b.summary(),
                 b == null ? null : b.weekday(),
                 b == null ? null : b.airDate(),
-                b == null ? List.of() : b.tags(),
+                TagNormalizer.normalize(mergedTags),
                 lines);
     }
 

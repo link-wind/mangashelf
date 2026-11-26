@@ -28,24 +28,38 @@ public class ExternalCatalogRepository {
     public UpsertedItem upsert(UUID sourceId, long vodId, String name, String coverUrl, String remarks,
                                int categoryId, String categoryName, String playFrom, String playGroups,
                                int episodeCount, Instant resourceUpdatedAt) {
+        return upsert(sourceId, vodId, name, coverUrl, remarks, categoryId, categoryName,
+                playFrom, playGroups, episodeCount, resourceUpdatedAt, List.of(), null);
+    }
+
+    /** 单条 upsert（含原生题材标签与上映年份）。 */
+    public UpsertedItem upsert(UUID sourceId, long vodId, String name, String coverUrl, String remarks,
+                               int categoryId, String categoryName, String playFrom, String playGroups,
+                               int episodeCount, Instant resourceUpdatedAt,
+                               List<String> tags, Integer releaseYear) {
+        List<String> cleanTags = TagNormalizer.normalize(tags);
         return jdbc.queryForObject("""
                 INSERT INTO external_catalog_items
                     (id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
-                     play_from, play_groups, episode_count, resource_updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)
+                     play_from, play_groups, episode_count, resource_updated_at, tags, release_year)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
                 ON CONFLICT (source_id, vod_id) DO UPDATE SET
                     name = EXCLUDED.name, cover_url = EXCLUDED.cover_url, remarks = EXCLUDED.remarks,
                     category_id = EXCLUDED.category_id, category_name = EXCLUDED.category_name,
                     play_from = EXCLUDED.play_from, play_groups = EXCLUDED.play_groups,
                     episode_count = EXCLUDED.episode_count,
-                    resource_updated_at = EXCLUDED.resource_updated_at, synced_at = now()
+                    resource_updated_at = EXCLUDED.resource_updated_at,
+                    tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE external_catalog_items.tags END,
+                    release_year = COALESCE(EXCLUDED.release_year, external_catalog_items.release_year),
+                    synced_at = now()
                 RETURNING id, work_id
                 """,
                 (rs, i) -> new UpsertedItem(
                         rs.getObject("id", UUID.class),
                         rs.getObject("work_id", UUID.class)),
                 UUID.randomUUID(), sourceId, vodId, name, coverUrl, remarks, categoryId,
-                categoryName, playFrom, playGroups, episodeCount, JdbcTime.t(resourceUpdatedAt));
+                categoryName, playFrom, playGroups, episodeCount, JdbcTime.t(resourceUpdatedAt),
+                cleanTags.toArray(new String[0]), releaseYear);
     }
 
     /** 列表页精简投影：跳过平均 ~20KB/行的 play_groups 巨型 JSONB（详情接口 findItem 仍返回完整列）。 */
@@ -134,22 +148,51 @@ public class ExternalCatalogRepository {
 
     public record GenreStat(String tag, long items) {}
 
-    /** 聚合库内已关联番剧的高频 Bangumi 题材（过滤纯年份与介质噪声标签）。 */
+    /** 聚合全库番剧高频题材（合并目录原生 vod_class 与 Bangumi 题材，经 TagNormalizer 清洗与同义词折叠）。 */
     public List<GenreStat> topGenres(int limit) {
-        return jdbc.query("""
-                SELECT t AS tag, count(DISTINCT e.id) AS items
-                  FROM external_catalog_items e
-                  JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id,
-                       unnest(b.tags) t
-                 WHERE t <> ''
-                   AND length(t) BETWEEN 2 AND 8
-                   AND t !~ '^[0-9]'
-                   AND t NOT IN ('TV', '日本', '中国', 'OVA', 'WEB', '动画', '番剧', '剧场版', '新番', '国产动画')
-                 GROUP BY t
-                 ORDER BY count(DISTINCT e.id) DESC, t ASC
-                 LIMIT ?
-                """, (rs, i) -> new GenreStat(rs.getString("tag"), rs.getLong("items")),
-                Math.min(Math.max(limit, 1), 40));
+        int effectiveLimit = Math.min(Math.max(limit, 1), 40);
+        List<GenreStat> raw = jdbc.query("""
+                WITH combined AS (
+                    SELECT e.id AS item_id, t AS tag
+                      FROM external_catalog_items e, unnest(e.tags) t
+                    UNION
+                    SELECT e.id AS item_id, t AS tag
+                      FROM external_catalog_items e
+                      JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id,
+                           unnest(b.tags) t
+                )
+                SELECT tag, count(DISTINCT item_id) AS items
+                  FROM combined
+                 WHERE tag <> ''
+                   AND length(tag) BETWEEN 2 AND 12
+                   AND tag !~ '^[0-9]'
+                 GROUP BY tag
+                 ORDER BY count(DISTINCT item_id) DESC, tag ASC
+                 LIMIT 120
+                """, (rs, i) -> new GenreStat(rs.getString("tag"), rs.getLong("items")));
+        var merged = new java.util.LinkedHashMap<String, Long>();
+        for (GenreStat g : raw) {
+            String canonical = TagNormalizer.canonicalize(g.tag());
+            if (canonical != null) {
+                merged.merge(canonical, g.items(), Long::sum);
+            }
+        }
+        List<GenreStat> filtered = merged.entrySet().stream()
+                .filter(e -> e.getValue() >= 2)
+                .sorted(java.util.Comparator.<java.util.Map.Entry<String, Long>>comparingLong(java.util.Map.Entry::getValue)
+                        .reversed().thenComparing(java.util.Map.Entry::getKey))
+                .limit(effectiveLimit)
+                .map(e -> new GenreStat(e.getKey(), e.getValue()))
+                .toList();
+        if (!filtered.isEmpty()) {
+            return filtered;
+        }
+        return merged.entrySet().stream()
+                .sorted(java.util.Comparator.<java.util.Map.Entry<String, Long>>comparingLong(java.util.Map.Entry::getValue)
+                        .reversed().thenComparing(java.util.Map.Entry::getKey))
+                .limit(effectiveLimit)
+                .map(e -> new GenreStat(e.getKey(), e.getValue()))
+                .toList();
     }
 
     private static void appendFilters(StringBuilder where, List<Object> args,
@@ -160,8 +203,10 @@ public class ExternalCatalogRepository {
             args.add(sourceId);
         }
         if (genre != null && !genre.isBlank()) {
-            where.append(" AND e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE tags @> ARRAY[?]::text[]) ");
-            args.add(genre);
+            String[] aliases = TagNormalizer.aliasesFor(genre);
+            where.append(" AND (e.tags && ?::text[] OR e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE tags && ?::text[])) ");
+            args.add(aliases);
+            args.add(aliases);
         }
         if (categoryId != null) {
             where.append(" AND e.category_id = ? ");
@@ -172,11 +217,12 @@ public class ExternalCatalogRepository {
         }
         if (year != null && !year.isBlank()) {
             if ("earlier".equalsIgnoreCase(year.trim())) {
-                where.append(" AND e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE air_date IS NOT NULL AND air_date < ?) ");
+                where.append(" AND (e.release_year < 2023 OR e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE air_date IS NOT NULL AND air_date < ?)) ");
                 args.add(java.sql.Date.valueOf(java.time.LocalDate.of(2023, 1, 1)));
             } else if (year.trim().matches("^[0-9]{4}$")) {
                 int y = Integer.parseInt(year.trim());
-                where.append(" AND e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE air_date >= ? AND air_date < ?) ");
+                where.append(" AND (e.release_year = ? OR e.bangumi_subject_id IN (SELECT subject_id FROM bangumi_subjects WHERE air_date >= ? AND air_date < ?)) ");
+                args.add(y);
                 args.add(java.sql.Date.valueOf(java.time.LocalDate.of(y, 1, 1)));
                 args.add(java.sql.Date.valueOf(java.time.LocalDate.of(y + 1, 1, 1)));
             }
@@ -207,7 +253,21 @@ public class ExternalCatalogRepository {
     }
 
     public Optional<ExternalCatalogItem> findItem(UUID id) {
-        return jdbc.query("SELECT * FROM external_catalog_items WHERE id = ?", mapper, id).stream().findFirst();
+        return jdbc.query("""
+                SELECT id, source_id, vod_id, name, cover_url, remarks, category_id, category_name,
+                       play_from, play_groups, episode_count, work_id, bangumi_subject_id,
+                       resource_updated_at, synced_at
+                  FROM external_catalog_items
+                 WHERE id = ?
+                """, mapper, id).stream().findFirst();
+    }
+
+    /** 读取条目原生题材标签（规避 DataClassRowMapper 对 PgArray 的限制）。 */
+    public List<String> findTags(UUID id) {
+        return jdbc.query("SELECT tags FROM external_catalog_items WHERE id = ?", (rs, i) -> {
+            var arr = rs.getArray("tags");
+            return arr == null ? List.<String>of() : List.of((String[]) arr.getArray());
+        }, id).stream().findFirst().orElse(List.of());
     }
 
     public void markMaterialized(UUID itemId, UUID workId) {

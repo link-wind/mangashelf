@@ -98,7 +98,26 @@ public class MangaSourceController {
                                      @RequestParam(defaultValue = "zh") String lang) {
         MangaSource s = require(source, MangaSource.Capability.DETAIL);
         try {
-            return s.detail(mangaId, "all".equals(lang) ? null : lang);
+            MangaSource.Detail detail = s.detail(mangaId, "all".equals(lang) ? null : lang);
+            // 详情反哺目录：用户点开漫画详情时静默补齐标签、话数与封面，失败不影响详情响应
+            if (detail != null && detail.item() != null && detail.item().title() != null
+                    && !detail.item().title().isBlank()) {
+                try {
+                    String itemId = detail.item().id() == null || detail.item().id().isBlank()
+                            ? mangaId : detail.item().id();
+                    Integer chapterCount = detail.chapters() == null || detail.chapters().isEmpty()
+                            ? null : detail.chapters().size();
+                    catalog.upsert(UUID.randomUUID(), s.id(), itemId, detail.item().title(),
+                            detail.item().altTitle() == null ? "" : detail.item().altTitle(),
+                            detail.item().coverUrl() == null ? "" : detail.item().coverUrl(),
+                            detail.status() == null ? "" : detail.status(),
+                            detail.tags() == null ? List.of() : detail.tags(),
+                            chapterCount);
+                } catch (Exception ignore) {
+                    // 目录回写失败不影响详情页返回
+                }
+            }
+            return detail;
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {

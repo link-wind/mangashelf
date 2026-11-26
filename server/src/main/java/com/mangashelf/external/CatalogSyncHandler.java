@@ -75,6 +75,7 @@ public class CatalogSyncHandler implements JobHandler {
             }
         }
         hotspotCache.invalidatePrefix("catalog-");
+        hotspotCache.invalidate("anime-top-genres");
         hotspotCache.invalidate("calendar");
         String summary = (incremental ? "增量" : "全量") + "同步完成，共 " + total + " 条";
         ctx.progress().emit("sync", summary);

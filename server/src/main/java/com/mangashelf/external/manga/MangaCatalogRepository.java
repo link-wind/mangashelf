@@ -1,5 +1,6 @@
 package com.mangashelf.external.manga;
 
+import com.mangashelf.external.TagNormalizer;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -51,14 +52,10 @@ public class MangaCatalogRepository {
         }
     }
 
-    /** upsert：新条目记录 first_seen_at；已存在时以非空字段增量合并，不覆盖已有题材标签或封面。 */
+    /** upsert：新条目记录 first_seen_at；已存在时以非空字段增量合并，题材标签做去重并集累加。 */
     public void upsert(UUID id, String source, String sourceItemId, String name, String altTitle,
                        String coverUrl, String remarks, List<String> tags, Integer episodeCount) {
-        List<String> cleanTags = tags == null ? List.of() : tags.stream()
-                .filter(t -> t != null && !t.isBlank())
-                .map(String::trim)
-                .distinct()
-                .toList();
+        List<String> cleanTags = TagNormalizer.normalize(tags);
         Integer resolvedEpisodes = resolveEpisodeCount(episodeCount, remarks);
         jdbc.update("""
                 INSERT INTO manga_catalog_items
@@ -69,7 +66,11 @@ public class MangaCatalogRepository {
                     alt_title = CASE WHEN EXCLUDED.alt_title <> '' THEN EXCLUDED.alt_title ELSE manga_catalog_items.alt_title END,
                     cover_url = CASE WHEN EXCLUDED.cover_url <> '' THEN EXCLUDED.cover_url ELSE manga_catalog_items.cover_url END,
                     remarks = CASE WHEN EXCLUDED.remarks <> '' THEN EXCLUDED.remarks ELSE manga_catalog_items.remarks END,
-                    tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE manga_catalog_items.tags END,
+                    tags = CASE
+                        WHEN cardinality(EXCLUDED.tags) > 0 THEN
+                            ARRAY(SELECT DISTINCT t FROM unnest(manga_catalog_items.tags || EXCLUDED.tags) t WHERE t <> '' ORDER BY t)
+                        ELSE manga_catalog_items.tags
+                    END,
                     episode_count = COALESCE(EXCLUDED.episode_count, manga_catalog_items.episode_count),
                     synced_at = now()
                 """, id, source, sourceItemId, name, altTitle == null ? "" : altTitle,
@@ -178,8 +179,8 @@ public class MangaCatalogRepository {
             args.add(source);
         }
         if (genre != null && !genre.isBlank()) {
-            where.append(" AND tags @> ARRAY[?]::text[] ");
-            args.add(genre);
+            where.append(" AND tags && ?::text[] ");
+            args.add(TagNormalizer.aliasesFor(genre));
         }
         if (status != null && !status.isBlank()) {
             switch (status) {
@@ -211,7 +212,7 @@ public class MangaCatalogRepository {
                    AND length(t) <= 12
                  GROUP BY t
                  ORDER BY count(*) DESC, t ASC
-                 LIMIT 30
+                 LIMIT 100
                 """ : """
                 SELECT t AS tag, count(*) AS items
                   FROM manga_catalog_items, unnest(tags) t
@@ -221,12 +222,34 @@ public class MangaCatalogRepository {
                    AND length(t) <= 12
                  GROUP BY t
                  ORDER BY count(*) DESC, t ASC
-                 LIMIT 30
+                 LIMIT 100
                 """;
-        if (filterSource) {
-            return jdbc.query(sql, (rs, i) -> new GenreTag(rs.getString("tag"), rs.getLong("items")), source);
+        List<GenreTag> raw = filterSource
+                ? jdbc.query(sql, (rs, i) -> new GenreTag(rs.getString("tag"), rs.getLong("items")), source)
+                : jdbc.query(sql, (rs, i) -> new GenreTag(rs.getString("tag"), rs.getLong("items")));
+        var merged = new java.util.LinkedHashMap<String, Long>();
+        for (GenreTag g : raw) {
+            String canonical = TagNormalizer.canonicalize(g.tag());
+            if (canonical != null) {
+                merged.merge(canonical, g.items(), Long::sum);
+            }
         }
-        return jdbc.query(sql, (rs, i) -> new GenreTag(rs.getString("tag"), rs.getLong("items")));
+        List<GenreTag> filtered = merged.entrySet().stream()
+                .filter(e -> e.getValue() >= 2)
+                .sorted(java.util.Comparator.<java.util.Map.Entry<String, Long>>comparingLong(java.util.Map.Entry::getValue)
+                        .reversed().thenComparing(java.util.Map.Entry::getKey))
+                .limit(30)
+                .map(e -> new GenreTag(e.getKey(), e.getValue()))
+                .toList();
+        if (!filtered.isEmpty()) {
+            return filtered;
+        }
+        return merged.entrySet().stream()
+                .sorted(java.util.Comparator.<java.util.Map.Entry<String, Long>>comparingLong(java.util.Map.Entry::getValue)
+                        .reversed().thenComparing(java.util.Map.Entry::getKey))
+                .limit(30)
+                .map(e -> new GenreTag(e.getKey(), e.getValue()))
+                .toList();
     }
 
     public Optional<MangaCatalogItem> find(String source, String sourceItemId) {

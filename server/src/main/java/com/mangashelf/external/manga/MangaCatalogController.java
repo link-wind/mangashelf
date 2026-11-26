@@ -4,24 +4,44 @@ import com.mangashelf.config.ApiException;
 import com.mangashelf.identity.AuthUser;
 import com.mangashelf.identity.CurrentUser;
 import com.mangashelf.identity.OptionalAuthUser;
+import com.mangashelf.ingestion.Job;
+import com.mangashelf.ingestion.JobCreationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-/** 漫画目录端点（manga-catalog-sync）：索引页读库，题材从库内 tags 聚合。 */
+/** 漫画目录端点（manga-catalog-sync）：索引页读库，题材从库内 tags 聚合；管理员可按源触发同步。 */
 @RestController
 @RequestMapping("/api/v1/manga-catalog")
 public class MangaCatalogController {
 
-    private final MangaCatalogRepository catalog;
+    private static final long SYNC_DEDUP_WINDOW_SECONDS = 30;
 
-    public MangaCatalogController(MangaCatalogRepository catalog) {
+    private final MangaCatalogRepository catalog;
+    private final MangaSourceRegistry registry;
+    private final JobCreationService jobCreation;
+    private final ObjectMapper objectMapper;
+
+    @Autowired
+    public MangaCatalogController(MangaCatalogRepository catalog, MangaSourceRegistry registry,
+                                  JobCreationService jobCreation, ObjectMapper objectMapper) {
         this.catalog = catalog;
+        this.registry = registry;
+        this.jobCreation = jobCreation;
+        this.objectMapper = objectMapper;
+    }
+
+    MangaCatalogController(MangaCatalogRepository catalog) {
+        this(catalog, null, null, null);
     }
 
     public record CatalogPage(List<CatalogItemView> items, String nextCursor, long total,
@@ -80,6 +100,32 @@ public class MangaCatalogController {
     public List<MangaCatalogRepository.GenreTag> genres(@OptionalAuthUser CurrentUser user,
                                                         @RequestParam(required = false) String source) {
         return catalog.genres(source);
+    }
+
+    /** 管理员触发单源漫画目录同步（派发 manga.catalog.sync 异步任务）。 */
+    @PostMapping("/admin/sync")
+    public Map<String, Object> triggerSync(@AuthUser CurrentUser user,
+                                           @RequestParam String sourceId) {
+        if (!user.isAdmin()) {
+            throw new ApiException(403, "FORBIDDEN", "仅管理员可触发漫画目录同步。");
+        }
+        String sid = sourceId == null ? "" : sourceId.trim();
+        if (sid.isBlank() || registry == null || registry.find(sid).isEmpty()) {
+            throw new ApiException(404, "SOURCE_NOT_FOUND", "漫画源不存在：" + sid);
+        }
+        String paramsJson;
+        try {
+            var node = objectMapper.createObjectNode();
+            node.put("sourceId", sid);
+            paramsJson = node.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("params 序列化失败", e);
+        }
+        long window = Instant.now().getEpochSecond() / SYNC_DEDUP_WINDOW_SECONDS;
+        UUID jobId = jobCreation.create(Job.KIND_MANGA_CATALOG_SYNC, user.id(),
+                null, null, null, null, null, null,
+                paramsJson, "manga.catalog.sync:" + sid + ":" + window);
+        return Map.of("jobId", jobId, "sourceId", sid);
     }
 
     private static CatalogItemView view(MangaCatalogRepository.MangaCatalogItem item) {
