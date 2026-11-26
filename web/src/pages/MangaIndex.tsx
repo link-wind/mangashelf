@@ -53,13 +53,6 @@ interface MangaRecResult {
   personalized: boolean; topPreferences: string[]; forYou: MangaRecItem[]; totalCandidates: number
 }
 
-interface ContinueRow {
-  type: 'work-read' | 'manga-read' | 'animation-watch' | 'external-watch'
-  title: string; subtitle: string | null; coverUrl: string | null
-  workId: string | null; chapterId: string | null; revisionId: string | null
-  pageOrdinal: number | null; source: string | null; mangaId: string | null
-}
-
 interface GenreTag { tag: string; items: number }
 
 type MangaRankTab = 'hot' | 'rise' | 'new'
@@ -104,7 +97,7 @@ function statusOf(remarks: string | null | undefined, finished?: boolean): strin
   return '连载中'
 }
 
-/** 漫画主页（与番剧主页对称：首屏高清 Hero → 继续阅读 → 70/30 推荐+多榜 → 精选专题 → 快捷探索）。 */
+/** 漫画主页（与番剧主页对称：首屏高清 Hero → 70/30 推荐+多榜 → 精选专题 → 快捷探索）。 */
 export default function MangaIndex() {
   const [params, setParams] = useSearchParams()
   const fav = useMangaFavorites()
@@ -223,7 +216,7 @@ function MangaSearchView({ query, onClear, fav }: { query: string; onClear: () =
   )
 }
 
-/** 漫画发现主体：高清 Hero → 继续阅读 → 70/30 推荐网格+多榜侧栏 → 精选专题横滑 → 快捷探索。 */
+/** 漫画发现主体：高清 Hero → 70/30 推荐网格+多榜侧栏 → 精选专题横滑 → 快捷探索。 */
 function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const navigate = useNavigate()
   const { me } = useAuth()
@@ -235,7 +228,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   const [heroPaused, setHeroPaused] = useState(false)
   const [rankTab, setRankTab] = useState<MangaRankTab>('hot')
 
-  const [continueManga, setContinueManga] = useState<ContinueRow[]>([])
   const [rec, setRec] = useState<MangaRecResult | null>(null)
   const [recOffset, setRecOffset] = useState(0)
   const [recLoading, setRecLoading] = useState(false)
@@ -245,13 +237,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
       .then(setGenres)
       .catch(() => setGenres([]))
   }, [])
-
-  useEffect(() => {
-    if (!me) { setContinueManga([]); return }
-    void api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
-      .then(rows => setContinueManga(rows.filter(r => r.type === 'manga-read' || r.type === 'work-read').slice(0, 8)))
-      .catch(() => { /* 私有续读失败不影响发现页 */ })
-  }, [me])
 
   const loadRec = useCallback(async (offset: number) => {
     setRecLoading(true)
@@ -432,49 +417,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
               ))}
             </div>
           )}
-        </section>
-      )}
-
-      {/* 继续阅读 */}
-      {continueManga.length > 0 && (
-        <section style={{ marginTop: 28 }}>
-          <div className="section-head">
-            <h2>继续阅读</h2>
-            <Link to="/me?tab=continue&kind=manga" className="muted">全部进度 →</Link>
-          </div>
-          <div className="hscroll">
-            {continueManga.map(r => {
-              const readHref = r.type === 'work-read'
-                ? `/read/${r.revisionId}?chapter=${r.chapterId}&resume=${r.pageOrdinal ?? 1}`
-                : (r.chapterId
-                    ? `/manga-ext/read/${r.chapterId}?${new URLSearchParams({ mangaId: r.mangaId ?? '', lang: 'all', source: r.source ?? '', title: r.title })}`
-                    : mangaLink(r.source ?? '', r.mangaId ?? '', r.title))
-              const detailHref = r.type === 'work-read'
-                ? `/manga/${r.workId}`
-                : mangaLink(r.source ?? '', r.mangaId ?? '', r.title)
-              const canFav = r.type === 'manga-read' && Boolean(r.source && r.mangaId)
-              const key = mangaFavKey(r.source, r.mangaId)
-              return (
-                <AnimePosterCard
-                  key={`${r.type}-${r.workId ?? r.mangaId}-${r.chapterId}`}
-                  actionKind="read"
-                  title={r.title}
-                  coverUrl={hdCover(r.coverUrl)}
-                  detailHref={detailHref}
-                  playHref={readHref}
-                  topLeft={`第 ${r.pageOrdinal ?? 1} 页`}
-                  topLeftVariant="accent"
-                  bottomRight={r.subtitle || null}
-                  metaLeft="继续阅读"
-                  metaTag={r.subtitle || undefined}
-                  canFavorite={canFav}
-                  favorited={canFav && fav.isFavorited(r.source, r.mangaId)}
-                  busy={fav.busyKey === key}
-                  onToggleFavorite={canFav ? () => void fav.toggle(r.source, r.mangaId, r.title) : undefined}
-                />
-              )
-            })}
-          </div>
         </section>
       )}
 

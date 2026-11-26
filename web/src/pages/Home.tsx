@@ -19,16 +19,6 @@ interface CatalogItem {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
   workId: string | null; bangumiSubjectId: number | null; categoryName?: string | null
 }
-interface ContinueRow {
-  type: 'work-read' | 'manga-read' | 'animation-watch' | 'external-watch'
-  title: string; coverUrl: string | null; workId: string | null; catalogItemId: string | null
-  chapterId: string | null; revisionId: string | null; pageOrdinal: number | null
-  episodeId: string | null; ordinal: number | null; positionMs: number | null; durationMs: number | null
-}
-interface AnimeCatchUpItem {
-  catalogItemId: string; workId: string | null; title: string; coverUrl: string
-  remarks: string; watchedOrdinal: number; latestOrdinal: number; newEpisodes: number
-}
 interface AnimeRecItem {
   catalogItemId: string; workId: string | null; bangumiSubjectId: number | null
   title: string; coverUrl: string; remarks: string; categoryName: string | null
@@ -37,7 +27,6 @@ interface AnimeRecItem {
 interface AnimeRecResult {
   personalized: boolean
   topPreferences: string[]
-  catchUp: AnimeCatchUpItem[]
   forYou: AnimeRecItem[]
   seasonalPicks: CalendarEntry[]
   totalCandidates: number
@@ -54,7 +43,7 @@ const FALLBACK_GENRES: GenreStat[] = [
   { tag: '日常', items: 0 },
 ]
 
-/** 首页：高清 Hero → 追更与继续观看 → 70/30 推荐网格+多榜侧栏 → 新番时刻表速览 → 完结补番精选 → 最近更新 → 热门题材探索。 */
+/** 首页：高清 Hero → 70/30 推荐网格+多榜侧栏 → 新番时刻表速览 → 完结补番精选 → 最近更新 → 热门题材探索。 */
 export default function Home() {
   const { me } = useAuth()
   const { favIds, busyId, toggle: toggleFav } = useCatalogFavorites()
@@ -63,7 +52,6 @@ export default function Home() {
   const [completed, setCompleted] = useState<CatalogItem[]>([])
   const [topEpisodes, setTopEpisodes] = useState<CatalogItem[]>([])
   const [genres, setGenres] = useState<GenreStat[]>([])
-  const [continueList, setContinueList] = useState<ContinueRow[]>([])
   const [rec, setRec] = useState<AnimeRecResult | null>(null)
   const [recOffset, setRecOffset] = useState(0)
   const [recLoading, setRecLoading] = useState(false)
@@ -101,14 +89,6 @@ export default function Home() {
         setTopEpisodes(epRank.items)
         setRec(recData)
         setGenres(genreList.length > 0 ? genreList : FALLBACK_GENRES)
-        if (me) {
-          try {
-            const cont = await api.get<ContinueRow[]>('/api/v1/me/continue?limit=12')
-            setContinueList(cont.filter(r => r.type === 'external-watch').slice(0, 8))
-          } catch { /* 私有继续列表失败不影响首页 */ }
-        } else {
-          setContinueList([])
-        }
       } catch (e) {
         setError(e instanceof Error ? e.message : '加载失败')
       } finally {
@@ -149,7 +129,6 @@ export default function Home() {
     )
   }
 
-  const catchUp = rec?.catchUp ?? []
   const forYou = rec?.forYou ?? []
 
   return (
@@ -157,78 +136,6 @@ export default function Home() {
       <HeroBanner items={bannerItems} favIds={favIds} onToggleFav={toggleFav} />
 
       {error && <p className="error">{error}</p>}
-
-      {catchUp.length > 0 && (
-        <section style={{ marginTop: 28 }}>
-          <div className="section-head">
-            <h2>
-              追更提醒
-              <span className="muted" style={{ fontSize: 13, fontWeight: 400, marginLeft: 8 }}>
-                {catchUp.length} 部在追番剧有新集
-              </span>
-            </h2>
-            <Link to="/me?tab=continue&kind=anime" className="muted">进入「我的」→</Link>
-          </div>
-          <div className="hscroll">
-            {catchUp.map(item => (
-              <AnimePosterCard
-                key={item.catalogItemId}
-                title={item.title}
-                coverUrl={item.coverUrl}
-                detailHref={item.workId ? `/works/${item.workId}` : `/catalog/${item.catalogItemId}`}
-                playHref={item.workId ? `/works/${item.workId}` : `/browse/${item.catalogItemId}`}
-                topLeft={`+${item.newEpisodes} 新集`}
-                topLeftVariant="accent"
-                bottomLeft={`已看第 ${item.watchedOrdinal} 集`}
-                bottomRight={`更新至 ${item.latestOrdinal} 集`}
-                metaLeft="追更更新"
-                metaTag={`+${item.newEpisodes} 集`}
-                favorited={favIds.has(item.catalogItemId)}
-                busy={busyId === item.catalogItemId}
-                onToggleFavorite={() => void toggleFav(item.catalogItemId, item.title)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {continueList.length > 0 && (
-        <section style={{ marginTop: 28 }}>
-          <div className="section-head">
-            <h2>继续观看</h2>
-            <Link to="/me?tab=continue&kind=anime" className="muted">全部记录 →</Link>
-          </div>
-          <div className="hscroll">
-            {continueList.map(r => {
-              const pct = r.durationMs && r.positionMs
-                ? Math.min(99, Math.max(2, Math.round(r.positionMs / r.durationMs * 100)))
-                : null
-              const playHref = r.workId
-                ? `/works/${r.workId}/external/${r.episodeId}`
-                : `/browse/${r.catalogItemId}/${r.episodeId}`
-              const detailHref = r.workId ? `/works/${r.workId}` : `/catalog/${r.catalogItemId}`
-              return (
-                <AnimePosterCard
-                  key={`${r.workId ?? r.catalogItemId}-${r.episodeId}`}
-                  title={r.title}
-                  coverUrl={r.coverUrl}
-                  detailHref={detailHref}
-                  playHref={playHref}
-                  topLeft={pct !== null ? `${pct}%` : '继续'}
-                  bottomRight={`第 ${r.ordinal} 话`}
-                  metaLeft="上次看到"
-                  metaTag={`第 ${r.ordinal} 话`}
-                  progressPct={pct}
-                  canFavorite={Boolean(r.catalogItemId)}
-                  favorited={Boolean(r.catalogItemId && favIds.has(r.catalogItemId))}
-                  busy={busyId === r.catalogItemId}
-                  onToggleFavorite={r.catalogItemId ? () => void toggleFav(r.catalogItemId, r.title) : undefined}
-                />
-              )
-            })}
-          </div>
-        </section>
-      )}
 
       {/* 70/30 非对称探索区：左侧 4×2 推荐网格 + 右侧多 Tab 榜单卡片 */}
       {(forYou.length > 0 || seasonalPicks.length > 0) && (
