@@ -16,8 +16,8 @@ public class MangaShelfUserDetailsService implements UserDetailsService {
     }
 
     @Override
-    public UserDetails loadUserByUsername(String login) throws UsernameNotFoundException {
-        User user = users.findByLogin(login).orElseThrow(() ->
+    public UserDetails loadUserByUsername(String identifier) throws UsernameNotFoundException {
+        User user = users.findByLoginOrEmail(identifier).orElseThrow(() ->
                 new UsernameNotFoundException("login not found"));
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.login())

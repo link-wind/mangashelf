@@ -6,6 +6,7 @@ export interface Me {
   login: string
   role: string
   createdAt?: string | null
+  email?: string | null
 }
 
 interface AuthState {

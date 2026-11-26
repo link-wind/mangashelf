@@ -94,6 +94,11 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-session-jdbc</artifactId>
     </dependency>
+    <!-- 邮件发送（注册邮箱验证码，标准 SMTP） -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
 
     <!-- 异步任务通知：RabbitMQ（数据库任务为事实，队列只通知） -->
     <dependency>

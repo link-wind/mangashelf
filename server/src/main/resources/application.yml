@@ -82,6 +82,19 @@ mangashelf:
   bangumi:
     enabled: ${MANGASHELF_BANGUMI_ENABLED:true}
     proxy: ${MANGASHELF_BANGUMI_PROXY:}
+  mail:
+    enabled: ${MANGASHELF_MAIL_ENABLED:false}
+    host: ${MANGASHELF_MAIL_HOST:}
+    port: ${MANGASHELF_MAIL_PORT:465}
+    ssl: ${MANGASHELF_MAIL_SSL:true}
+    starttls: ${MANGASHELF_MAIL_STARTTLS:false}
+    username: ${MANGASHELF_MAIL_USERNAME:}
+    password: ${MANGASHELF_MAIL_PASSWORD:}
+    from: ${MANGASHELF_MAIL_FROM:}
+    code-ttl-minutes: ${MANGASHELF_MAIL_CODE_TTL_MINUTES:10}
+    resend-cooldown-seconds: ${MANGASHELF_MAIL_RESEND_COOLDOWN_SECONDS:60}
+    max-daily-per-email: ${MANGASHELF_MAIL_MAX_DAILY_PER_EMAIL:10}
+    max-hourly-per-ip: ${MANGASHELF_MAIL_MAX_HOURLY_PER_IP:20}
   bilibili:
     proxy: ${MANGASHELF_BILIBILI_PROXY:}
     cache-root: ${MANGASHELF_BILIBILI_CACHE_ROOT:${mangashelf.processing.work-root}/../bilibili-http-cache}
