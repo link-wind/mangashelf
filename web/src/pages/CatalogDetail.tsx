@@ -60,6 +60,7 @@ export default function CatalogDetail() {
   const [busy, setBusy] = useState(false)
   const [favorited, setFavorited] = useState(false)
   const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
+  const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -158,11 +159,19 @@ export default function CatalogDetail() {
     ? lineEpisodes.slice(safeChunk * EP_CHUNK, (safeChunk + 1) * EP_CHUNK)
     : lineEpisodes
 
+  useEffect(() => {
+    const t = detail?.bangumiNameCn || detail?.item.name
+    if (t) document.title = `${t} · MangaShelf`
+  }, [detail?.bangumiNameCn, detail?.item.name])
+
   if (error) return <main className="watch-page"><p className="error">{error}</p></main>
   if (!detail) return <main className="watch-page page-center">加载中…</main>
 
   const { item } = detail
   const displayTitle = detail.bangumiNameCn || item.name
+  const heroCoverSrc = item.bangumiSubjectId
+    ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large`
+    : item.coverUrl
   const cleanTags = (detail.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 10 && !NOISE_TAGS.has(t) && !/^\d/.test(t)).slice(0, 10)
 
   return (
@@ -189,38 +198,42 @@ export default function CatalogDetail() {
         {similar.length > 0 && <a href="#similar" className="mini ghost btn">相似推荐</a>}
       </div>
 
-      {/* 双栏头图卡 */}
-      <section id="overview" className="detail-hero card" style={{ padding: 20, borderRadius: 16 }}>
+      {/* gugufan 式总览头卡：左侧放大竖版大海报 + 柔和氛围背景 + 右侧结构化信息 */}
+      <section id="overview" className="detail-hero card">
+        {heroCoverSrc && (
+          <div className="detail-hero-bg" style={{ backgroundImage: `url(${heroCoverSrc})` }} aria-hidden="true" />
+        )}
         <div className="detail-cover-col">
           <div className="detail-cover">
             <CoverImage
-              src={item.bangumiSubjectId ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large` : item.coverUrl}
+              src={heroCoverSrc}
               alt={displayTitle}
               loading="eager"
               fetchPriority="high"
             />
           </div>
-          {typeof detail.rating === 'number' && detail.rating > 0 && (
-            <div className="detail-rating-box">
-              <span className="muted">Bangumi 评分</span>
-              <strong className="tabular-nums">★ {detail.rating.toFixed(1)}</strong>
-            </div>
-          )}
         </div>
 
         <div className="detail-info">
-          <div className="row-inline" style={{ marginBottom: 6 }}>
+          <div className="row-inline" style={{ marginBottom: 8 }}>
             <span className="tag pub">{item.categoryName || '番剧'}</span>
             {detail.airWeekday && <span className="sched-ep-tag">每{WEEKDAYS[detail.airWeekday]}放送</span>}
             {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已看完</span>}
           </div>
-          <h1>{displayTitle}</h1>
+          <div className="detail-title-row">
+            <h1>{displayTitle}</h1>
+            {typeof detail.rating === 'number' && detail.rating > 0 && (
+              <span className="detail-score-pill" title="Bangumi 评分">
+                ★ {detail.rating.toFixed(1)}
+              </span>
+            )}
+          </div>
           {detail.bangumiName && detail.bangumiName !== displayTitle && (
-            <p className="muted" style={{ margin: '4px 0 10px' }}>{detail.bangumiName}</p>
+            <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5 }}>{detail.bangumiName}</p>
           )}
 
           {cleanTags.length > 0 && (
-            <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
+            <div className="explore-tags" style={{ margin: '12px 0 2px' }}>
               {cleanTags.map(t => (
                 <Link key={t} to={`/index?genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
                   #{t}
@@ -229,36 +242,46 @@ export default function CatalogDetail() {
             </div>
           )}
 
-          <div className="detail-kpi-strip">
-            <div className="detail-kpi">
-              <span className="muted">更新状态</span>
-              <strong>{item.remarks || `共 ${item.episodeCount} 集`}</strong>
+          <div className="detail-meta-grid">
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">状态</span>
+              <span className="detail-meta-v">{item.remarks || `共 ${item.episodeCount} 集`}</span>
             </div>
-            <div className="detail-kpi">
-              <span className="muted">首播日期</span>
-              <strong className="tabular-nums">{detail.airDate || (detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}` : '—')}</strong>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">首播</span>
+              <span className="detail-meta-v tabular-nums">
+                {detail.airDate || (detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}` : '—')}
+              </span>
             </div>
-            <div className="detail-kpi">
-              <span className="muted">播放线路</span>
-              <strong className="tabular-nums">{detail.lines.length || browseLines.length} 条</strong>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">集数</span>
+              <span className="detail-meta-v tabular-nums">{item.episodeCount > 0 ? `共 ${item.episodeCount} 集` : '—'}</span>
             </div>
-            <div className="detail-kpi">
-              <span className="muted">总集数</span>
-              <strong className="tabular-nums">{item.episodeCount > 0 ? `${item.episodeCount} 集` : '—'}</strong>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">线路</span>
+              <span className="detail-meta-v tabular-nums">{detail.lines.length || browseLines.length} 条可用</span>
             </div>
           </div>
 
-          <p className="detail-summary" style={{ marginTop: 14 }}>
-            {detail.summary || '暂无简介，可直接点击下方「立即播放」观看。'}
-          </p>
+          <div className="detail-intro-box">
+            <div className="detail-intro-label">简介</div>
+            <p className={'manga-desc detail-summary' + (expanded ? ' expanded' : '')}>
+              {detail.summary || '暂无简介，可直接点击下方「立即播放」观看。'}
+            </p>
+            {detail.summary && detail.summary.length > 140 && (
+              <button type="button" className="link-btn" onClick={() => setExpanded(v => !v)}>
+                {expanded ? '收起简介' : '展开完整简介'}
+              </button>
+            )}
+          </div>
 
-          <div className="row-inline" style={{ marginTop: 16 }}>
+          <div className="detail-actions">
             <Link className="btn pill" to={`/browse/${item.id}`}>
               <PlayIcon size={15} />立即播放
             </Link>
             <button type="button" className={'pill ' + (favorited ? '' : 'ghost')}
                     onClick={() => void toggleFavorite()}>
-              <HeartIcon size={15} />{favorited ? '已收藏' : '收藏'}
+              <HeartIcon size={15} filled={favorited} />{favorited ? '已收藏' : '收藏'}
             </button>
             <button type="button" className={'pill ' + (favStatus === 'COMPLETED' ? '' : 'ghost')}
                     onClick={() => void toggleCompleted()}>

@@ -71,6 +71,14 @@ export default function BrowseWatch() {
     if (current) setLine(current.lineName)
   }, [current?.id])
 
+  useEffect(() => {
+    if (data?.item.name) {
+      document.title = current?.title
+        ? `${data.item.name} · ${current.title} · MangaShelf`
+        : `${data.item.name} · MangaShelf`
+    }
+  }, [data?.item.name, current?.title, episodeId])
+
   async function toggleFavorite() {
     if (!itemId) return
     try {

@@ -49,6 +49,14 @@ export default function ExternalWatch() {
   }, [current?.id])
 
   useEffect(() => {
+    if (workTitle) {
+      document.title = current?.title
+        ? `${workTitle} · ${current.title} · MangaShelf`
+        : `${workTitle} · MangaShelf`
+    }
+  }, [workTitle, current?.title])
+
+  useEffect(() => {
     if (workId && current) {
       void api.get<DanmakuItem[]>(`/api/v1/danmaku?workId=${workId}&ordinal=${current.ordinal}`)
         .then(setDanmakuItems)

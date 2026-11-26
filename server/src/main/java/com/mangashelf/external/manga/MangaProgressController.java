@@ -45,6 +45,11 @@ public class MangaProgressController {
             throw new ApiException(400, "PROGRESS_INVALID", "缺少 expectedVersion（首次写入传 0）。");
         }
         String title = req.title() == null || req.title().isBlank() ? "未命名" : req.title();
+        String coverUrl = req.coverUrl() == null || req.coverUrl().isBlank()
+                ? resolveCatalogCover(req.source(), req.mangaId(), title)
+                : req.coverUrl().trim();
+        String chapterLabel = req.chapterLabel() == null || req.chapterLabel().isBlank()
+                ? null : req.chapterLabel().trim();
         int page = Math.max(0, req.page());
         int expected = req.expectedVersion();
         List<Integer> versions;
@@ -58,16 +63,22 @@ public class MangaProgressController {
                     ON CONFLICT (user_id, source, manga_id) DO NOTHING
                     RETURNING version
                     """, (rs, i) -> rs.getInt(1), user.id(), req.source(), req.mangaId(),
-                    req.chapterId(), req.chapterLabel(), page, req.totalPages(), title, req.coverUrl());
+                    req.chapterId(), chapterLabel, page, req.totalPages(), title, coverUrl);
         } else {
             versions = jdbc.query("""
                     UPDATE external_manga_progress
-                       SET chapter_id = ?, chapter_label = ?, page = ?, total_pages = ?,
-                           title = ?, cover_url = ?, version = version + 1, updated_at = now()
+                       SET chapter_id = ?,
+                           chapter_label = COALESCE(NULLIF(?, ''), chapter_label),
+                           page = ?,
+                           total_pages = ?,
+                           title = ?,
+                           cover_url = COALESCE(NULLIF(?, ''), cover_url),
+                           version = version + 1,
+                           updated_at = now()
                      WHERE user_id = ? AND source = ? AND manga_id = ? AND version = ?
                     RETURNING version
-                    """, (rs, i) -> rs.getInt(1), req.chapterId(), req.chapterLabel(), page,
-                    req.totalPages(), title, req.coverUrl(), user.id(), req.source(), req.mangaId(), expected);
+                    """, (rs, i) -> rs.getInt(1), req.chapterId(), chapterLabel, page,
+                    req.totalPages(), title, coverUrl, user.id(), req.source(), req.mangaId(), expected);
         }
         if (versions.isEmpty()) {
             throw new ApiException(409, "PROGRESS_CONFLICT", "进度已被其他设备更新，请刷新。",
@@ -100,10 +111,23 @@ public class MangaProgressController {
     public List<ProgressRow> recent(@AuthUser CurrentUser user,
                                     @RequestParam(defaultValue = "20") int limit) {
         return jdbc.query("""
-                SELECT source, manga_id, chapter_id, chapter_label, page, total_pages,
-                       title, cover_url, version, updated_at
-                FROM external_manga_progress WHERE user_id = ?
-                ORDER BY updated_at DESC LIMIT ?
+                SELECT p.source, p.manga_id, p.chapter_id, p.chapter_label, p.page, p.total_pages,
+                       p.title,
+                       COALESCE(
+                           NULLIF(p.cover_url, ''),
+                           NULLIF(mc.cover_url, ''),
+                           (SELECT NULLIF(mc2.cover_url, '')
+                              FROM manga_catalog_items mc2
+                             WHERE mc2.name = p.title AND mc2.cover_url <> ''
+                             ORDER BY mc2.synced_at DESC LIMIT 1)
+                       ) AS cover_url,
+                       p.version, p.updated_at
+                  FROM external_manga_progress p
+                  LEFT JOIN manga_catalog_items mc
+                    ON mc.source = p.source
+                   AND mc.source_item_id = regexp_replace(p.manga_id, '^mc', '')
+                 WHERE p.user_id = ?
+                 ORDER BY p.updated_at DESC LIMIT ?
                 """, (rs, i) -> new ProgressRow(
                         rs.getString("source"), rs.getString("manga_id"),
                         rs.getString("chapter_id"), rs.getString("chapter_label"),
@@ -111,5 +135,17 @@ public class MangaProgressController {
                         rs.getString("title"), rs.getString("cover_url"), rs.getInt("version"),
                         rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant()),
                 user.id(), Math.min(Math.max(limit, 1), 100));
+    }
+
+    private String resolveCatalogCover(String source, String mangaId, String title) {
+        List<String> found = jdbc.query("""
+                SELECT cover_url
+                  FROM manga_catalog_items
+                 WHERE ((source = ? AND source_item_id = regexp_replace(?, '^mc', '')) OR name = ?)
+                   AND cover_url <> ''
+                 ORDER BY (source = ? AND source_item_id = regexp_replace(?, '^mc', '')) DESC, synced_at DESC
+                 LIMIT 1
+                """, (rs, i) -> rs.getString("cover_url"), source, mangaId, title, source, mangaId);
+        return found.isEmpty() ? null : found.get(0);
     }
 }

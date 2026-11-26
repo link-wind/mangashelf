@@ -16,7 +16,7 @@ interface Pages {
 interface Chapter {
   id: string; chapter: string; title: string; lang: string; pages: number; external: boolean
 }
-interface Detail { manga: { title: string }; chapters: Chapter[] }
+interface Detail { manga: { title: string; coverUrl: string | null }; chapters: Chapter[] }
 interface ProgressRow { source: string; mangaId: string; chapterId: string | null; page: number; version: number }
 
 type Dir = 'ltr' | 'rtl'
@@ -106,7 +106,7 @@ export default function ExternalMangaReader() {
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings)
   const [resolved, setResolved] = useState<{ key: string; pages: Pages } | null>(null)
   const data = resolved?.key === sizeKey ? resolved.pages : null
-  const [detail, setDetail] = useState<{ manga: { title: string }; chapters: Chapter[] } | null>(null)
+  const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<ResolveStatus | null>(null)
   const [uiVisible, setUiVisible] = useState(true)
@@ -214,12 +214,12 @@ export default function ExternalMangaReader() {
     if (!mangaId) return
     void (async () => {
       try {
-        const raw = await api.get<{ item: { title: string };
+        const raw = await api.get<{ item: { title: string; coverUrl: string | null };
           chapters: { id: string; label: string; title: string; lang: string;
                       pages: number; external: boolean }[] }>(
           `/api/v1/manga-sources/${source}/manga/${mangaId}?lang=${lang}`)
         if (!cancelled) setDetail({
-          manga: { title: raw.item.title },
+          manga: { title: raw.item.title, coverUrl: raw.item.coverUrl ?? null },
           chapters: (raw.chapters ?? []).map(c => ({
             id: c.id, chapter: c.label, title: c.title, lang: c.lang ?? 'zh',
             pages: c.pages, external: c.external,
@@ -235,7 +235,17 @@ export default function ExternalMangaReader() {
   const chapterIdx = readable.findIndex(c => c.id === chapterId)
   const prevCh = chapterIdx > 0 ? readable[chapterIdx - 1] : null
   const nextCh = chapterIdx >= 0 && chapterIdx < readable.length - 1 ? readable[chapterIdx + 1] : null
-  const comicTitle = title || detail?.manga.title || '外部漫画'
+  const comicTitle = detail?.manga.title || title || '漫画'
+  const comicCoverUrl = detail?.manga.coverUrl || undefined
+  const currentChapterLabel = chapter
+    ? `第 ${chapter.chapter || '?'} 话${chapter.title ? ' ' + chapter.title : ''}`.trim()
+    : undefined
+
+  useEffect(() => {
+    document.title = currentChapterLabel
+      ? `${comicTitle} · ${currentChapterLabel} · MangaShelf`
+      : `${comicTitle} · MangaShelf`
+  }, [comicTitle, currentChapterLabel])
 
   const notifyConflict = useCallback(() => {
     const now = Date.now()
@@ -249,8 +259,9 @@ export default function ExternalMangaReader() {
     if (!mangaId) return
     try {
       const res = await api.put<{ version: number }>('/api/v1/me/manga-progress', {
-        source, mangaId, chapterId, page: next.page, totalPages: next.total,
-        title: comicTitle, expectedVersion: versionRef.current,
+        source, mangaId, chapterId, chapterLabel: currentChapterLabel,
+        page: next.page, totalPages: next.total,
+        title: comicTitle, coverUrl: comicCoverUrl, expectedVersion: versionRef.current,
       })
       versionRef.current = res.version
     } catch (e) {
@@ -261,7 +272,7 @@ export default function ExternalMangaReader() {
       }
       // 其余错误不打断阅读；下一位置继续尝试。
     }
-  }, [mangaId, chapterId, comicTitle, source, notifyConflict])
+  }, [mangaId, chapterId, currentChapterLabel, comicTitle, comicCoverUrl, source, notifyConflict])
 
   const saveProgress = useCallback((p: number, total: number) => {
     pendingSaveRef.current = { page: p, total }

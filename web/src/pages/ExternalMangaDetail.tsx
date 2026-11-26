@@ -193,6 +193,12 @@ export default function ExternalMangaDetail() {
       .catch(() => { /* 无进度 */ })
   }, [mangaId, source, me])
 
+  useEffect(() => {
+    if (detail?.manga.title) {
+      document.title = `${detail.manga.title} · MangaShelf`
+    }
+  }, [detail?.manga.title])
+
   const officialBiliUrl = source === 'bilibili' && /^\d{1,12}$/.test(mangaId ?? '')
     ? `https://manga.bilibili.com/detail/mc${mangaId}` : null
   const officialLink = officialBiliUrl
@@ -239,8 +245,11 @@ export default function ExternalMangaDetail() {
         {recommended.length > 0 && <a href="#recommend" className="mini ghost btn">更多推荐</a>}
       </div>
 
-      {/* 双栏头图卡（对齐番剧详情页） */}
-      <section id="overview" className="detail-hero card" style={{ padding: 20, borderRadius: 16 }}>
+      {/* gugufan 式总览头卡：左侧放大竖版大海报 + 柔和氛围背景 + 右侧结构化信息 */}
+      <section id="overview" className="detail-hero card">
+        {hdCover(manga.coverUrl) && (
+          <div className="detail-hero-bg" style={{ backgroundImage: `url(${hdCover(manga.coverUrl)})` }} aria-hidden="true" />
+        )}
         <div className="detail-cover-col">
           <div className="detail-cover">
             <CoverImage src={hdCover(manga.coverUrl)} alt={manga.title} loading="eager" fetchPriority="high" />
@@ -248,18 +257,20 @@ export default function ExternalMangaDetail() {
         </div>
 
         <div className="detail-info">
-          <div className="row-inline" style={{ marginBottom: 6 }}>
+          <div className="row-inline" style={{ marginBottom: 8 }}>
             <span className="tag pub">漫画</span>
             <span className="sched-ep-tag">{statusLabel}</span>
             {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已读完</span>}
           </div>
-          <h1>{manga.title}</h1>
+          <div className="detail-title-row">
+            <h1>{manga.title}</h1>
+          </div>
           {manga.altTitle && (
-            <p className="muted" style={{ margin: '4px 0 10px' }}>{manga.altTitle}</p>
+            <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5 }}>{manga.altTitle}</p>
           )}
 
           {cleanTags.length > 0 && (
-            <div className="explore-tags" style={{ margin: '10px 0 12px' }}>
+            <div className="explore-tags" style={{ margin: '12px 0 2px' }}>
               {cleanTags.map(t => (
                 <Link key={t} to={`/index?kind=manga&genre=${encodeURIComponent(t)}`} className="explore-tag-pill">
                   #{t}
@@ -268,31 +279,38 @@ export default function ExternalMangaDetail() {
             </div>
           )}
 
-          <div className="detail-kpi-strip cols-3">
-            <div className="detail-kpi">
-              <span className="muted">连载状态</span>
-              <strong>{statusLabel}</strong>
+          <div className="detail-meta-grid">
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">状态</span>
+              <span className="detail-meta-v">{statusLabel}</span>
             </div>
-            <div className="detail-kpi">
-              <span className="muted">年份</span>
-              <strong className="tabular-nums">{manga.year || '—'}</strong>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">话数</span>
+              <span className="detail-meta-v tabular-nums">{readable.length > 0 ? `共 ${readable.length} 话` : '—'}</span>
             </div>
-            <div className="detail-kpi">
-              <span className="muted">总话数</span>
-              <strong className="tabular-nums">{readable.length > 0 ? `${readable.length} 话` : '—'}</strong>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">年份</span>
+              <span className="detail-meta-v tabular-nums">{manga.year || '—'}</span>
+            </div>
+            <div className="detail-meta-item">
+              <span className="detail-meta-k">作者</span>
+              <span className="detail-meta-v">{manga.altTitle || '—'}</span>
             </div>
           </div>
 
-          <p className={'manga-desc' + (expanded ? ' expanded' : '')} style={{ marginTop: 14 }}>
-            {manga.description || '暂无简介，可直接点击下方「开始阅读」浏览章节。'}
-          </p>
-          {manga.description && manga.description.length > 120 && (
-            <button type="button" className="link-btn" onClick={() => setExpanded(v => !v)}>
-              {expanded ? '收起' : '展开'}
-            </button>
-          )}
+          <div className="detail-intro-box">
+            <div className="detail-intro-label">简介</div>
+            <p className={'manga-desc detail-summary' + (expanded ? ' expanded' : '')}>
+              {manga.description || '暂无简介，可直接点击下方「开始阅读」浏览章节。'}
+            </p>
+            {manga.description && manga.description.length > 120 && (
+              <button type="button" className="link-btn" onClick={() => setExpanded(v => !v)}>
+                {expanded ? '收起简介' : '展开完整简介'}
+              </button>
+            )}
+          </div>
 
-          <div className="row-inline" style={{ marginTop: 16 }}>
+          <div className="detail-actions">
             {startCh
               ? <button type="button" className="pill" onClick={() => open(startCh)}>
                   <BookOpenIcon size={15} />

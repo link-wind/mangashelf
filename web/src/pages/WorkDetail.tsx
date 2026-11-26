@@ -52,6 +52,12 @@ export default function WorkDetail() {
       .catch(() => setMeta(null))
   }, [id])
 
+  useEffect(() => {
+    if (data?.work.title) {
+      document.title = `${data.work.title} · MangaShelf`
+    }
+  }, [data?.work.title])
+
   // 纯外部动画作品：点进作品即进播放页（与参考站一致）
   useEffect(() => {
     if (!id || !data) return

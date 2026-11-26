@@ -35,6 +35,12 @@ export default function MangaDetailPage() {
     })()
   }, [id])
 
+  useEffect(() => {
+    if (data?.work.title) {
+      document.title = `${data.work.title} · MangaShelf`
+    }
+  }, [data?.work.title])
+
   async function addToShelf() {
     if (!id) return
     try {
@@ -62,12 +68,17 @@ export default function MangaDetailPage() {
 
   return (
     <main className="watch-page">
-      <div className="detail-hero">
-        <div className="detail-cover">
-          {coverUrl
-            ? <img src={coverUrl} alt={work.title}
-                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-            : <span className="cover-initial">{work.title.slice(0, 1)}</span>}
+      <section className="detail-hero card">
+        {coverUrl && (
+          <div className="detail-hero-bg" style={{ backgroundImage: `url(${coverUrl})` }} aria-hidden="true" />
+        )}
+        <div className="detail-cover-col">
+          <div className="detail-cover">
+            {coverUrl
+              ? <img src={coverUrl} alt={work.title}
+                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              : <span className="cover-initial">{work.title.slice(0, 1)}</span>}
+          </div>
         </div>
         <div className="detail-info">
           <h1>{work.title}</h1>
@@ -96,7 +107,7 @@ export default function MangaDetailPage() {
             {owner && <Link className="btn ghost" to="/uploads">管理素材 →</Link>}
           </div>
         </div>
-      </div>
+      </section>
 
       <section style={{ marginTop: 26 }}>
         <div className="section-head">

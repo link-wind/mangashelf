@@ -40,9 +40,6 @@ const PAGE_TITLES: Array<[RegExp, string]> = [
   [/^\/$/, '番剧 · MangaShelf'],
   [/^\/login$/, '登录 · MangaShelf'],
   [/^\/manga$/, '漫画 · MangaShelf'],
-  [/^\/manga\//, '漫画详情 · MangaShelf'],
-  [/^\/manga-ext\/read\//, '阅读中 · MangaShelf'],
-  [/^\/manga-ext/, '漫画详情 · MangaShelf'],
   [/^\/index$/, '索引 · MangaShelf'],
   [/^\/anime$/, '索引 · MangaShelf'],
   [/^\/schedule$/, '新番时刻表 · MangaShelf'],
@@ -50,11 +47,10 @@ const PAGE_TITLES: Array<[RegExp, string]> = [
   [/^\/search$/, '搜索 · MangaShelf'],
   [/^\/uploads$/, '我的素材 · MangaShelf'],
   [/^\/settings$/, '设置 · MangaShelf'],
-  [/^\/read\//, '阅读中 · MangaShelf'],
-  [/^\/(watch|browse)\//, '播放中 · MangaShelf'],
-  [/^\/catalog\//, '番剧详情 · MangaShelf'],
-  [/^\/works\//, '作品详情 · MangaShelf'],
 ]
+
+/** 这些动态详情/播放/阅读路由由页面组件自行设置作品名称标题，App 不再在父级 effect 覆盖。 */
+const SELF_TITLED_ROUTES = /^\/(catalog|browse|watch|works|manga\/|manga-ext|read\/)/
 
 function currentTheme(): 'dark' | 'light' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
@@ -229,9 +225,17 @@ export default function App() {
   const location = useLocation()
 
   useEffect(() => {
+    const titleFromQuery = new URLSearchParams(location.search).get('title')?.trim()
+    if (titleFromQuery && /^\/manga-ext/.test(location.pathname)) {
+      document.title = `${titleFromQuery} · MangaShelf`
+      return
+    }
+    if (SELF_TITLED_ROUTES.test(location.pathname)) {
+      return
+    }
     const matched = PAGE_TITLES.find(([re]) => re.test(location.pathname))
     document.title = matched ? matched[1] : 'MangaShelf · 动画与漫画空间'
-  }, [location.pathname])
+  }, [location.pathname, location.search])
 
   if (loading) {
     return <PageFallback />

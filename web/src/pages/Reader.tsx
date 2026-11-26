@@ -199,6 +199,14 @@ export default function Reader() {
       .catch(() => { /* 标题失败不影响阅读 */ })
   }, [chapterId])
 
+  useEffect(() => {
+    if (titles.work && titles.work !== '本地漫画') {
+      document.title = titles.chapter
+        ? `${titles.work} · ${titles.chapter} · MangaShelf`
+        : `${titles.work} · MangaShelf`
+    }
+  }, [titles.work, titles.chapter])
+
   // 章节目录（mobile-ui-index-and-reader）：作品可见章节 + 当前修订
   useEffect(() => {
     if (!workId) return

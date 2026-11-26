@@ -48,10 +48,22 @@ public class PersonalHistoryRepository {
                 instant(rs.getObject("updated_at", OffsetDateTime.class))), userId, limit));
 
         rows.addAll(jdbc.query("""
-                SELECT source, manga_id, chapter_id, chapter_label, page, title, cover_url, updated_at
-                  FROM external_manga_progress
-                 WHERE user_id = ?
-                 ORDER BY updated_at DESC LIMIT ?
+                SELECT p.source, p.manga_id, p.chapter_id, p.chapter_label, p.page, p.title,
+                       COALESCE(
+                           NULLIF(p.cover_url, ''),
+                           NULLIF(mc.cover_url, ''),
+                           (SELECT NULLIF(mc2.cover_url, '')
+                              FROM manga_catalog_items mc2
+                             WHERE mc2.name = p.title AND mc2.cover_url <> ''
+                             ORDER BY mc2.synced_at DESC LIMIT 1)
+                       ) AS cover_url,
+                       p.updated_at
+                  FROM external_manga_progress p
+                  LEFT JOIN manga_catalog_items mc
+                    ON mc.source = p.source
+                   AND mc.source_item_id = regexp_replace(p.manga_id, '^mc', '')
+                 WHERE p.user_id = ?
+                 ORDER BY p.updated_at DESC LIMIT ?
                 """, (rs, i) -> new ActivityRow("manga-read", rs.getString("title"),
                 rs.getString("chapter_label"), rs.getString("cover_url"), null, null,
                 rs.getString("chapter_id"), null, rs.getInt("page"), null, null, null, null, null,
@@ -93,9 +105,21 @@ public class PersonalHistoryRepository {
                 instant(rs.getObject("updated_at", OffsetDateTime.class))), userId));
 
         rows.addAll(jdbc.query("""
-                SELECT source, manga_id, chapter_id, chapter_label, page, title, cover_url, updated_at
-                  FROM external_manga_progress
-                 WHERE user_id = ?
+                SELECT p.source, p.manga_id, p.chapter_id, p.chapter_label, p.page, p.title,
+                       COALESCE(
+                           NULLIF(p.cover_url, ''),
+                           NULLIF(mc.cover_url, ''),
+                           (SELECT NULLIF(mc2.cover_url, '')
+                              FROM manga_catalog_items mc2
+                             WHERE mc2.name = p.title AND mc2.cover_url <> ''
+                             ORDER BY mc2.synced_at DESC LIMIT 1)
+                       ) AS cover_url,
+                       p.updated_at
+                  FROM external_manga_progress p
+                  LEFT JOIN manga_catalog_items mc
+                    ON mc.source = p.source
+                   AND mc.source_item_id = regexp_replace(p.manga_id, '^mc', '')
+                 WHERE p.user_id = ?
                 """, (rs, i) -> new ActivityRow("manga-read", rs.getString("title"),
                 rs.getString("chapter_label"), rs.getString("cover_url"), null, null,
                 rs.getString("chapter_id"), null, rs.getInt("page"), null, null, null, null, null,
