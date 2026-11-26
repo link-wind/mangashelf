@@ -32,6 +32,12 @@ class TagNormalizerTest {
     }
 
     @Test
+    void normalizesTraditionalChineseCopyMangaTags() {
+        List<String> tags = TagNormalizer.normalize(List.of("愛情", "冒險", "歡樂向", "格鬥", "神鬼", "生活", "輕小說", "TL"));
+        assertEquals(List.of("恋爱", "冒险", "搞笑", "动作", "恐怖", "日常"), tags);
+    }
+
+    @Test
     void parsesValidReleaseYearsOnly() {
         assertEquals(2025, TagNormalizer.parseYear("2025"));
         assertEquals(1999, TagNormalizer.parseYear("1999-04-01"));

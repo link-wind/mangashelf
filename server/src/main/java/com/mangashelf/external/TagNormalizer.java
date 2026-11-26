@@ -27,21 +27,29 @@ public final class TagNormalizer {
             Map.entry("喜剧", "搞笑"),
             Map.entry("幽默", "搞笑"),
             Map.entry("爆笑", "搞笑"),
+            Map.entry("欢乐向", "搞笑"),
+            Map.entry("日常搞笑", "搞笑"),
             Map.entry("爱情", "恋爱"),
             Map.entry("言情", "恋爱"),
+            Map.entry("耽美", "纯爱"),
             Map.entry("魔幻", "奇幻"),
             Map.entry("神魔", "奇幻"),
+            Map.entry("西幻", "奇幻"),
             Map.entry("机战", "机甲"),
             Map.entry("体育", "运动"),
+            Map.entry("游戏竞技", "竞技"),
             Map.entry("惊悚", "恐怖"),
             Map.entry("灵异", "恐怖"),
+            Map.entry("神鬼", "恐怖"),
             Map.entry("古装", "古风"),
             Map.entry("武侠格斗", "武侠"),
+            Map.entry("武侠仙侠", "武侠"),
             Map.entry("悬疑推理", "悬疑"),
+            Map.entry("悬疑灵异", "悬疑"),
             Map.entry("推理", "悬疑"),
             Map.entry("格斗", "动作"),
             Map.entry("战斗", "动作"),
-            Map.entry("日常搞笑", "搞笑"),
+            Map.entry("生活", "日常"),
             Map.entry("萌系", "治愈")
     );
 
@@ -50,7 +58,7 @@ public final class TagNormalizer {
             "动画", "动漫", "番剧", "国产动漫", "日韩动漫", "欧美动漫", "港台动漫", "海外动漫",
             "国产动画", "日本动画", "国漫", "日漫", "韩漫", "美漫", "漫画", "彩漫", "条漫", "全彩",
             "TV", "tv", "WEB", "web", "OVA", "ova", "OAD", "oad", "SP", "剧场版", "电影", "新番",
-            "单行本", "短篇", "泡面番", "动态漫画", "有声漫",
+            "单行本", "短篇", "短片", "泡面番", "动态漫画", "有声漫", "轻小说", "东方", "节操", "TL", "tl",
             // 地区与语言
             "日本", "中国", "大陆", "中国大陆", "国产", "欧美", "韩国", "台湾", "香港", "港台",
             "日韩", "海外", "内地", "中漫",
@@ -60,7 +68,7 @@ public final class TagNormalizer {
             "连载中", "连载", "已完结", "完结", "更新中", "签约", "独家", "付费", "VIP", "vip",
             "限免", "免费", "新作", "人气", "热门", "推荐", "精选", "精品", "排行", "经典",
             "高清", "正版", "授权", "官方", "全年龄", "热血少年", "未分类", "其他", "其它",
-            "普通话", "中字", "中文字幕", "完结动画", "日本动漫", "大陆动漫", "欧美动画"
+            "普通话", "中字", "中文字幕", "完结动画", "日本动漫", "大陆动漫", "欧美动画", "正能量"
     );
 
     private TagNormalizer() {}
@@ -68,7 +76,8 @@ public final class TagNormalizer {
     /** 将单个原始标签清洗为规范题材名；命中噪声或非法长度返回 null。 */
     public static String canonicalize(String raw) {
         if (raw == null) return null;
-        String s = EDGE_PUNCT.matcher(raw.trim()).replaceAll("").trim();
+        String simplified = TraditionalToSimplified.toSimplified(raw.trim());
+        String s = EDGE_PUNCT.matcher(simplified).replaceAll("").trim();
         if (s.isEmpty() || NOISE_TAGS.contains(s)) return null;
         if (s.length() >= 4 && (s.endsWith("漫画") || s.endsWith("动漫") || s.endsWith("动画"))) {
             String stripped = s.substring(0, s.length() - 2);

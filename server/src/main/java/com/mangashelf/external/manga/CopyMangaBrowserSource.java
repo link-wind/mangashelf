@@ -190,23 +190,45 @@ public class CopyMangaBrowserSource implements MangaSource {
         return out;
     }
 
-    /** 题材清单（copymanga 官网主题常集）：与筛选 API 的 theme 参数一一对应。 */
+    /** 题材清单与拷贝 API 拼音 slug 映射（/api/v3/comics?theme={slug}）。 */
+    private static final java.util.Map<String, String> GENRE_SLUGS = java.util.Map.ofEntries(
+            java.util.Map.entry("热血", "rexue"),
+            java.util.Map.entry("恋爱", "aiqing"),
+            java.util.Map.entry("搞笑", "huanlexiang"),
+            java.util.Map.entry("冒险", "maoxian"),
+            java.util.Map.entry("后宫", "hougong"),
+            java.util.Map.entry("机甲", "jizhan"),
+            java.util.Map.entry("科幻", "kehuan"),
+            java.util.Map.entry("奇幻", "qihuan"),
+            java.util.Map.entry("校园", "xiaoyuan"),
+            java.util.Map.entry("悬疑", "xuanyi"),
+            java.util.Map.entry("动作", "gedou"),
+            java.util.Map.entry("治愈", "zhiyu"),
+            java.util.Map.entry("日常", "shenghuo"),
+            java.util.Map.entry("职场", "zhichang"),
+            java.util.Map.entry("恐怖", "shengui"),
+            java.util.Map.entry("百合", "baihe"),
+            java.util.Map.entry("纯爱", "danmei"),
+            java.util.Map.entry("历史", "lishi")
+    );
+
     private static final List<String> GENRES = List.of(
-            "热血", "恋爱", "搞笑", "冒险", "后宫", "机甲", "科幻", "奇幻",
-            "运动", "悬疑", "社会", "古风", "治愈", "少年", "少女");
+            "恋爱", "搞笑", "冒险", "奇幻", "校园", "科幻", "动作", "悬疑",
+            "治愈", "日常", "职场", "恐怖", "热血", "后宫", "机甲", "百合", "纯爱", "历史");
 
     @Override
     public List<String> genres() {
         return GENRES;
     }
 
-    /** 按题材浏览：走 copymanga APP 筛选接口（与章节 HTTP 同域同鉴权头）。 */
+    /** 按题材浏览：走 copymanga /api/v3/comics 筛选接口。 */
     @Override
     public List<SearchItem> searchByGenre(String genre, String lang, int limit) throws Exception {
-        String url = "https://api.manga2026.xyz/api/v3/h5/filter/list?theme="
-                + java.net.URLEncoder.encode(genre, java.nio.charset.StandardCharsets.UTF_8)
-                + "&offset=0&limit=" + Math.min(Math.max(limit, 1), 60)
-                + "&group=0&region=0&ordering=-datetime_updated";
+        String slug = GENRE_SLUGS.getOrDefault(genre, genre);
+        String url = "https://api.manga2026.xyz/api/v3/comics?theme="
+                + java.net.URLEncoder.encode(slug, java.nio.charset.StandardCharsets.UTF_8)
+                + "&offset=0&limit=" + Math.min(Math.max(limit, 1), 50)
+                + "&ordering=-popular";
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(java.time.Duration.ofSeconds(15))
                 .header("User-Agent", "COPY/3.0.9")
@@ -214,14 +236,14 @@ public class CopyMangaBrowserSource implements MangaSource {
                 .header("version", "3.0.9")
                 .header("versionCode", "83")
                 .header("platform", "3")
+                .header("region", "1")
                 .header("webp", "1")
                 .GET().build();
         HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             throw new ApiException(502, "SOURCE_UNAVAILABLE", "拷贝漫画题材请求 HTTP " + resp.statusCode());
         }
-        var mapper = new tools.jackson.databind.json.JsonMapper();
-        JsonNode list = mapper.readTree(resp.body()).path("results").path("list");
+        JsonNode list = objectMapper.readTree(resp.body()).path("results").path("list");
         List<SearchItem> out = new ArrayList<>();
         for (JsonNode item : list) {
             if (out.size() >= limit) break;

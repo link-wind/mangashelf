@@ -31,30 +31,80 @@ import java.util.regex.Pattern;
 
 /**
  * manga.catalog.sync：漫画目录同步（manga-catalog-sync）。
- * params.sourceId 指定单源（逐源任务，失败隔离）：
- * - tencent：遍历腾讯动漫 15 个分类页 × 前 6 页热度榜（提取完整多标签、作者、最新话与封面）+ 榜单/分区补充
- * - copymanga：遍历题材 × 前 3 页分页抓取（复用 copymanga 代理配置，单题材失败隔离）
- * - bilibili / 规则源：rank/sections + 题材搜索可见条目入库（渐进式）
- * 重复同步幂等（(source, source_item_id) upsert，多题材标签做并集累加）。
+ * params.sourceId 指定单源（逐源任务，失败隔离），可选 params.maxPages 控制深度：
+ * - copymanga：走 /api/v3/comics（拼音 theme slug × 热度分页），目标 ~4,000~5,000 部热门日漫/韩漫
+ * - bilibili：走 BilibiliHttpClient.classPage（全站热度前 80 页 + 15 官方题材前 3 页），目标 ~2,000~2,500 部
+ * - tencent：15 分类前 10 页 + 全站热度前 150 页（自带完整多标签），目标 ~2,200~2,600 部国漫
+ * - 其他规则源：rank/sections + 题材搜索渐进式入库
+ * 重复同步幂等（(source, source_item_id) upsert，多题材标签做并集累加，同时写入繁简归一化 title_key）。
  */
 @Component
 public class MangaCatalogSyncHandler implements JobHandler {
 
     private static final Logger log = LoggerFactory.getLogger(MangaCatalogSyncHandler.class);
-    private static final String COPY_API = "https://api.manga2026.xyz/api/v3";
+    private static final String COPY_API_PRIMARY = "https://api.manga2026.xyz/api/v3";
+    private static final String COPY_API_FALLBACK = "https://api.copy202602.com/api/v3";
     private static final String TENCENT_THEME_URL = "https://ac.qq.com/Comic/all/theme/%d/search/hot/page/%d";
+    private static final String TENCENT_ALL_HOT_URL = "https://ac.qq.com/Comic/all/search/hot/page/%d";
     private static final String WEB_UA =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
-    /** 题材间/分页间限速（毫秒）。 */
-    private static final long GENRE_SLEEP_MS = 1200;
-    private static final long PAGE_SLEEP_MS = 400;
-    private static final long TENCENT_PAGE_SLEEP_MS = 250;
-    private static final int PAGE_SIZE = 60;
-    private static final int COPY_MAX_PAGES_PER_GENRE = 3;
-    private static final int TENCENT_MAX_PAGES_PER_THEME = 6;
+    private static final long COPY_GENRE_SLEEP_MS = 600;
+    private static final long COPY_PAGE_SLEEP_MS = 350;
+    private static final long BILI_PAGE_SLEEP_MS = 200;
+    private static final long TENCENT_PAGE_SLEEP_MS = 200;
+    private static final long GENERIC_PAGE_SLEEP_MS = 400;
 
+    private static final int COPY_PAGE_SIZE = 50;
+    private static final int COPY_DEFAULT_PAGES_PER_THEME = 6;
+    private static final int BILI_PAGE_SIZE = 30;
+    private static final int BILI_DEFAULT_HOT_PAGES = 80;
+    private static final int BILI_STYLE_PAGES = 3;
+    private static final int TENCENT_THEME_PAGES = 10;
+    private static final int TENCENT_DEFAULT_HOT_PAGES = 150;
+
+    record CopyTheme(String slug, String tag) {}
+    record BiliStyle(int id, String name) {}
     record TencentTheme(int id, String name) {}
+
+    static final List<CopyTheme> COPY_THEMES = List.of(
+            new CopyTheme("aiqing", "恋爱"),
+            new CopyTheme("huanlexiang", "搞笑"),
+            new CopyTheme("maoxian", "冒险"),
+            new CopyTheme("qihuan", "奇幻"),
+            new CopyTheme("xiaoyuan", "校园"),
+            new CopyTheme("kehuan", "科幻"),
+            new CopyTheme("gedou", "动作"),
+            new CopyTheme("xuanyi", "悬疑"),
+            new CopyTheme("zhiyu", "治愈"),
+            new CopyTheme("shenghuo", "日常"),
+            new CopyTheme("zhichang", "职场"),
+            new CopyTheme("shengui", "恐怖"),
+            new CopyTheme("baihe", "百合"),
+            new CopyTheme("danmei", "纯爱"),
+            new CopyTheme("rexue", "热血"),
+            new CopyTheme("hougong", "后宫"),
+            new CopyTheme("jizhan", "机甲"),
+            new CopyTheme("lishi", "历史")
+    );
+
+    static final List<BiliStyle> BILI_STYLES = List.of(
+            new BiliStyle(999, "热血"),
+            new BiliStyle(997, "古风"),
+            new BiliStyle(1016, "玄幻"),
+            new BiliStyle(998, "奇幻"),
+            new BiliStyle(1023, "悬疑"),
+            new BiliStyle(1002, "都市"),
+            new BiliStyle(1096, "历史"),
+            new BiliStyle(1092, "武侠"),
+            new BiliStyle(1088, "竞技"),
+            new BiliStyle(1081, "恐怖"),
+            new BiliStyle(1063, "架空"),
+            new BiliStyle(1060, "青春"),
+            new BiliStyle(1054, "奇幻"),
+            new BiliStyle(1048, "现代"),
+            new BiliStyle(1015, "科幻")
+    );
 
     static final List<TencentTheme> TENCENT_THEMES = List.of(
             new TencentTheme(101, "玄幻"),
@@ -96,6 +146,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
     private final MangaSourceRegistry registry;
     private final MangaCatalogRepository catalog;
     private final ObjectMapper objectMapper;
+    private final BilibiliHttpClient bilibiliClient;
     private final String copyMangaProxy;
     private final Sleeper sleeper;
 
@@ -106,21 +157,23 @@ public class MangaCatalogSyncHandler implements JobHandler {
 
     @Autowired
     public MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
-                                   ObjectMapper objectMapper,
+                                   ObjectMapper objectMapper, BilibiliHttpClient bilibiliClient,
                                    @Value("${mangashelf.copymanga.proxy:}") String copyMangaProxy) {
-        this(registry, catalog, objectMapper, copyMangaProxy, Thread::sleep);
+        this(registry, catalog, objectMapper, bilibiliClient, copyMangaProxy, Thread::sleep);
     }
 
     MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
                             ObjectMapper objectMapper, Sleeper sleeper) {
-        this(registry, catalog, objectMapper, "", sleeper);
+        this(registry, catalog, objectMapper, null, "", sleeper);
     }
 
     MangaCatalogSyncHandler(MangaSourceRegistry registry, MangaCatalogRepository catalog,
-                            ObjectMapper objectMapper, String copyMangaProxy, Sleeper sleeper) {
+                            ObjectMapper objectMapper, BilibiliHttpClient bilibiliClient,
+                            String copyMangaProxy, Sleeper sleeper) {
         this.registry = registry;
         this.catalog = catalog;
         this.objectMapper = objectMapper;
+        this.bilibiliClient = bilibiliClient;
         this.copyMangaProxy = copyMangaProxy == null ? "" : copyMangaProxy.trim();
         this.sleeper = sleeper;
     }
@@ -133,64 +186,267 @@ public class MangaCatalogSyncHandler implements JobHandler {
     @Override
     public JobResult run(JobContext ctx) throws Exception {
         Job job = ctx.job();
-        String sourceId = sourceIdOf(job.params());
+        JsonNode params = parseParams(job.params());
+        String sourceId = params.path("sourceId").asText(null);
         if (sourceId == null || sourceId.isBlank()) {
             return JobResult.failure("SOURCE_REQUIRED", "params 缺少 sourceId");
         }
-        MangaSource source = registry.find(sourceId)
-                .orElseThrow(() -> new IllegalArgumentException("未注册的漫画源：" + sourceId));
+        Integer maxPages = params.has("maxPages") && params.path("maxPages").isInt()
+                ? params.path("maxPages").asInt() : null;
 
         int saved = switch (sourceId) {
-            case "tencent" -> syncTencent(ctx, source);
-            case "copymanga" -> syncCopyManga(ctx, source);
-            default -> syncProgressive(ctx, source);
+            case "bilibili" -> syncBilibili(ctx, maxPages);
+            case "copymanga" -> syncCopyManga(ctx, maxPages);
+            case "tencent" -> syncTencent(ctx, registry.find("tencent").orElse(null), maxPages);
+            default -> {
+                MangaSource source = registry.find(sourceId)
+                        .orElseThrow(() -> new IllegalArgumentException("未注册的漫画源：" + sourceId));
+                yield syncProgressive(ctx, source);
+            }
         };
         log.info("manga catalog sync {}: {} items", sourceId, saved);
         return JobResult.success("synced:" + saved);
     }
 
-    private String sourceIdOf(String paramsJson) {
+    private JsonNode parseParams(String paramsJson) {
         try {
-            JsonNode params = objectMapper.readTree(paramsJson == null ? "{}" : paramsJson);
-            return params.path("sourceId").asText(null);
+            return objectMapper.readTree(paramsJson == null || paramsJson.isBlank() ? "{}" : paramsJson);
         } catch (Exception e) {
-            return null;
+            return objectMapper.createObjectNode();
         }
     }
 
-    /** 腾讯动漫：遍历 15 个分类页 × 前 6 页热度榜（提取完整多标签），再补充榜单与分区。 */
-    private int syncTencent(JobContext ctx, MangaSource source) throws Exception {
+    // ── 拷贝漫画（/api/v3/comics + 拼音 theme slug × 热度分页）──
+
+    private int syncCopyManga(JobContext ctx, Integer maxPagesOverride) throws Exception {
+        int pagesPerTheme = maxPagesOverride != null
+                ? Math.min(Math.max(maxPagesOverride, 1), 20)
+                : COPY_DEFAULT_PAGES_PER_THEME;
+        HttpClient client = createCopyClient(copyMangaProxy);
+        int saved = 0;
+        int failedThemes = 0;
+        for (int ti = 0; ti < COPY_THEMES.size(); ti++) {
+            CopyTheme theme = COPY_THEMES.get(ti);
+            ctx.progress().emit("sync", "拷贝题材 " + theme.tag() + "（" + (ti + 1) + "/" + COPY_THEMES.size() + "）");
+            try {
+                for (int page = 0; page < pagesPerTheme; page++) {
+                    int offset = page * COPY_PAGE_SIZE;
+                    JsonNode list = fetchCopyComics(client, theme.slug(), offset);
+                    int count = 0;
+                    for (JsonNode item : list) {
+                        String id = item.path("path_word").asText("");
+                        String name = item.path("name").asText("");
+                        if (id.isBlank() || name.isBlank()) continue;
+                        List<String> tags = new ArrayList<>();
+                        tags.add(theme.tag());
+                        item.path("theme").forEach(t -> {
+                            String tag = t.path("name").asText("").trim();
+                            if (!tag.isBlank()) tags.add(tag);
+                        });
+                        String author = joinNames(item.path("author"));
+                        String cover = item.path("cover").asText("").replaceFirst("\\.\\d+x\\d+\\.jpg$", "");
+                        String remarks = item.path("status").path("display").asText("");
+                        catalog.upsert(UUID.randomUUID(), "copymanga", id, name, author, cover, remarks, tags, null);
+                        saved++;
+                        count++;
+                    }
+                    if (count < COPY_PAGE_SIZE) break;
+                    sleeper.sleep(COPY_PAGE_SLEEP_MS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                failedThemes++;
+                log.warn("copymanga theme {}({}) sync failed: {}", theme.tag(), theme.slug(), e.getMessage());
+            }
+            sleeper.sleep(COPY_GENRE_SLEEP_MS);
+        }
+        if (saved == 0 && failedThemes == COPY_THEMES.size()) {
+            MangaSource copy = registry.find("copymanga").orElse(null);
+            if (copy != null) {
+                saved += syncProgressive(ctx, copy);
+            }
+        }
+        return saved;
+    }
+
+    private JsonNode fetchCopyComics(HttpClient client, String themeSlug, int offset) throws Exception {
+        String query = "/comics?theme=" + URLEncoder.encode(themeSlug, StandardCharsets.UTF_8)
+                + "&offset=" + offset + "&limit=" + COPY_PAGE_SIZE + "&ordering=-popular";
+        Exception lastErr = null;
+        for (String base : List.of(COPY_API_PRIMARY, COPY_API_FALLBACK)) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder(URI.create(base + query))
+                        .timeout(Duration.ofSeconds(15))
+                        .header("User-Agent", "COPY/3.0.9")
+                        .header("Accept", "application/json")
+                        .header("version", "3.0.9")
+                        .header("versionCode", "83")
+                        .header("platform", "3")
+                        .header("region", "1")
+                        .header("webp", "1")
+                        .GET().build();
+                HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    throw new IllegalStateException("copymanga comics HTTP " + resp.statusCode());
+                }
+                JsonNode root = objectMapper.readTree(resp.body());
+                return root.path("results").path("list");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                lastErr = e;
+            }
+        }
+        throw lastErr == null ? new IllegalStateException("copymanga comics failed") : lastErr;
+    }
+
+    private static String joinNames(JsonNode arr) {
+        if (arr == null || !arr.isArray() || arr.isEmpty()) return "";
+        List<String> names = new ArrayList<>();
+        for (JsonNode n : arr) {
+            String s = n.isTextual() ? n.asText("") : n.path("name").asText("");
+            if (!s.isBlank()) names.add(s.trim());
+        }
+        return String.join(" / ", names);
+    }
+
+    static HttpClient createCopyClient(String proxy) {
+        ProxySelector selector = HttpClient.Builder.NO_PROXY;
+        if (proxy != null && !proxy.isBlank()) {
+            try {
+                URI target = URI.create(proxy.trim());
+                if ("http".equals(target.getScheme()) && target.getHost() != null
+                        && target.getPort() > 0 && target.getPort() <= 65535) {
+                    selector = ProxySelector.of(new InetSocketAddress(target.getHost(), target.getPort()));
+                }
+            } catch (Exception e) {
+                log.warn("ignoring invalid copymanga proxy {}: {}", proxy, e.getMessage());
+            }
+        }
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .version(HttpClient.Version.HTTP_1_1)
+                .proxy(selector)
+                .build();
+    }
+
+    // ── 哔哩哔哩漫画（ClassPage 全站热度 + 官方 15 题材）──
+
+    private int syncBilibili(JobContext ctx, Integer maxPagesOverride) throws Exception {
+        if (bilibiliClient == null) {
+            throw new IllegalStateException("BilibiliHttpClient 未初始化");
+        }
+        int hotPages = maxPagesOverride != null
+                ? Math.min(Math.max(maxPagesOverride, 1), 150)
+                : BILI_DEFAULT_HOT_PAGES;
+        int saved = 0;
+
+        // 阶段 1：全站热度榜翻页
+        for (int page = 1; page <= hotPages; page++) {
+            if (page == 1 || page % 10 == 0) {
+                ctx.progress().emit("sync", "哔哩全站热度 页 " + page + "/" + hotPages);
+            }
+            try {
+                JsonNode list = bilibiliClient.classPage(-1, page, BILI_PAGE_SIZE);
+                int count = upsertBiliPage(list, null);
+                saved += count;
+                if (count < BILI_PAGE_SIZE) break;
+                sleeper.sleep(BILI_PAGE_SLEEP_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                log.warn("bilibili hot page {} failed: {}", page, e.getMessage());
+                break;
+            }
+        }
+
+        // 阶段 2：15 个官方题材各补前 3 页，确保细分题材覆盖充足
+        for (int si = 0; si < BILI_STYLES.size(); si++) {
+            BiliStyle style = BILI_STYLES.get(si);
+            ctx.progress().emit("sync", "哔哩题材 " + style.name() + "（" + (si + 1) + "/" + BILI_STYLES.size() + "）");
+            try {
+                for (int page = 1; page <= BILI_STYLE_PAGES; page++) {
+                    JsonNode list = bilibiliClient.classPage(style.id(), page, BILI_PAGE_SIZE);
+                    int count = upsertBiliPage(list, style.name());
+                    saved += count;
+                    if (count < BILI_PAGE_SIZE) break;
+                    sleeper.sleep(BILI_PAGE_SLEEP_MS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                log.warn("bilibili style {}({}) failed: {}", style.name(), style.id(), e.getMessage());
+            }
+        }
+        return saved;
+    }
+
+    private int upsertBiliPage(JsonNode list, String extraStyleTag) {
+        if (list == null || !list.isArray()) return 0;
+        int count = 0;
+        for (JsonNode c : list) {
+            String id = c.path("season_id").asText("");
+            String title = c.path("title").asText("").trim();
+            if (id.isBlank() || title.isBlank()) continue;
+            String cover = c.path("vertical_cover").asText("");
+            if (cover.contains("hdslb.com") && !cover.contains("@")) {
+                cover = cover + "@480w.jpg";
+            }
+            boolean finished = c.path("is_finish").asInt(0) == 1;
+            int total = c.path("total").asInt(0);
+            int lastOrd = c.path("last_ord").asInt(0);
+            Integer epCount = total > 0 ? total : (lastOrd > 0 ? lastOrd : null);
+            String lastShort = c.path("last_short_title").asText("").trim();
+            String remarks = finished
+                    ? (epCount != null ? "已完结·全" + epCount + "话" : "已完结")
+                    : (!lastShort.isBlank() ? "更新至" + lastShort + "话" : (epCount != null ? "更新至" + epCount + "话" : ""));
+
+            List<String> tags = new ArrayList<>();
+            if (extraStyleTag != null && !extraStyleTag.isBlank()) {
+                tags.add(extraStyleTag);
+            }
+            c.path("styles").forEach(s -> {
+                String t = s.asText("").trim();
+                if (!t.isBlank()) tags.add(t);
+            });
+            c.path("bottom_info_v2").forEach(s -> {
+                String t = s.asText("").trim();
+                if (!t.isBlank()) tags.add(t);
+            });
+            String author = joinNames(c.path("author"));
+            catalog.upsert(UUID.randomUUID(), "bilibili", id, title, author, cover, remarks, tags, epCount);
+            count++;
+        }
+        return count;
+    }
+
+    // ── 腾讯动漫（15 分类前 10 页 + 全站热度总榜前 150 页）──
+
+    private int syncTencent(JobContext ctx, MangaSource source, Integer maxPagesOverride) throws Exception {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(12))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         int saved = 0;
+
+        // 阶段 1：15 分类页（确保细分题材不遗漏）
+        int themePages = maxPagesOverride != null
+                ? Math.min(Math.max(maxPagesOverride, 1), 20)
+                : TENCENT_THEME_PAGES;
         for (int ti = 0; ti < TENCENT_THEMES.size(); ti++) {
             TencentTheme theme = TENCENT_THEMES.get(ti);
             ctx.progress().emit("sync", "腾讯分类 " + theme.name() + "（" + (ti + 1) + "/" + TENCENT_THEMES.size() + "）");
             try {
-                for (int page = 1; page <= TENCENT_MAX_PAGES_PER_THEME; page++) {
+                for (int page = 1; page <= themePages; page++) {
                     String url = String.format(TENCENT_THEME_URL, theme.id(), page);
-                    HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                            .timeout(Duration.ofSeconds(15))
-                            .header("User-Agent", WEB_UA)
-                            .header("Accept", "text/html,application/xhtml+xml")
-                            .header("Referer", "https://ac.qq.com/Comic/all")
-                            .GET().build();
-                    HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
-                    if (resp.statusCode() != 200) {
-                        log.warn("tencent theme {} page {} HTTP {}", theme.name(), page, resp.statusCode());
-                        break;
-                    }
-                    List<ParsedTencentItem> items = parseTencentListPage(resp.body(), theme.name());
-                    if (items.isEmpty()) {
-                        break;
-                    }
-                    for (ParsedTencentItem item : items) {
-                        catalog.upsert(UUID.randomUUID(), "tencent", item.id(), item.title(),
-                                item.author(), item.coverUrl(), item.remarks(), item.tags(), null);
-                        saved++;
-                    }
+                    int n = fetchAndUpsertTencentPage(client, url, theme.name());
+                    saved += n;
+                    if (n == 0) break;
                     sleeper.sleep(TENCENT_PAGE_SLEEP_MS);
                 }
             } catch (InterruptedException e) {
@@ -200,8 +456,53 @@ public class MangaCatalogSyncHandler implements JobHandler {
                 log.warn("tencent theme {} sync failed: {}", theme.name(), e.getMessage());
             }
         }
-        saved += syncProgressive(ctx, source);
+
+        // 阶段 2：全站热度总榜翻页（每条自带完整多标签，覆盖全站 3,200+ 部头部）
+        int hotPages = maxPagesOverride != null
+                ? Math.min(Math.max(maxPagesOverride, 1), 269)
+                : TENCENT_DEFAULT_HOT_PAGES;
+        for (int page = 1; page <= hotPages; page++) {
+            if (page == 1 || page % 15 == 0) {
+                ctx.progress().emit("sync", "腾讯全站热度 页 " + page + "/" + hotPages);
+            }
+            try {
+                String url = String.format(TENCENT_ALL_HOT_URL, page);
+                int n = fetchAndUpsertTencentPage(client, url, null);
+                saved += n;
+                if (n == 0) break;
+                sleeper.sleep(TENCENT_PAGE_SLEEP_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (Exception e) {
+                log.warn("tencent all-hot page {} failed: {}", page, e.getMessage());
+            }
+        }
+
+        if (source != null) {
+            saved += syncProgressive(ctx, source);
+        }
         return saved;
+    }
+
+    private int fetchAndUpsertTencentPage(HttpClient client, String url, String themeName) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(15))
+                .header("User-Agent", WEB_UA)
+                .header("Accept", "text/html,application/xhtml+xml")
+                .header("Referer", "https://ac.qq.com/Comic/all")
+                .GET().build();
+        HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            log.warn("tencent url {} HTTP {}", url, resp.statusCode());
+            return 0;
+        }
+        List<ParsedTencentItem> items = parseTencentListPage(resp.body(), themeName);
+        for (ParsedTencentItem item : items) {
+            catalog.upsert(UUID.randomUUID(), "tencent", item.id(), item.title(),
+                    item.author(), item.coverUrl(), item.remarks(), item.tags(), null);
+        }
+        return items.size();
     }
 
     /** 解析腾讯动漫分类列表页 HTML，提取单页全部条目与多标签。 */
@@ -257,104 +558,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
                 .replace("&nbsp;", " ");
     }
 
-    /** 拷贝漫画：逐题材分页（有界页数 + 代理复用 + 单题材失败隔离）。 */
-    private int syncCopyManga(JobContext ctx, MangaSource source) throws Exception {
-        List<String> genres = source.genres();
-        if (genres.isEmpty()) {
-            ctx.progress().emit("sync", "源无题材清单，跳过全量同步");
-            return 0;
-        }
-        HttpClient client = createCopyClient(copyMangaProxy);
-        int saved = 0;
-        int failedGenres = 0;
-        int maxOffset = PAGE_SIZE * COPY_MAX_PAGES_PER_GENRE;
-        for (int gi = 0; gi < genres.size(); gi++) {
-            String genre = genres.get(gi);
-            ctx.progress().emit("sync", "拷贝题材 " + genre + "（" + (gi + 1) + "/" + genres.size() + "）");
-            try {
-                int offset = 0;
-                while (offset < maxOffset) {
-                    JsonNode list = fetchCopyFilter(client, genre, offset);
-                    int count = 0;
-                    for (JsonNode item : list) {
-                        String id = item.path("path_word").asText("");
-                        String name = item.path("name").asText("");
-                        if (id.isBlank() || name.isBlank()) continue;
-                        List<String> tags = new ArrayList<>();
-                        tags.add(genre);
-                        item.path("theme").forEach(t -> {
-                            String tag = t.path("name").asText("").trim();
-                            if (!tag.isBlank()) tags.add(tag);
-                        });
-                        String cover = item.path("cover").asText("").replaceFirst("\\.\\d+x\\d+\\.jpg$", "");
-                        catalog.upsert(UUID.randomUUID(), "copymanga", id, name, "",
-                                cover, item.path("status").path("display").asText(""),
-                                tags, null);
-                        saved++;
-                        count++;
-                    }
-                    if (count == 0) break;
-                    offset += count;
-                    sleeper.sleep(PAGE_SLEEP_MS);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw e;
-            } catch (Exception e) {
-                failedGenres++;
-                log.warn("copymanga genre {} sync failed: {}", genre, e.getMessage());
-            }
-            sleeper.sleep(GENRE_SLEEP_MS);
-        }
-        if (saved == 0 && failedGenres == genres.size()) {
-            // 回退至少尝试拉榜单，避免零入库
-            saved += syncProgressive(ctx, source);
-        }
-        return saved;
-    }
-
-    static HttpClient createCopyClient(String proxy) {
-        ProxySelector selector = HttpClient.Builder.NO_PROXY;
-        if (proxy != null && !proxy.isBlank()) {
-            try {
-                URI target = URI.create(proxy.trim());
-                if ("http".equals(target.getScheme()) && target.getHost() != null
-                        && target.getPort() > 0 && target.getPort() <= 65535) {
-                    selector = ProxySelector.of(new InetSocketAddress(target.getHost(), target.getPort()));
-                }
-            } catch (Exception e) {
-                log.warn("ignoring invalid copymanga proxy {}: {}", proxy, e.getMessage());
-            }
-        }
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .version(HttpClient.Version.HTTP_1_1)
-                .proxy(selector)
-                .build();
-    }
-
-    private JsonNode fetchCopyFilter(HttpClient client, String genre, int offset) throws Exception {
-        String url = COPY_API + "/h5/filter/list?theme="
-                + URLEncoder.encode(genre, StandardCharsets.UTF_8)
-                + "&offset=" + offset + "&limit=" + PAGE_SIZE
-                + "&group=0&region=0&ordering=-datetime_updated";
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(15))
-                .header("User-Agent", "COPY/3.0.9")
-                .header("Accept", "application/json")
-                .header("version", "3.0.9")
-                .header("versionCode", "83")
-                .header("platform", "3")
-                .header("webp", "1")
-                .GET().build();
-        HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new IllegalStateException("copymanga filter HTTP " + resp.statusCode());
-        }
-        return objectMapper.readTree(resp.body()).path("results").path("list");
-    }
-
-    /** 渐进式：rank/sections + 题材页可见条目入库（哔哩/腾讯/规则源通用路径）。 */
+    /** 渐进式：rank/sections + 题材页可见条目入库（规则源通用路径）。 */
     private int syncProgressive(JobContext ctx, MangaSource source) throws Exception {
         int saved = 0;
         try {
@@ -374,7 +578,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
         } catch (Exception e) {
             ctx.progress().emit("sync", "分区抓取失败：" + e.getMessage());
         }
-        if (!"tencent".equals(source.id())
+        if (!"tencent".equals(source.id()) && !"copymanga".equals(source.id())
                 && source.capabilities().contains(MangaSource.Capability.SEARCH)
                 && !source.genres().isEmpty()) {
             List<String> genres = source.genres().stream().limit(12).toList();
@@ -390,7 +594,7 @@ public class MangaCatalogSyncHandler implements JobHandler {
                                 "", List.of(genre), null);
                         saved++;
                     }
-                    sleeper.sleep(PAGE_SLEEP_MS);
+                    sleeper.sleep(GENERIC_PAGE_SLEEP_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw e;

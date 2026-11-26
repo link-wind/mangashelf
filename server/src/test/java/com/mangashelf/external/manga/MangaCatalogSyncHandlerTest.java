@@ -73,6 +73,16 @@ class MangaCatalogSyncHandlerTest {
     }
 
     @Test
+    void normalizesTraditionalAndBracketedTitlesToSameTitleKey() {
+        assertEquals("鬼灭之刃", MangaMatcher.titleKey("鬼滅之刃", "copymanga", "gmzr"));
+        assertEquals("鬼灭之刃", MangaMatcher.titleKey("鬼灭之刃（全彩版）", "bilibili", "25717"));
+        assertEquals("胆大党", MangaMatcher.titleKey("膽大黨", "copymanga", "ddd"));
+        assertEquals("胆大党", MangaMatcher.titleKey("胆大党（当哒当）", "tencent", "655879"));
+        assertEquals("咒术回战", MangaMatcher.titleKey("咒術迴戰", "copymanga", "zshz"));
+        assertEquals("copymanga:123", MangaMatcher.titleKey("（！？）", "copymanga", "123"));
+    }
+
+    @Test
     void buildsCopyClientWithAndWithoutProxy() {
         assertNotNull(MangaCatalogSyncHandler.createCopyClient(""));
         assertNotNull(MangaCatalogSyncHandler.createCopyClient("http://127.0.0.1:7890"));

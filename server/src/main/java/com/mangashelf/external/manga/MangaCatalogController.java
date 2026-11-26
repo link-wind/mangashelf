@@ -102,29 +102,35 @@ public class MangaCatalogController {
         return catalog.genres(source);
     }
 
-    /** 管理员触发单源漫画目录同步（派发 manga.catalog.sync 异步任务）。 */
+    /** 管理员触发单源漫画目录同步（派发 manga.catalog.sync 异步任务，可选 maxPages 控制抓取深度）。 */
     @PostMapping("/admin/sync")
     public Map<String, Object> triggerSync(@AuthUser CurrentUser user,
-                                           @RequestParam String sourceId) {
+                                           @RequestParam String sourceId,
+                                           @RequestParam(required = false) Integer maxPages) {
         if (!user.isAdmin()) {
             throw new ApiException(403, "FORBIDDEN", "仅管理员可触发漫画目录同步。");
         }
         String sid = sourceId == null ? "" : sourceId.trim();
-        if (sid.isBlank() || registry == null || registry.find(sid).isEmpty()) {
+        boolean knownBuiltIn = "bilibili".equals(sid) || "copymanga".equals(sid) || "tencent".equals(sid);
+        if (sid.isBlank() || (!knownBuiltIn && (registry == null || registry.find(sid).isEmpty()))) {
             throw new ApiException(404, "SOURCE_NOT_FOUND", "漫画源不存在：" + sid);
         }
         String paramsJson;
         try {
             var node = objectMapper.createObjectNode();
             node.put("sourceId", sid);
+            if (maxPages != null && maxPages > 0) {
+                node.put("maxPages", Math.min(maxPages, 269));
+            }
             paramsJson = node.toString();
         } catch (Exception e) {
             throw new IllegalStateException("params 序列化失败", e);
         }
         long window = Instant.now().getEpochSecond() / SYNC_DEDUP_WINDOW_SECONDS;
+        String dedupSuffix = maxPages == null ? "" : (":" + maxPages);
         UUID jobId = jobCreation.create(Job.KIND_MANGA_CATALOG_SYNC, user.id(),
                 null, null, null, null, null, null,
-                paramsJson, "manga.catalog.sync:" + sid + ":" + window);
+                paramsJson, "manga.catalog.sync:" + sid + dedupSuffix + ":" + window);
         return Map.of("jobId", jobId, "sourceId", sid);
     }
 

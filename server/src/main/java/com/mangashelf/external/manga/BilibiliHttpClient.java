@@ -83,6 +83,18 @@ public class BilibiliHttpClient {
         return call("HomeHot", Map.of());
     }
 
+    /** 分类翻页（ClassPage）：styleId=-1 表示全站，order=0 按人气排序。 */
+    public JsonNode classPage(int styleId, int pageNum, int pageSize) {
+        return call("ClassPage", Map.of(
+                "style_id", styleId,
+                "area_id", -1,
+                "is_finish", -1,
+                "order", 0,
+                "page_num", pageNum,
+                "page_size", pageSize,
+                "is_free", -1));
+    }
+
     public JsonNode index(String episodeId) {
         return call("GetImageIndex", Map.of("epId", Long.parseLong(episodeId)));
     }

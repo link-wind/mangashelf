@@ -1,20 +1,29 @@
 package com.mangashelf.external.manga;
 
-/** 标题归一化与相似度（M18）：供综合榜跨源同作合并使用（MangaDiscoveryService）。 */
+import com.mangashelf.external.TraditionalToSimplified;
+
+/** 标题归一化与相似度（M18）：供综合榜与索引页跨源同作合并使用。 */
 final class MangaMatcher {
 
     private MangaMatcher() {
     }
 
-    /** 标题归一化：小写、去括号注释/标点/空白、去季期后缀。 */
+    /** 标题归一化：繁转简、小写、去括号注释/标点/空白、去季期后缀。 */
     static String normalize(String s) {
         if (s == null) return "";
-        String v = s.toLowerCase(java.util.Locale.ROOT);
+        String v = TraditionalToSimplified.toSimplified(s).toLowerCase(java.util.Locale.ROOT);
         v = v.replaceAll("（[^）]*）|\\([^)]*\\)|\\[[^]]*]|【[^】]*】", "");
-        v = v.replaceAll("[\\s\\p{P}]", "");
+        v = v.replaceAll("[\\s\\p{P}·・]", "");
         v = v.replaceAll("第[一二三四五六七八九十百0-9]+[季期部篇话集卷]", "");
         v = v.replaceAll("(season|vol|volume)[0-9]+", "");
         return v;
+    }
+
+    /** 目录表跨源去重键：若归一化后为空则回退为 source:sourceItemId 避免误合。 */
+    static String titleKey(String title, String source, String sourceItemId) {
+        String key = normalize(title);
+        if (!key.isEmpty()) return key;
+        return (source == null ? "" : source) + ":" + (sourceItemId == null ? "" : sourceItemId);
     }
 
     /** 字符二元组 Jaccard（与动画侧同算法，对中文短标题稳定）。 */
