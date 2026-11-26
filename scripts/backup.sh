@@ -2,6 +2,12 @@
 # M5 备份（DESIGN 20.3）：数据库（custom 格式）+ SeaweedFS 数据卷，落 backups/<时间戳>/。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set +a
+fi
 STAMP=$(date +%Y%m%d-%H%M%S)
 DEST="$ROOT/backups/$STAMP"
 PROJECT="${COMPOSE_PROJECT_NAME:-mangashelf}"

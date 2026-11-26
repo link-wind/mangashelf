@@ -3,6 +3,12 @@
 # 用法：restore.sh <backup 目录>
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set +a
+fi
 PROJECT="${COMPOSE_PROJECT_NAME:-mangashelf}"
 SRC="${1:?用法：restore.sh <backup 目录>}"
 [ -f "$SRC/db.dump" ] && [ -f "$SRC/storage-data.tar.gz" ] || { echo "备份产物不完整" >&2; exit 1; }

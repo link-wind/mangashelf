@@ -14,6 +14,7 @@ services:
 
   redis:
     restart: unless-stopped
+    ports: !reset []
 
   storage:
     restart: unless-stopped
