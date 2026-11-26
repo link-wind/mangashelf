@@ -9,6 +9,7 @@ import {
 } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import { hdCover } from '../externalManga'
+import { cleanMangaRemarks, cleanSubtitle, formatStatusLabel, isCompletedStatus, sourceFullLabel } from '../lib/mediaFormat'
 import { formatMangaLine } from '../lineLabel'
 import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
@@ -222,8 +223,8 @@ export default function ExternalMangaDetail() {
   const continueCh = resume ? readable.find(c => c.id === resume.chapterId) : null
   const startCh = continueCh ?? readable[0]
   const cleanTags = (manga.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 12).slice(0, 8)
-  const isCompleted = Boolean(manga.status?.includes('完结'))
-  const statusLabel = isCompleted ? '已完结' : (manga.status || '连载中')
+  const isCompleted = isCompletedStatus(manga.status)
+  const statusLabel = formatStatusLabel(manga.status)
   const totalLines = switchSources.length + 1
 
   const open = (c: ExtChapter) =>
@@ -232,7 +233,7 @@ export default function ExternalMangaDetail() {
 
   return (
     <main className="watch-page">
-      {/* 面包屑 + 状态胶囊 */}
+      {/* 精简面包屑（状态仅保留在海报与主身份区，消除顶部复读） */}
       <div className="detail-crumb-row">
         <nav className="breadcrumb" aria-label="面包屑">
           <Link to="/manga">漫画</Link>
@@ -241,15 +242,6 @@ export default function ExternalMangaDetail() {
           <span>/</span>
           <span className="breadcrumb-cur">{manga.title}</span>
         </nav>
-        <div className="detail-crumb-pills">
-          {readable.length > 0 && (
-            <span className="detail-crumb-pill is-live tabular-nums">
-              <span className="detail-crumb-dot" aria-hidden="true" />
-              共 {readable.length} 话可阅读
-            </span>
-          )}
-          <span className="detail-crumb-pill">{statusLabel}</span>
-        </div>
       </div>
 
       {/* 吸顶分区锚点条 */}
@@ -260,7 +252,7 @@ export default function ExternalMangaDetail() {
         {recommended.length > 0 && <a href="#recommend" className="mini ghost btn">更多推荐</a>}
       </div>
 
-      {/* gugu.fan 分层总览区：左 312px 融合角标大海报 + 阅读概览副卡；右 身份/行动/KPI/足迹与线路 */}
+      {/* 双栏总览区：左 312px 融合角标大海报；右 身份/行动/4 KPI/线路切换 */}
       <section id="overview" className="detail-overview-grid">
         <div className="detail-left-col">
           <div className="detail-poster-card">
@@ -270,40 +262,18 @@ export default function ExternalMangaDetail() {
               <span className={'dpc-pill ' + (isCompleted ? 'is-pub' : 'is-cyan')}>{statusLabel}</span>
             </div>
             {readable.length > 0 && (
-              <span className="dpc-top-right">{readable.length} 话</span>
+              <span className="dpc-top-right tabular-nums">{readable.length} 话</span>
             )}
             <div className="dpc-bottom">
               <div className="dpc-bottom-meta">
-                <span className="dpc-bottom-k">{continueCh ? '上次读到' : '连载进度'}</span>
+                <span className="dpc-bottom-k">{continueCh ? '上次读到' : '阅读来源'}</span>
                 <span className="dpc-bottom-v">
                   {continueCh
                     ? `第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}`
-                    : (readable.length > 0 ? `已收录 ${readable.length} 话` : '站内直读')}
+                    : sourceFullLabel(source)}
                 </span>
               </div>
               <span className="dpc-bottom-chip tabular-nums">{totalLines} 条线路</span>
-            </div>
-          </div>
-
-          <div className="detail-score-card">
-            <div className="detail-score-card-title">阅读概览</div>
-            <div className="detail-score-tiles">
-              <div className="detail-score-tile">
-                <span className="detail-score-tile-k">总话数</span>
-                <span className="detail-score-tile-v is-rose">
-                  {readable.length > 0 ? readable.length : '—'}
-                </span>
-                <span className="detail-score-tile-sub">{statusLabel}</span>
-              </div>
-              <div className="detail-score-tile">
-                <span className="detail-score-tile-k">阅读进度</span>
-                <span className="detail-score-tile-v">
-                  {continueCh ? `第${continueCh.chapter || '?'}话` : '未读'}
-                </span>
-                <span className="detail-score-tile-sub">
-                  {resume ? `第 ${resume.page} 页` : '从头开始'}
-                </span>
-              </div>
             </div>
           </div>
         </div>
@@ -313,7 +283,7 @@ export default function ExternalMangaDetail() {
           <div className="detail-identity">
             <div className="detail-micro-row">
               <span className="detail-micro-pill is-rose">{statusLabel}</span>
-              <span className="detail-micro-pill">漫画</span>
+              <span className="detail-micro-pill">{sourceFullLabel(source)}</span>
               {manga.year && <span className="detail-micro-pill is-cyan tabular-nums">{manga.year}</span>}
               {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已读完</span>}
             </div>
@@ -340,11 +310,11 @@ export default function ExternalMangaDetail() {
                 <span>
                   {continueCh
                     ? `上次读到 第 ${continueCh.chapter || '?'} 话${resume ? ` · 第 ${resume.page} 页` : ''}`
-                    : (readable.length > 0 ? `共 ${readable.length} 话可在线阅读` : '暂无可阅读章节')}
+                    : (readable.length > 0 ? `已收录 ${readable.length} 话可在线阅读` : '暂无可阅读章节')}
                 </span>
               </div>
               <span className="detail-action-status-sub">
-                {statusLabel} · 支持单页滚动 / 双页翻页与自动下一话
+                支持条漫滚动 / 双页翻页与自动下一话
               </span>
             </div>
             <div className="detail-action-btns">
@@ -407,7 +377,7 @@ export default function ExternalMangaDetail() {
             </div>
           </div>
 
-          {/* 4. 阅读足迹与线路切换条 */}
+          {/* 4. 阅读足迹与线路切换条（当前源 + 备选切换线路数之和 = totalLines） */}
           <div className="detail-footprint-bar">
             <div className="detail-footprint-left">
               <span className="detail-footprint-title">阅读足迹与线路切换</span>
@@ -420,6 +390,7 @@ export default function ExternalMangaDetail() {
               </span>
             </div>
             <div className="row-inline" style={{ gap: 8 }}>
+              <span className="detail-cur-line-pill">当前：{sourceFullLabel(source)}</span>
               {switchSources.map((s, idx) => {
                 const label = formatMangaLine(idx)
                 return (
@@ -550,19 +521,26 @@ export default function ExternalMangaDetail() {
           {loading && <p className="muted">加载章节…</p>}
           {displayedChapters.length > 0 ? (
             <div className="chapter-grid">
-              {displayedChapters.map(c => c.external && officialBiliUrl ? (
-                <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
-                   target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
-                  <span className="cc-no">{c.chapter || '?'}</span>
-                  <span className="cc-sub">正版</span>
-                </a>
-              ) : (
-                <button key={c.id} type="button" className="chapter-cell" onClick={() => open(c)}
-                        title={c.title || `第 ${c.chapter} 话`}>
-                  <span className="cc-no">{c.chapter || '?'}</span>
-                  <span className="cc-sub">{c.pages > 0 ? `${c.pages} 页` : ''}</span>
-                </button>
-              ))}
+              {displayedChapters.map(c => {
+                const isResume = Boolean(continueCh && c.id === continueCh.id)
+                return c.external && officialBiliUrl ? (
+                  <a key={c.id} className="chapter-cell" href={`https://manga.bilibili.com/${c.id.replace('-', '/')}`}
+                     target="_blank" rel="noopener noreferrer" title={c.title || `第 ${c.chapter} 话`}>
+                    <span className="cc-no">{c.chapter || '?'}</span>
+                    <span className="cc-sub">正版</span>
+                  </a>
+                ) : (
+                  <button key={c.id} type="button"
+                          className={'chapter-cell' + (isResume ? ' is-resume' : '')}
+                          onClick={() => open(c)}
+                          title={c.title || `第 ${c.chapter} 话`}>
+                    <span className="cc-no">{c.chapter || '?'}</span>
+                    <span className={'cc-sub' + (isResume ? ' is-resume-lbl' : '')}>
+                      {isResume ? '上次读到' : (c.pages > 0 ? `${c.pages} 页` : '')}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           ) : !loading && (
             <p className="muted" style={{ margin: 0 }}>暂无章节。</p>
@@ -584,6 +562,7 @@ export default function ExternalMangaDetail() {
             {recommended.map(r => {
               const href = `/manga-ext/${r.id}?${new URLSearchParams({ lang: 'all', source: r.source, title: r.title })}`
               const key = mangaFavKey(r.source, r.id)
+              const cleanRem = cleanMangaRemarks(r.remarks)
               return (
                 <AnimePosterCard
                   key={`${r.source}:${r.id}`}
@@ -592,9 +571,9 @@ export default function ExternalMangaDetail() {
                   coverUrl={hdCover(r.coverUrl)}
                   detailHref={href}
                   playHref={href}
-                  bottomRight={r.remarks || null}
-                  metaLeft="推荐漫画"
-                  metaTag={r.reason}
+                  topLeft={formatStatusLabel(r.remarks)}
+                  bottomRight={cleanRem || null}
+                  metaLeft={cleanSubtitle(r.reason, '精选推荐')}
                   favorited={recFav.isFavorited(r.source, r.id)}
                   busy={recFav.busyKey === key}
                   onToggleFavorite={() => void recFav.toggle(r.source, r.id, r.title)}

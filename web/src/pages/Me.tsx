@@ -9,6 +9,9 @@ import {
   SearchIcon, SettingsIcon, SparklesIcon, UploadIcon,
 } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import EmptyState from '../components/ui/EmptyState'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
+import { sourceShortLabel } from '../lib/mediaFormat'
 
 interface Favorite {
   type: 'work' | 'manga' | 'catalog'
@@ -456,6 +459,19 @@ export default function Me() {
   const joinDate = fmtDate(me?.createdAt)
   const recentQuick = curContinue.slice(0, 3)
   const maxSourceCount = split.mangaSources[0]?.count || 1
+  const activeRawCount = tab === 'continue'
+    ? curContinue.length
+    : tab === 'history'
+      ? curHistory.length
+      : tab === 'completed'
+        ? curCompletedCount
+        : curFavs.length
+  const quickAnimePicks = useMemo(() => (
+    [...calendar]
+      .filter(c => Boolean(c.catalogItemId) && (c.rating ?? 0) > 0)
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+      .slice(0, 4)
+  ), [calendar])
 
   return (
     <div className={'space-page-root ' + (isManga ? 'is-manga' : 'is-anime')}>
@@ -569,12 +585,12 @@ export default function Me() {
 
         {error && <p className="error" style={{ marginTop: 14 }}>{error}</p>}
 
-        {/* 层 2：4 格当前频道专属 KPI 指标条 */}
+        {/* 层 2：4 格当前频道专属 KPI 指标条（高亮当前对应 Tab） */}
         {isManga ? (
           <section className="space-metrics" aria-label="漫画空间统计">
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'favorites' ? ' is-active' : '')}
               onClick={() => { setFavStatusFilter('WATCHING'); setTab('favorites') }}
             >
               <span className="space-kpi-ico is-rose"><BookOpenIcon size={18} /></span>
@@ -587,7 +603,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'continue' ? ' is-active' : '')}
               onClick={() => setTab('continue')}
             >
               <span className="space-kpi-ico is-cyan"><BookmarkIcon size={18} /></span>
@@ -600,7 +616,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'completed' ? ' is-active' : '')}
               onClick={() => setTab('completed')}
             >
               <span className="space-kpi-ico is-pub"><CheckCircleIcon size={18} /></span>
@@ -613,7 +629,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'history' ? ' is-active' : '')}
               onClick={() => setTab('history')}
             >
               <span className="space-kpi-ico is-amber"><ClockIcon size={18} /></span>
@@ -628,7 +644,7 @@ export default function Me() {
           <section className="space-metrics" aria-label="动画空间统计">
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'favorites' ? ' is-active' : '')}
               onClick={() => { setFavStatusFilter('WATCHING'); setTab('favorites') }}
             >
               <span className="space-kpi-ico is-cyan"><FilmIcon size={18} /></span>
@@ -641,7 +657,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'continue' ? ' is-active' : '')}
               onClick={() => setTab('continue')}
             >
               <span className="space-kpi-ico is-rose"><BoltIcon size={18} /></span>
@@ -654,7 +670,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'completed' ? ' is-active' : '')}
               onClick={() => setTab('completed')}
             >
               <span className="space-kpi-ico is-pub"><CheckCircleIcon size={18} /></span>
@@ -667,7 +683,7 @@ export default function Me() {
 
             <button
               type="button"
-              className="space-kpi-card"
+              className={'space-kpi-card' + (tab === 'history' ? ' is-active' : '')}
               onClick={() => setTab('history')}
             >
               <span className="space-kpi-ico is-amber"><ClockIcon size={18} /></span>
@@ -685,51 +701,38 @@ export default function Me() {
           <div className="space-main">
             {/* 纯净介质 Tab 栏 + 网格/列表切换 */}
             <div className="space-tabbar">
-              <div className="space-tabs" role="tablist" aria-label={isManga ? '漫画空间视图' : '动画空间视图'}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === 'continue'}
-                  className={'space-tab' + (tab === 'continue' ? ' active' : '')}
-                  onClick={() => setTab('continue')}
-                >
-                  {isManga ? '继续阅读' : '继续观看'}
-                  <span className="space-tab-num tabular-nums">{curContinue.length}</span>
-                  {!isManga && catchUp.length > 0 && <span className="space-tab-dot" aria-label="有新集" />}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === 'favorites'}
-                  className={'space-tab' + (tab === 'favorites' ? ' active' : '')}
-                  onClick={() => setTab('favorites')}
-                >
-                  {isManga ? '漫画书架' : '追番列表'}
-                  <span className="space-tab-num tabular-nums">{curFavs.length}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === 'completed'}
-                  className={'space-tab' + (tab === 'completed' ? ' active' : '')}
-                  onClick={() => setTab('completed')}
-                >
-                  {isManga ? '已读完' : '已看完'}
-                  <span className="space-tab-num tabular-nums">{curCompletedCount}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === 'history'}
-                  className={'space-tab' + (tab === 'history' ? ' active' : '')}
-                  onClick={() => setTab('history')}
-                >
-                  {isManga ? '阅读历史' : '观看历史'}
-                  <span className="space-tab-num tabular-nums">{curHistory.length}</span>
-                </button>
-              </div>
+              <SegmentedTabs
+                layoutId="me-main-tabs"
+                tone={isManga ? 'rose' : 'cyan'}
+                ariaLabel={isManga ? '漫画空间视图' : '动画空间视图'}
+                value={tab}
+                onChange={setTab}
+                items={[
+                  {
+                    value: 'continue',
+                    label: isManga ? '继续阅读' : '继续观看',
+                    count: curContinue.length,
+                    dot: !isManga && catchUp.length > 0,
+                  },
+                  {
+                    value: 'favorites',
+                    label: isManga ? '漫画书架' : '追番列表',
+                    count: curFavs.length,
+                  },
+                  {
+                    value: 'completed',
+                    label: isManga ? '已读完' : '已看完',
+                    count: curCompletedCount,
+                  },
+                  {
+                    value: 'history',
+                    label: isManga ? '阅读历史' : '观看历史',
+                    count: curHistory.length,
+                  },
+                ]}
+              />
 
-              {tab !== 'history' && (
+              {tab !== 'history' && activeRawCount > 0 && (
                 <div className="space-view-seg" role="group" aria-label="视图模式">
                   <button
                     type="button"
@@ -753,52 +756,54 @@ export default function Me() {
               )}
             </div>
 
-            {/* 轻量筛选条 */}
-            <div className="space-filter-bar">
-              <div className="space-search-box">
-                <SearchIcon size={14} className="space-search-ico" />
-                <input
-                  value={filterQuery}
-                  onChange={e => setFilterQuery(e.target.value)}
-                  placeholder={isManga ? '在我的漫画中快速筛选标题…' : '在我的动画中快速筛选标题…'}
-                  aria-label={isManga ? '筛选漫画' : '筛选动画'}
-                />
-                {filterQuery && (
-                  <button
-                    type="button"
-                    className="space-search-clear"
-                    aria-label="清空筛选"
-                    onClick={() => setFilterQuery('')}
-                  >
-                    <CloseIcon size={13} />
-                  </button>
+            {/* 轻量筛选条：仅在当前 Tab 有数据时展示，空态不占位 */}
+            {activeRawCount > 0 && (
+              <div className="space-filter-bar">
+                <div className="space-search-box">
+                  <SearchIcon size={14} className="space-search-ico" />
+                  <input
+                    value={filterQuery}
+                    onChange={e => setFilterQuery(e.target.value)}
+                    placeholder={isManga ? '在我的漫画中快速筛选标题…' : '在我的动画中快速筛选标题…'}
+                    aria-label={isManga ? '筛选漫画' : '筛选动画'}
+                  />
+                  {filterQuery && (
+                    <button
+                      type="button"
+                      className="space-search-clear"
+                      aria-label="清空筛选"
+                      onClick={() => setFilterQuery('')}
+                    >
+                      <CloseIcon size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {tab === 'favorites' && (
+                  <div className="space-filter-controls">
+                    <div className="space-status-pills">
+                      {(['all', 'WATCHING', 'COMPLETED'] as const).map(st => (
+                        <button
+                          key={st}
+                          type="button"
+                          className={'space-pill-sm' + (favStatusFilter === st ? ' active' : '')}
+                          onClick={() => setFavStatusFilter(st)}
+                        >
+                          {st === 'all' ? '全部状态' : st === 'WATCHING' ? '在追' : (isManga ? '已读完' : '已看完')}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="space-sort-btn"
+                      onClick={() => setFavSort(s => (s === 'recent' ? 'title' : 'recent'))}
+                    >
+                      排序：{favSort === 'recent' ? '最近收藏' : '按名称'}
+                    </button>
+                  </div>
                 )}
               </div>
-
-              {tab === 'favorites' && (
-                <div className="space-filter-controls">
-                  <div className="space-status-pills">
-                    {(['all', 'WATCHING', 'COMPLETED'] as const).map(st => (
-                      <button
-                        key={st}
-                        type="button"
-                        className={'space-pill-sm' + (favStatusFilter === st ? ' active' : '')}
-                        onClick={() => setFavStatusFilter(st)}
-                      >
-                        {st === 'all' ? '全部状态' : st === 'WATCHING' ? '在追' : (isManga ? '已读完' : '已看完')}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="space-sort-btn"
-                    onClick={() => setFavSort(s => (s === 'recent' ? 'title' : 'recent'))}
-                  >
-                    排序：{favSort === 'recent' ? '最近收藏' : '按名称'}
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
 
             {/* 主内容面板 */}
             {loading ? (
@@ -856,19 +861,51 @@ export default function Me() {
                   </div>
 
                   {shownContinue.length === 0 ? (
-                    <div className="space-empty">
-                      <span className="space-empty-ico">
-                        {isManga ? <BookOpenIcon size={22} /> : <PlayIcon size={22} />}
-                      </span>
-                      <h3>{isManga ? '还没有正在读的漫画' : '还没有正在追的动画'}</h3>
-                      <p>
-                        {isManga
+                    <div className="space-empty-wrap">
+                      <EmptyState
+                        compact
+                        tone={isManga ? 'rose' : 'cyan'}
+                        icon={isManga ? <BookOpenIcon size={22} /> : <PlayIcon size={22} />}
+                        title={isManga ? '还没有正在读的漫画' : '还没有正在追的动画'}
+                        description={isManga
                           ? '打开任意漫画章节翻阅后，这里会自动同步章节与页码，随时一键续读。'
                           : '播放任意番剧剧集后，这里会自动记录集数与精确秒数，随时一键续播。'}
-                      </p>
-                      <Link to={isManga ? '/manga' : '/'} className={'btn pill ' + (isManga ? 'space-btn-rose' : '')}>
-                        {isManga ? '去漫画发现页 →' : '去番剧首页 →'}
-                      </Link>
+                        action={
+                          <Link to={isManga ? '/manga' : '/'} className={'btn pill ' + (isManga ? 'space-btn-rose' : '')}>
+                            {isManga ? '去漫画发现页 →' : '去番剧首页 →'}
+                          </Link>
+                        }
+                      />
+                      {!isManga && !needle && quickAnimePicks.length > 0 && (
+                        <div className="me-quick-picks">
+                          <div className="me-qp-head">
+                            <span>本季高分推荐 · 点击立即开看</span>
+                            <Link to="/index?sort=rating" className="muted">更多高分 →</Link>
+                          </div>
+                          <div className="me-qp-grid">
+                            {quickAnimePicks.map(c => (
+                              <Link
+                                key={c.subjectId}
+                                to={c.workId ? `/works/${c.workId}` : `/catalog/${c.catalogItemId}`}
+                                className="work-card"
+                              >
+                                <div className="cover">
+                                  <CoverImage src={`/api/v1/bangumi-covers/${c.subjectId}?size=large`} alt={c.nameCn || c.name} />
+                                  {typeof c.rating === 'number' && (
+                                    <span className="badge-bl badge-score tabular-nums">★ {c.rating.toFixed(1)}</span>
+                                  )}
+                                </div>
+                                <div className="work-card-body">
+                                  <div className="work-card-title">{c.nameCn || c.name}</div>
+                                  <div className="work-card-meta">
+                                    <span>{c.remarks || '本季热播'}</span>
+                                  </div>
+                                </div>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : viewMode === 'grid' ? (
                     <div className="space-card-grid">
@@ -876,14 +913,19 @@ export default function Me() {
                         const pct = a.durationMs && a.positionMs
                           ? Math.min(99, Math.max(2, Math.round(a.positionMs / a.durationMs * 100)))
                           : null
+                        const srcBadge = isManga ? sourceShortLabel(a.source, a.type === 'work-read') : ''
+                        const cardMeta = isManga
+                          ? (a.subtitle || fmtRelativeTime(a.updatedAt))
+                          : activitySummary(a)
                         return (
                           <Link
-                            key={`${a.type}-${a.workId ?? a.catalogItemId ?? a.mangaId ?? a.animationId}`}
+                            key={`${a.type}-${a.source ?? ''}-${a.workId ?? a.catalogItemId ?? a.mangaId ?? a.animationId}`}
                             to={activityLink(a)}
                             className="work-card"
                           >
                             <div className="cover">
                               <CoverImage src={a.coverUrl} alt={a.title} />
+                              {srcBadge && <span className="space-source-badge">{srcBadge}</span>}
                               <span className="space-progress-badge">
                                 {isManga ? `第 ${a.pageOrdinal ?? 1} 页` : (pct !== null ? `${pct}%` : `第 ${a.ordinal ?? 1} 集`)}
                               </span>
@@ -896,7 +938,7 @@ export default function Me() {
                             <div className="work-card-body">
                               <div className="work-card-title clamp">{a.title}</div>
                               <div className="work-card-meta">
-                                <span className="clamp">{activitySummary(a)}</span>
+                                <span className="clamp">{cardMeta}</span>
                               </div>
                             </div>
                           </Link>
@@ -909,9 +951,10 @@ export default function Me() {
                         const pct = a.durationMs && a.positionMs
                           ? Math.min(99, Math.max(2, Math.round(a.positionMs / a.durationMs * 100)))
                           : null
+                        const srcBadge = isManga ? sourceShortLabel(a.source, a.type === 'work-read') : ''
                         return (
                           <div
-                            key={`${a.type}-${a.workId ?? a.catalogItemId ?? a.mangaId ?? a.animationId}`}
+                            key={`${a.type}-${a.source ?? ''}-${a.workId ?? a.catalogItemId ?? a.mangaId ?? a.animationId}`}
                             className="space-list-row"
                           >
                             <Link to={activityLink(a)} className="space-row-thumb">
@@ -920,6 +963,7 @@ export default function Me() {
                             <div className="space-row-body">
                               <div className="space-row-top">
                                 <Link to={activityLink(a)} className="space-row-title">{a.title}</Link>
+                                {srcBadge && <span className="space-tag is-manga">{srcBadge}</span>}
                               </div>
                               <div className="space-row-sub">
                                 <span>{activitySummary(a)}</span>

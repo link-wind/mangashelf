@@ -1,10 +1,14 @@
+import { BookOpen, Film, LayoutGrid, List } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import Pagination from '../components/Pagination'
+import EmptyState from '../components/ui/EmptyState'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
 import { hdCover } from '../externalManga'
+import { cleanMangaRemarks, cleanSubtitle, formatStatusLabel } from '../lib/mediaFormat'
 import { useCatalogFavorites } from '../useCatalogFavorites'
 import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
@@ -35,30 +39,35 @@ export default function CatalogIndex() {
   }
 
   return (
-    <main className="watch-page">
-      <div className="section-head">
-        <div className="row-inline" style={{ gap: 14 }}>
-          <h1 style={{ margin: 0 }}>索引</h1>
-          <div className="row-inline" role="tablist" aria-label="索引类型切换">
-            <button type="button" role="tab" aria-selected={kind === 'anime'}
-                    className={'pill ' + (kind === 'anime' ? '' : 'ghost')}
-                    onClick={() => switchKind('anime')}>
-              番剧
-            </button>
-            <button type="button" role="tab" aria-selected={kind === 'manga'}
-                    className={'pill ' + (kind === 'manga' ? '' : 'ghost')}
-                    onClick={() => switchKind('manga')}>
-              漫画
-            </button>
-          </div>
+    <main className={'watch-page index-page' + (kind === 'manga' ? ' is-manga' : '')}>
+      <div className="index-top-bar">
+        <div className="row-inline" style={{ gap: 16 }}>
+          <h1 style={{ margin: 0, fontSize: 24 }}>索引</h1>
+          <SegmentedTabs
+            layoutId="index-kind-tabs"
+            tone={kind === 'manga' ? 'rose' : 'cyan'}
+            ariaLabel="索引类型切换"
+            value={kind}
+            onChange={switchKind}
+            items={[
+              { value: 'anime', label: '番剧', icon: <Film size={14} /> },
+              { value: 'manga', label: '漫画', icon: <BookOpen size={14} /> },
+            ]}
+          />
         </div>
 
-        <div className="view-toggle" role="group" aria-label="视图切换">
-          <button type="button" className={'mini ' + (viewMode === 'grid' ? '' : 'ghost')}
-                  onClick={() => switchView('grid')}>网格</button>
-          <button type="button" className={'mini ' + (viewMode === 'list' ? '' : 'ghost')}
-                  onClick={() => switchView('list')}>列表</button>
-        </div>
+        <SegmentedTabs
+          layoutId="index-view-tabs"
+          size="sm"
+          tone="neutral"
+          ariaLabel="视图切换"
+          value={viewMode}
+          onChange={switchView}
+          items={[
+            { value: 'grid', label: '网格', icon: <LayoutGrid size={13} /> },
+            { value: 'list', label: '列表', icon: <List size={13} /> },
+          ]}
+        />
       </div>
 
       {kind === 'manga'
@@ -207,7 +216,7 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           <div className="filter-pills">
             {ANIME_CATEGORIES.map(c => (
               <button key={c.label} type="button"
-                      className={'mini ' + (category === c.id ? '' : 'ghost')}
+                      className={'idx-chip' + (category === c.id ? ' is-active' : '')}
                       onClick={() => updateFilter({ category: c.id })}>
                 {c.label}
               </button>
@@ -218,17 +227,17 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
         <div className="filter-row">
           <span className="filter-label">题材</span>
           <div className="filter-pills">
-            <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
+            <button type="button" className={'idx-chip' + (genre === '' ? ' is-active' : '')}
                     onClick={() => updateFilter({ genre: '' })}>全部</button>
             {shownGenres.map(g => (
               <button key={g} type="button"
-                      className={'mini ' + (genre === g ? '' : 'ghost')}
+                      className={'idx-chip' + (genre === g ? ' is-active' : '')}
                       onClick={() => updateFilter({ genre: g })}>{g}</button>
             ))}
             {genres.length > 12 && (
-              <button type="button" className="mini ghost"
+              <button type="button" className="idx-chip is-more"
                       onClick={() => setExpandGenres(v => !v)}>
-                {expandGenres ? '收起' : '更多'}
+                {expandGenres ? '收起' : '更多 ▾'}
               </button>
             )}
           </div>
@@ -239,7 +248,7 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           <div className="filter-pills">
             {ANIME_STATUS.map(st => (
               <button key={st.value} type="button"
-                      className={'mini ' + (status === st.value ? '' : 'ghost')}
+                      className={'idx-chip' + (status === st.value ? ' is-active' : '')}
                       onClick={() => updateFilter({ status: st.value })}>{st.label}</button>
             ))}
           </div>
@@ -250,7 +259,7 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           <div className="filter-pills">
             {ANIME_YEARS.map(y => (
               <button key={y.value} type="button"
-                      className={'mini ' + (year === y.value ? '' : 'ghost')}
+                      className={'idx-chip' + (year === y.value ? ' is-active' : '')}
                       onClick={() => updateFilter({ year: y.value })}>{y.label}</button>
             ))}
           </div>
@@ -261,19 +270,20 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           <div className="filter-pills">
             {ANIME_SORTS.map(so => (
               <button key={so.value} type="button"
-                      className={'mini ' + (sort === so.value ? '' : 'ghost')}
+                      className={'idx-chip' + (sort === so.value ? ' is-active' : '')}
                       onClick={() => updateFilter({ sort: so.value })}>{so.label}</button>
             ))}
           </div>
           <div className="filter-search-inline">
+            <span className="muted tabular-nums" style={{ fontSize: 12 }}>共 {total} 部</span>
             <input placeholder="按标题筛选…" className="search" value={qInput}
                    onChange={e => setQInput(e.target.value)}
                    onKeyDown={e => e.key === 'Enter' && submitSearch()} />
-            <button type="button" className="mini" onClick={submitSearch} disabled={loading}>筛选</button>
+            <button type="button" className="mini pill" onClick={submitSearch} disabled={loading}>筛选</button>
             {hasFilters && (
-              <button type="button" className="mini ghost"
+              <button type="button" className="idx-chip is-reset"
                       onClick={() => { setQInput(''); setParams(new URLSearchParams()) }}>
-                重置
+                重置条件
               </button>
             )}
           </div>
@@ -331,23 +341,26 @@ function AnimeIndexPanel({ viewMode }: { viewMode: ViewMode }) {
       ) : (
         <>
           <div className="card-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
-            {items.map(it => (
-              <AnimePosterCard
-                key={it.id}
-                title={it.name}
-                coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
-                detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
-                playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
-                topLeft={it.remarks?.includes('完结') ? '已完结' : '连载中'}
-                topLeftVariant="dark"
-                bottomRight={it.remarks || `${it.episodeCount} 集`}
-                metaLeft={it.categoryName || '番剧'}
-                metaTag={it.episodeCount > 0 ? `${it.episodeCount} 集` : undefined}
-                favorited={favIds.has(it.id)}
-                busy={busyId === it.id}
-                onToggleFavorite={() => void toggleFav(it.id, it.name)}
-              />
-            ))}
+            {items.map(it => {
+              const stLabel = formatStatusLabel(it.remarks)
+              const cleanRem = it.remarks && it.remarks !== stLabel ? it.remarks : (it.episodeCount > 0 ? `${it.episodeCount} 集` : null)
+              return (
+                <AnimePosterCard
+                  key={it.id}
+                  title={it.name}
+                  coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
+                  detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
+                  playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
+                  topLeft={stLabel}
+                  topLeftVariant="dark"
+                  bottomRight={cleanRem}
+                  metaLeft={it.categoryName || '番剧'}
+                  favorited={favIds.has(it.id)}
+                  busy={busyId === it.id}
+                  onToggleFavorite={() => void toggleFav(it.id, it.name)}
+                />
+              )
+            })}
           </div>
           <Pagination page={page} totalPages={totalPages} total={total}
                       loading={loading}
@@ -453,19 +466,19 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           <div className="filter-row">
             <span className="filter-label">题材</span>
             <div className="filter-pills">
-              <button type="button" className={'mini ' + (genre === '' ? '' : 'ghost')}
+              <button type="button" className={'idx-chip' + (genre === '' ? ' is-active is-rose' : '')}
                       onClick={() => updateFilter({ genre: '' })}>全部</button>
               {(expandGenres ? genres : genres.slice(0, 12)).map(g => (
                 <button key={g.tag} type="button"
-                        className={'mini ' + (genre === g.tag ? '' : 'ghost')}
+                        className={'idx-chip' + (genre === g.tag ? ' is-active is-rose' : '')}
                         onClick={() => updateFilter({ genre: g.tag })}>
                   {g.tag}
                 </button>
               ))}
               {genres.length > 12 && (
-                <button type="button" className="mini ghost"
+                <button type="button" className="idx-chip is-more"
                         onClick={() => setExpandGenres(v => !v)}>
-                  {expandGenres ? '收起' : '更多'}
+                  {expandGenres ? '收起' : '更多 ▾'}
                 </button>
               )}
             </div>
@@ -481,7 +494,7 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
               { v: 'completed', label: '已完结' },
             ].map(st => (
               <button key={st.v} type="button"
-                      className={'mini ' + (status === st.v ? '' : 'ghost')}
+                      className={'idx-chip' + (status === st.v ? ' is-active is-rose' : '')}
                       onClick={() => updateFilter({ status: st.v })}>{st.label}</button>
             ))}
           </div>
@@ -490,20 +503,21 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
         <div className="filter-row filter-row-actions">
           <span className="filter-label">排序</span>
           <div className="filter-pills">
-            <button type="button" className={'mini ' + (sort === 'updated' ? '' : 'ghost')}
+            <button type="button" className={'idx-chip' + (sort === 'updated' ? ' is-active is-rose' : '')}
                     onClick={() => updateFilter({ sort: 'updated' })}>最近更新</button>
-            <button type="button" className={'mini ' + (sort === 'episodes' ? '' : 'ghost')}
+            <button type="button" className={'idx-chip' + (sort === 'episodes' ? ' is-active is-rose' : '')}
                     onClick={() => updateFilter({ sort: 'episodes' })}>话数最多</button>
           </div>
           <div className="filter-search-inline">
+            <span className="muted tabular-nums" style={{ fontSize: 12 }}>共 {total} 部</span>
             <input placeholder="按标题筛选…" className="search" value={qInput}
                    onChange={e => setQInput(e.target.value)}
                    onKeyDown={e => e.key === 'Enter' && submitSearch()} />
-            <button type="button" className="mini" onClick={submitSearch} disabled={loading}>筛选</button>
+            <button type="button" className="mini pill space-btn-rose" onClick={submitSearch} disabled={loading}>筛选</button>
             {hasFilters && (
-              <button type="button" className="mini ghost"
+              <button type="button" className="idx-chip is-reset"
                       onClick={() => { setQInput(''); setParams(new URLSearchParams({ kind: 'manga' })) }}>
-                重置
+                重置条件
               </button>
             )}
           </div>
@@ -522,7 +536,17 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <p className="muted">当前筛选下暂无漫画——可以尝试重置筛选或使用顶栏全站搜索。</p>
+        <EmptyState
+          tone="rose"
+          icon={<BookOpen size={22} />}
+          title="当前筛选下暂无漫画"
+          description="尝试放宽题材或状态筛选，或使用 ⌘K 全局检索。"
+          action={hasFilters ? (
+            <button type="button" className="pill space-btn-rose" onClick={() => { setQInput(''); setParams(new URLSearchParams({ kind: 'manga' })) }}>
+              重置全部筛选
+            </button>
+          ) : undefined}
+        />
       ) : viewMode === 'list' ? (
         <>
           <div className="index-list-grid" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity .15s' }}>
@@ -566,6 +590,10 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
             {items.map(r => {
               const href = mangaLink(r.source, r.sourceItemId, r.name)
               const key = mangaFavKey(r.source, r.sourceItemId)
+              const stLabel = formatStatusLabel(r.remarks)
+              const cleanRem = cleanMangaRemarks(r.remarks) || (r.episodeCount ? `${r.episodeCount} 话` : null)
+              const cleanAuthor = cleanSubtitle(r.altTitle)
+              const primaryTag = (r.tags ?? []).find(t => t && t.length >= 2)
               return (
                 <AnimePosterCard
                   key={`${r.source}-${r.sourceItemId}`}
@@ -574,10 +602,10 @@ function MangaIndexPanel({ viewMode }: { viewMode: ViewMode }) {
                   coverUrl={hdCover(r.coverUrl)}
                   detailHref={href}
                   playHref={href}
-                  topLeft={r.remarks?.includes('完结') ? '已完结' : '连载中'}
-                  bottomRight={r.remarks || (r.episodeCount ? `${r.episodeCount} 话` : null)}
-                  metaLeft={r.altTitle || '漫画'}
-                  metaTag={r.episodeCount ? `${r.episodeCount} 话` : (r.tags?.[0] || undefined)}
+                  topLeft={stLabel}
+                  bottomRight={cleanRem}
+                  metaLeft={cleanAuthor || primaryTag || '跨源漫画'}
+                  metaTag={cleanAuthor && primaryTag ? primaryTag : undefined}
                   favorited={fav.isFavorited(r.source, r.sourceItemId)}
                   busy={fav.busyKey === key}
                   onToggleFavorite={() => void fav.toggle(r.source, r.sourceItemId, r.name)}

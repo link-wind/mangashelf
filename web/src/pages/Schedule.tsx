@@ -1,3 +1,4 @@
+import { CalendarDays } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -5,6 +6,9 @@ import { useAuth } from '../auth'
 import CoverImage from '../components/CoverImage'
 import { BoltIcon, ChevronDownIcon, HeartIcon, InfoIcon, MoonIcon, PlayIcon, SunIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import EmptyState from '../components/ui/EmptyState'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
+import { cleanStudioName, isCompletedStatus, splitBilingualSummary } from '../lib/mediaFormat'
 
 interface CalendarEntry {
   subjectId: number
@@ -332,7 +336,9 @@ export default function Schedule() {
     const hasNew = Boolean(it.catalogItemId && unwatchedIds.has(it.catalogItemId))
     const detailHref = detailHrefOf(it)
     const playHref = playHrefOf(it)
-    const statusText = it.remarks?.includes('完结') ? '已完结' : (it.covered ? '连载中' : '待更新')
+    const statusText = isCompletedStatus(it.remarks) ? '已完结' : (it.covered ? '连载中' : '待更新')
+    const studioClean = cleanStudioName(it.studio)
+    const zhSummary = splitBilingualSummary(it.summary).zh
 
     return (
       <article key={it.subjectId} className="sched-card card">
@@ -369,7 +375,7 @@ export default function Schedule() {
               <span className="sched-time-tag tabular-nums">
                 {it.airTime || `${weekdayName(it.airWeekday)}放送`}
               </span>
-              {it.remarks && <span className="sched-ep-tag">{it.remarks}</span>}
+              {it.remarks && it.remarks !== statusText && <span className="sched-ep-tag">{it.remarks}</span>}
               {hasNew && <span className="sched-new-tag">有新集</span>}
             </div>
             {(it.mediaType || it.categoryName) && (
@@ -379,19 +385,19 @@ export default function Schedule() {
 
           <Link to={detailHref} className="sched-card-title">{title}</Link>
 
-          {(it.studio || (it.nameCn && it.name !== it.nameCn)) && (
-            <p className="sched-card-credits muted">
-              {it.studio ? `制作：${it.studio}` : it.name}
+          {(studioClean || (it.nameCn && it.name !== it.nameCn)) && (
+            <p className="sched-card-credits muted" title={it.studio || it.name}>
+              {studioClean ? `制作：${studioClean}` : it.name}
             </p>
           )}
 
           <p className="sched-card-desc">
-            {it.summary || '暂无简介，点击详情查看更多信息。'}
+            {zhSummary || '暂无简介，点击详情查看更多信息。'}
           </p>
 
           <div className="sched-card-actions">
             {it.catalogItemId && (
-              <button type="button" className={'pill mini ' + (isFav ? '' : 'ghost')}
+              <button type="button" className={'pill mini ' + (isFav ? 'space-btn-rose' : 'ghost')}
                       disabled={busyId === it.catalogItemId}
                       onClick={() => void toggleFavorite(it)}>
                 <HeartIcon size={13} filled={isFav} />
@@ -414,7 +420,8 @@ export default function Schedule() {
     const isFav = Boolean(it.catalogItemId && favCatalogIds.has(it.catalogItemId))
     const detailHref = detailHrefOf(it)
     const playHref = playHrefOf(it)
-    const statusText = it.remarks?.includes('完结') ? '已完结' : (it.covered ? '连载中' : '待更新')
+    const statusText = isCompletedStatus(it.remarks) ? '已完结' : (it.covered ? '连载中' : '待更新')
+    const studioClean = cleanStudioName(it.studio, 18)
 
     return (
       <article key={it.subjectId} className="sched-card compact card">
@@ -451,15 +458,21 @@ export default function Schedule() {
             {it.mediaType && <span className="sched-format-tag">{it.mediaType}</span>}
           </div>
           <Link to={detailHref} className="sched-card-title clamp">{title}</Link>
-          {it.studio && <span className="sched-compact-studio muted">{it.studio}</span>}
-          <div className="sched-compact-links">
-            <Link to={playHref} className="sched-inline-action">
+          {studioClean && <span className="sched-compact-studio muted" title={it.studio || ''}>{studioClean}</span>}
+          <div className="sched-card-actions" style={{ justifyContent: 'flex-start' }}>
+            {it.catalogItemId && (
+              <button type="button" className={'pill mini ' + (isFav ? 'space-btn-rose' : 'ghost')}
+                      disabled={busyId === it.catalogItemId}
+                      onClick={() => void toggleFavorite(it)}>
+                <HeartIcon size={12} filled={isFav} />
+                {isFav ? '已追番' : '追番'}
+              </button>
+            )}
+            <button type="button" className={'pill mini ' + (it.covered ? '' : 'ghost')}
+                    onClick={() => navigate(playHref)}>
               {it.covered ? <PlayIcon size={12} /> : <InfoIcon size={12} />}
               {it.covered ? '立即播放' : '番剧详情'}
-            </Link>
-            {it.catalogItemId && (
-              <Link to={detailHref} className="muted sched-inline-sub">详情</Link>
-            )}
+            </button>
           </div>
         </div>
       </article>
@@ -471,13 +484,13 @@ export default function Schedule() {
       {/* 顶部标题 + 季度切换下拉 */}
       <div className="sched-header">
         <div className="sched-title-row">
+          <h1 className="sched-page-title">新番时刻表</h1>
           <div className="sched-season-wrap" ref={seasonRef}>
             <button type="button"
                     className={'sched-season-btn' + (seasonOpen ? ' open' : '')}
                     aria-haspopup="listbox"
                     aria-expanded={seasonOpen}
                     onClick={() => setSeasonOpen(v => !v)}>
-              <span className="sched-season-badge">新番时刻表</span>
               <span className="sched-season-text">{activeSeasonLabel}</span>
               <ChevronDownIcon size={15} className="sched-season-caret" />
             </button>
@@ -501,14 +514,18 @@ export default function Schedule() {
 
       {/* 筛选胶囊 + 右侧「下个更新」实时预告 */}
       <div className="sched-filter-bar">
-        <div className="row-inline" role="group" aria-label="排期筛选">
-          <button type="button" className={'mini ' + (filter === 'all' ? '' : 'ghost')}
-                  onClick={() => setFilter('all')}>全部</button>
-          <button type="button" className={'mini ' + (filter === 'following' ? '' : 'ghost')}
-                  onClick={() => setFilter('following')}>我的追番</button>
-          <button type="button" className={'mini ' + (filter === 'unwatched' ? '' : 'ghost')}
-                  onClick={() => setFilter('unwatched')}>未看更新</button>
-        </div>
+        <SegmentedTabs
+          layoutId="sched-filter-tabs"
+          size="sm"
+          ariaLabel="排期筛选"
+          value={filter}
+          onChange={setFilter}
+          items={[
+            { value: 'all', label: '全部' },
+            { value: 'following', label: '我的追番' },
+            { value: 'unwatched', label: '未看更新' },
+          ]}
+        />
 
         {nextAiring.state === 'upcoming' && nextAiring.item ? (
           <Link to={detailHrefOf(nextAiring.item)} className="sched-next-pill">
@@ -567,32 +584,43 @@ export default function Schedule() {
           {/* 左侧主排期流（8fr） */}
           <div className="sched-main">
             {needsLoginForFilter ? (
-              <div className="card sched-empty-box">
-                <p className="sched-empty-title">
-                  {filter === 'following' ? '登录后查看你的追番排期' : '登录后自动筛出未看新集'}
-                </p>
-                <p className="muted" style={{ margin: '0 0 14px' }}>
-                  同步你的收藏与观看进度，不再错过每一集更新。
-                </p>
-                <div className="row-inline" style={{ justifyContent: 'center' }}>
-                  <Link to="/login?next=%2Fschedule" className="btn pill mini">登录账号</Link>
-                  <button type="button" className="mini ghost" onClick={() => setFilter('all')}>查看全部</button>
-                </div>
-              </div>
+              <EmptyState
+                icon={<CalendarDays size={22} />}
+                title={filter === 'following' ? '登录后查看你的追番排期' : '登录后自动筛出未看新集'}
+                description="同步你的收藏与观看进度，不再错过每一集更新。"
+                action={
+                  <div className="row-inline">
+                    <Link to="/login?next=%2Fschedule" className="btn pill mini">登录账号</Link>
+                    <button type="button" className="mini ghost" onClick={() => setFilter('all')}>查看全部</button>
+                  </div>
+                }
+              />
             ) : dayList.length === 0 ? (
-              <div className="card sched-empty-box">
-                <p className="sched-empty-title">{weekdayName(activeDay)}暂无更新</p>
-                <p className="muted" style={{ margin: '0 0 12px' }}>
-                  这一天在当前筛选下没有番剧，可以切换其他星期或季度。
-                </p>
-                {filter !== 'all' && (
+              <EmptyState
+                icon={<CalendarDays size={22} />}
+                title={`${weekdayName(activeDay)}暂无更新`}
+                description="这一天在当前筛选下没有番剧，可以切换其他星期或季度。"
+                action={filter !== 'all' ? (
                   <button type="button" className="mini ghost" onClick={() => setFilter('all')}>
                     显示全部番剧
                   </button>
-                )}
-              </div>
+                ) : undefined}
+              />
             ) : (
               <>
+                {bands.daytime.length > 0 && (
+                  <section className="sched-group">
+                    <div className="sched-group-head">
+                      <span className="sched-slot-icon"><SunIcon size={15} /></span>
+                      <h2>日间与晚间档</h2>
+                      <span className="sched-slot-range tabular-nums">03:00 — 20:59</span>
+                    </div>
+                    <div className="sched-featured-list">
+                      {bands.daytime.map(renderDetailedCard)}
+                    </div>
+                  </section>
+                )}
+
                 {bands.prime.length > 0 && (
                   <section className="sched-group">
                     <div className="sched-group-head">
@@ -613,29 +641,22 @@ export default function Schedule() {
                       <h2>深夜硬核档</h2>
                       <span className="sched-slot-range tabular-nums">00:00 — 02:59</span>
                     </div>
-                    <div className="sched-compact-grid">
-                      {bands.midnight.map(renderCompactCard)}
-                    </div>
-                  </section>
-                )}
-
-                {bands.daytime.length > 0 && (
-                  <section className="sched-group">
-                    <div className="sched-group-head">
-                      <span className="sched-slot-icon"><SunIcon size={15} /></span>
-                      <h2>日间与晚间档</h2>
-                      <span className="sched-slot-range tabular-nums">03:00 — 20:59</span>
-                    </div>
-                    <div className="sched-featured-list">
-                      {bands.daytime.map(renderDetailedCard)}
-                    </div>
+                    {bands.midnight.length === 1 ? (
+                      <div className="sched-featured-list">
+                        {bands.midnight.map(renderDetailedCard)}
+                      </div>
+                    ) : (
+                      <div className="sched-compact-grid">
+                        {bands.midnight.map(renderCompactCard)}
+                      </div>
+                    )}
                   </section>
                 )}
               </>
             )}
           </div>
 
-          {/* 右侧情报侧栏（4fr） */}
+          {/* 右侧情报侧栏（4fr，吸顶跟随） */}
           <aside className="sched-side">
             {topPicks.length > 0 && (
               <section className="card sched-side-card">
@@ -644,30 +665,33 @@ export default function Schedule() {
                   <span className="muted">高分精选</span>
                 </div>
                 <ol className="sched-radar-list">
-                  {topPicks.map((it, idx) => (
-                    <li key={it.subjectId} className="sched-radar-item">
-                      <span className={'rank-no tabular-nums' + (idx < 3 ? ' top' : '')}>
-                        {String(idx + 1).padStart(2, '0')}
-                      </span>
-                      <Link to={detailHrefOf(it)} className="sched-radar-thumb">
-                        <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
-                                    alt={it.nameCn || it.name} />
-                      </Link>
-                      <div className="sched-radar-info">
-                        <Link to={detailHrefOf(it)} className="sched-radar-title">
-                          {it.nameCn || it.name}
-                        </Link>
-                        <span className="muted sched-radar-sub">
-                          {weekdayName(it.airWeekday)}
-                          {it.airTime ? ` ${it.airTime}` : ''}
-                          {it.studio ? ` · ${it.studio}` : (it.remarks ? ` · ${it.remarks}` : '')}
+                  {topPicks.map((it, idx) => {
+                    const studioShort = cleanStudioName(it.studio, 14)
+                    return (
+                      <li key={it.subjectId} className="sched-radar-item">
+                        <span className={'rank-no tabular-nums' + (idx < 3 ? ' top' : '')}>
+                          {String(idx + 1).padStart(2, '0')}
                         </span>
-                      </div>
-                      <span className="sched-radar-score tabular-nums">
-                        {(it.rating ?? 0).toFixed(1)} 分
-                      </span>
-                    </li>
-                  ))}
+                        <Link to={detailHrefOf(it)} className="sched-radar-thumb">
+                          <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
+                                      alt={it.nameCn || it.name} />
+                        </Link>
+                        <div className="sched-radar-info">
+                          <Link to={detailHrefOf(it)} className="sched-radar-title">
+                            {it.nameCn || it.name}
+                          </Link>
+                          <span className="muted sched-radar-sub" title={it.studio || ''}>
+                            {weekdayName(it.airWeekday)}
+                            {it.airTime ? ` ${it.airTime}` : ''}
+                            {studioShort ? ` · ${studioShort}` : (it.remarks ? ` · ${it.remarks}` : '')}
+                          </span>
+                        </div>
+                        <span className="sched-radar-score tabular-nums">
+                          {(it.rating ?? 0).toFixed(1)} 分
+                        </span>
+                      </li>
+                    )
+                  })}
                 </ol>
               </section>
             )}

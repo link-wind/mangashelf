@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
@@ -8,6 +9,7 @@ import {
   CalendarIcon, CheckCircleIcon, FilmIcon, HeartIcon, LayersIcon, PlayIcon, StarIcon,
 } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import { formatStatusLabel, isCompletedStatus, splitBilingualSummary } from '../lib/mediaFormat'
 import { formatAnimeLine } from '../lineLabel'
 import { useCatalogFavorites } from '../useCatalogFavorites'
 
@@ -75,6 +77,9 @@ export default function CatalogDetail() {
   const [busy, setBusy] = useState(false)
   const [favorited, setFavorited] = useState(false)
   const [favStatus, setFavStatus] = useState<'WATCHING' | 'COMPLETED'>('WATCHING')
+  const [showOrigSummary, setShowOrigSummary] = useState(false)
+
+  useEffect(() => { setShowOrigSummary(false) }, [id])
 
   const load = useCallback(async () => {
     if (!id) return
@@ -212,14 +217,16 @@ export default function CatalogDetail() {
     ? `/api/v1/bangumi-covers/${item.bangumiSubjectId}?size=large`
     : item.coverUrl
   const cleanTags = (detail.tags ?? []).filter(t => t && t.length >= 2 && t.length <= 10 && !NOISE_TAGS.has(t) && !/^\d/.test(t)).slice(0, 10)
-  const isCompleted = Boolean(item.remarks && item.remarks.includes('完结') && !item.remarks.includes('更新'))
-  const statusLabel = isCompleted ? '已完结' : '连载中'
+  const isCompleted = isCompletedStatus(item.remarks)
+  const statusLabel = formatStatusLabel(item.remarks)
   const airQuarter = detail.airDate ? detail.airDate.slice(0, 7) : ''
   const lineCount = detail.lines.length || browseLines.length
+  const { zh: summaryZh, original: summaryOrig } = splitBilingualSummary(detail.summary)
+  const isAdmin = me?.role?.toUpperCase() === 'ADMIN'
 
   return (
     <main className="watch-page">
-      {/* 面包屑 + 右侧播映状态胶囊 */}
+      {/* 精简面包屑（状态仅保留在正文视觉核心区，避免顶部复读） */}
       <div className="detail-crumb-row">
         <nav className="breadcrumb" aria-label="面包屑">
           <Link to="/">番剧</Link>
@@ -234,18 +241,9 @@ export default function CatalogDetail() {
           <span>/</span>
           <span className="breadcrumb-cur">{displayTitle}</span>
         </nav>
-        <div className="detail-crumb-pills">
-          {detail.airWeekday && (
-            <span className="detail-crumb-pill is-live">
-              <span className="detail-crumb-dot" aria-hidden="true" />
-              每{WEEKDAYS[detail.airWeekday]}更新
-            </span>
-          )}
-          <span className="detail-crumb-pill">{statusLabel}</span>
-        </div>
       </div>
 
-      {/* 吸顶分区锚点条 */}
+      {/* 吸顶分区锚点条（紧凑贴合内容宽） */}
       <div className="detail-anchor-bar">
         <a href="#overview" className="mini btn active-anchor">总览介绍</a>
         <a href="#synopsis" className="mini ghost btn">剧情简介</a>
@@ -253,7 +251,7 @@ export default function CatalogDetail() {
         {similar.length > 0 && <a href="#similar" className="mini ghost btn">相似推荐</a>}
       </div>
 
-      {/* gugu.fan 分层总览区：左 312px 融合角标大海报 + 评分副卡；右 身份/行动/KPI/足迹 */}
+      {/* 双栏总览区：左 312px 融合角标大海报；右 身份/行动/4 KPI/足迹 */}
       <section id="overview" className="detail-overview-grid">
         <div className="detail-left-col">
           <div className="detail-poster-card">
@@ -278,26 +276,6 @@ export default function CatalogDetail() {
               {lineCount > 0 && <span className="dpc-bottom-chip tabular-nums">{lineCount} 条线路</span>}
             </div>
           </div>
-
-          <div className="detail-score-card">
-            <div className="detail-score-card-title">作品概览</div>
-            <div className="detail-score-tiles">
-              <div className="detail-score-tile">
-                <span className="detail-score-tile-k">Bangumi</span>
-                <span className={'detail-score-tile-v' + (detail.rating ? ' is-rose' : '')}>
-                  {typeof detail.rating === 'number' && detail.rating > 0 ? detail.rating.toFixed(1) : '—'}
-                </span>
-                <span className="detail-score-tile-sub">{detail.rating ? '作品评分' : '暂无评分'}</span>
-              </div>
-              <div className="detail-score-tile">
-                <span className="detail-score-tile-k">剧集数</span>
-                <span className="detail-score-tile-v">
-                  {item.episodeCount > 0 ? item.episodeCount : '—'}
-                </span>
-                <span className="detail-score-tile-sub">{isCompleted ? '全季完结' : '持续更新'}</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="detail-right-col">
@@ -306,7 +284,7 @@ export default function CatalogDetail() {
             <div className="detail-micro-row">
               <span className="detail-micro-pill is-rose">{statusLabel}</span>
               <span className="detail-micro-pill">{item.categoryName || '番剧'}</span>
-              {detail.airWeekday && (
+              {detail.airWeekday && !isCompleted && (
                 <span className="detail-micro-pill is-cyan">每{WEEKDAYS[detail.airWeekday]}更新</span>
               )}
               {favStatus === 'COMPLETED' && <span className="tag pub">✓ 已看完</span>}
@@ -335,7 +313,6 @@ export default function CatalogDetail() {
               </div>
               <span className="detail-action-status-sub">
                 {lineCount > 0 ? `${lineCount} 条可用播放线路` : '点击立即开始观看'}
-                {item.episodeCount > 0 ? ` · 共 ${item.episodeCount} 集` : ''}
               </span>
             </div>
             <div className="detail-action-btns">
@@ -375,7 +352,7 @@ export default function CatalogDetail() {
                 <span className="detail-kpi-val tabular-nums">
                   {typeof detail.rating === 'number' && detail.rating > 0 ? detail.rating.toFixed(1) : '—'}
                 </span>
-                <span className="detail-kpi-lbl">作品评分</span>
+                <span className="detail-kpi-lbl">Bangumi 评分</span>
               </div>
             </div>
             <div className="detail-kpi-item">
@@ -409,7 +386,7 @@ export default function CatalogDetail() {
               </span>
             </div>
             <div className="row-inline" style={{ gap: 12 }}>
-              {me?.role === 'admin' && (item.workId
+              {isAdmin && (item.workId
                 ? <Link className="mini ghost btn" to={`/works/${item.workId}`}>管理已导入作品</Link>
                 : (
                   <button type="button" className="mini ghost" disabled={busy} onClick={() => void materialize()}
@@ -434,8 +411,26 @@ export default function CatalogDetail() {
           </div>
           <div className="detail-synopsis-card">
             <p className="detail-synopsis-text">
-              {detail.summary || '暂无简介，可直接点击上方「立即前往播放」或下方分集列表观看。'}
+              {summaryZh || '暂无简介，可直接点击上方「立即前往播放」或下方分集列表观看。'}
             </p>
+            {summaryOrig && (
+              <div className="detail-orig-wrap">
+                <button
+                  type="button"
+                  className="detail-orig-toggle"
+                  onClick={() => setShowOrigSummary(v => !v)}
+                >
+                  {showOrigSummary ? (
+                    <>收起日文原文 <ChevronUp size={13} /></>
+                  ) : (
+                    <>展开日文原文 <ChevronDown size={13} /></>
+                  )}
+                </button>
+                {showOrigSummary && (
+                  <p className="detail-orig-box">{summaryOrig}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

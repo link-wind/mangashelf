@@ -78,9 +78,16 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 .cover-img.loaded { opacity: 1; }
 .cover-fallback {
   width: 100%; height: 100%; display: grid; place-items: center;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 20%, var(--bg-soft)), var(--bg-soft));
+  background:
+    radial-gradient(circle at 24% 20%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%),
+    radial-gradient(circle at 80% 82%, color-mix(in srgb, var(--rose) 16%, transparent), transparent 58%),
+    linear-gradient(155deg, color-mix(in srgb, var(--accent) 10%, var(--bg-soft)), var(--card));
 }
-.cover-initial { font-size: 42px; font-weight: 700; color: var(--accent); opacity: .62; user-select: none; }
+.cover-initial {
+  font-size: 38px; font-weight: 800; letter-spacing: -.04em;
+  color: color-mix(in srgb, var(--accent) 68%, var(--ink));
+  opacity: .56; user-select: none;
+}
 
 /* 统一四角角标语法 */
 .badge-anim,

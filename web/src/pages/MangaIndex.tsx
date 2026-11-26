@@ -4,8 +4,11 @@ import { api } from '../api'
 import { useAuth } from '../auth'
 import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
-import { BookOpenIcon, HeartIcon, InfoIcon } from '../components/Icons'
+import { BookOpenIcon, HeartIcon, InfoIcon, UploadIcon } from '../components/Icons'
+import CarouselRail from '../components/ui/CarouselRail'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
 import { hdCover } from '../externalManga'
+import { cleanMangaRemarks, cleanSubtitle, formatStatusLabel } from '../lib/mediaFormat'
 import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 
 interface MangaCard {
@@ -93,8 +96,7 @@ function targetIdOf(it: RankItem): string {
 }
 
 function statusOf(remarks: string | null | undefined, finished?: boolean): string {
-  if (finished || remarks?.includes('完结')) return '已完结'
-  return '连载中'
+  return formatStatusLabel(remarks, finished)
 }
 
 /** 漫画主页（与番剧主页对称：首屏高清 Hero → 70/30 推荐+多榜 → 精选专题 → 快捷探索）。 */
@@ -380,16 +382,20 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
               <CoverImage src={hdCover(hero.coverUrl)} alt={hero.title} loading="eager" fetchPriority="high" />
             </Link>
             <div className="manga-hero-info">
-              <div className="hero-badges" style={{ marginBottom: 8 }}>
+              <div className="hero-badges" style={{ marginBottom: 10 }}>
                 <span className="hb hb-on">人气精选</span>
                 <span className="hb hb-tv">{statusOf(hero.latestLabel, hero.finished)}</span>
-                {hero.latestLabel && <span className="hb hb-time">{hero.latestLabel}</span>}
+                {cleanMangaRemarks(hero.latestLabel) && (
+                  <span className="hb hb-time">{cleanMangaRemarks(hero.latestLabel)}</span>
+                )}
               </div>
-              <h2>{hero.title}</h2>
-              {hero.authors?.length > 0 && (
-                <p className="mh-author">{hero.authors.join(' / ')}</p>
-              )}
-              <div className="hero-actions" style={{ marginTop: 18 }}>
+              <h1 className="manga-hero-title">{hero.title}</h1>
+              <div className="hero-meta tabular-nums" style={{ marginTop: 8 }}>
+                {hero.authors?.length > 0 && <span>作者：{hero.authors.join(' / ')}</span>}
+                {(hero.sourceCount ?? 1) > 1 && <span>聚合 {hero.sourceCount} 条阅读线路</span>}
+                <span>支持条漫 / 双页与自动下一话</span>
+              </div>
+              <div className="hero-actions" style={{ marginTop: 20 }}>
                 <button type="button" className="pill hero-play" onClick={() => navigate(heroHref)}>
                   <BookOpenIcon size={15} />
                   开始阅读
@@ -443,6 +449,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
               {forYou.map(it => {
                 const href = mangaLink(it.source, it.id, it.title)
                 const key = mangaFavKey(it.source, it.id)
+                const remarks = cleanMangaRemarks(it.remarks)
                 return (
                   <AnimePosterCard
                     key={`${it.source}:${it.id}`}
@@ -452,9 +459,9 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
                     detailHref={href}
                     playHref={href}
                     topLeft={statusOf(it.remarks)}
-                    bottomRight={it.remarks || null}
-                    metaLeft="漫画"
-                    metaTag={it.reason}
+                    bottomRight={remarks || null}
+                    metaLeft={it.sourceCount > 1 ? `${it.sourceCount} 源可看` : (it.sourceName || '跨源漫画')}
+                    metaTag={cleanSubtitle(it.reason)}
                     favorited={fav.isFavorited(it.source, it.id)}
                     busy={fav.busyKey === key}
                     onToggleFavorite={() => void fav.toggle(it.source, it.id, it.title)}
@@ -467,24 +474,27 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
           <aside className="card home-rank-card">
             <div className="home-rank-head">
               <h2>漫画榜单</h2>
-              <div className="home-rank-tabs" role="tablist" aria-label="漫画榜单切换">
-                <button type="button" role="tab" aria-selected={rankTab === 'hot'}
-                        className={'mini ' + (rankTab === 'hot' ? '' : 'ghost')}
-                        onClick={() => setRankTab('hot')}>热榜</button>
-                <button type="button" role="tab" aria-selected={rankTab === 'rise'}
-                        className={'mini ' + (rankTab === 'rise' ? '' : 'ghost')}
-                        onClick={() => setRankTab('rise')}>飙升</button>
-                <button type="button" role="tab" aria-selected={rankTab === 'new'}
-                        className={'mini ' + (rankTab === 'new' ? '' : 'ghost')}
-                        onClick={() => setRankTab('new')}>新作</button>
-              </div>
+              <SegmentedTabs
+                layoutId="manga-rank-tabs"
+                size="sm"
+                tone="rose"
+                ariaLabel="漫画榜单切换"
+                value={rankTab}
+                onChange={setRankTab}
+                items={[
+                  { value: 'hot', label: '热榜' },
+                  { value: 'rise', label: '飙升' },
+                  { value: 'new', label: '新作' },
+                ]}
+              />
             </div>
 
             <ol className="home-rank-list">
-              {activeRankItems.slice(0, 8).map((it, i) => {
+              {activeRankItems.slice(0, 9).map((it, i) => {
                 const src = targetSourceOf(it)
                 const mid = targetIdOf(it)
                 const href = mangaLink(src, mid, it.title)
+                const cleanLatest = cleanMangaRemarks(it.latestLabel)
                 return (
                   <li key={src + mid} className="home-rank-row">
                     <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
@@ -499,32 +509,38 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
                         {it.authors?.length ? it.authors[0] : statusOf(it.latestLabel, it.finished)}
                       </span>
                     </div>
-                    {it.latestLabel && (
+                    {cleanLatest && (
                       <span className="home-rank-metric tabular-nums">
-                        {it.latestLabel.replace(/^更新[到至]/, '')}
+                        {cleanLatest.replace(/^更新[到至]\s*/, '')}
                       </span>
                     )}
                   </li>
                 )
               })}
             </ol>
+            <Link to="/index?kind=manga&sort=episodes" className="home-rank-foot-link">
+              查看全部漫画索引 →
+            </Link>
           </aside>
         </section>
       )}
 
-      {/* 精选专题横滑 */}
+      {/* 精选专题横滑（Embla 丝滑轨道，告别原生横向滚动条） */}
       {curatedRows.map(row => (
         <section key={row.id} style={{ marginTop: 30 }}>
           <div className="section-head">
             <h2>{row.title}</h2>
             <Link to="/index?kind=manga" className="muted">全部漫画 →</Link>
           </div>
-          <div className="hscroll">
+          <CarouselRail ariaLabel={row.title}>
             {row.items.map(it => {
               const src = targetSourceOf(it)
               const mid = targetIdOf(it)
               const href = mangaLink(src, mid, it.title)
               const key = mangaFavKey(src, mid)
+              const cleanLatest = cleanMangaRemarks(it.latestLabel)
+              const status = statusOf(it.latestLabel, it.finished)
+              const author = cleanSubtitle(it.authors?.[0])
               return (
                 <AnimePosterCard
                   key={src + mid}
@@ -533,17 +549,17 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
                   coverUrl={hdCover(it.coverUrl)}
                   detailHref={href}
                   playHref={href}
-                  topLeft={statusOf(it.latestLabel, it.finished)}
-                  bottomRight={it.latestLabel || null}
-                  metaLeft={it.authors?.length ? it.authors[0] : '漫画'}
-                  metaTag={it.finished ? '已完结' : (it.latestLabel ? '连载' : undefined)}
+                  topLeft={status}
+                  bottomRight={cleanLatest || null}
+                  metaLeft={author || (cleanLatest || '跨源热门')}
+                  metaTag={(it.sourceCount ?? 1) > 1 ? `${it.sourceCount} 源` : undefined}
                   favorited={fav.isFavorited(src, mid)}
                   busy={fav.busyKey === key}
                   onToggleFavorite={() => void fav.toggle(src, mid, it.title)}
                 />
               )
             })}
-          </div>
+          </CarouselRail>
         </section>
       ))}
 
@@ -572,8 +588,9 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
   )
 }
 
-/** 本地漫画：仅当用户有站内上传的漫画时展示。 */
+/** 本地漫画：有上传漫画时完整展示；已登录且尚未上传时提供轻巧的一行入口。 */
 function LocalManga() {
+  const { me } = useAuth()
   const [items, setItems] = useState<MangaCard[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -594,7 +611,23 @@ function LocalManga() {
 
   useEffect(() => { void load(null, true) }, [load])
 
-  if (!loading && !error && items.length === 0) return null
+  if (!loading && !error && items.length === 0) {
+    if (!me) return null
+    return (
+      <section className="local-manga-cta" style={{ marginTop: 22 }}>
+        <div className="row-inline" style={{ gap: 12 }}>
+          <span className="studio-ico is-rose"><UploadIcon size={17} /></span>
+          <div>
+            <strong>上传你的私人漫画收藏</strong>
+            <p className="muted" style={{ margin: '2px 0 0', fontSize: 12.5 }}>
+              支持 CBZ / ZIP 压缩包与单图拖拽上传，自动切图归档并与跨源书架统一管理。
+            </p>
+          </div>
+        </div>
+        <Link to="/uploads" className="btn mini pill space-btn-rose">前往我的素材 →</Link>
+      </section>
+    )
+  }
 
   return (
     <section className="manga-local">

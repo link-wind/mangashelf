@@ -5,7 +5,10 @@ import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
 import { HeartIcon, InfoIcon, PlayIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
+import CarouselRail from '../components/ui/CarouselRail'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
 import { useAuth } from '../auth'
+import { formatStatusLabel, isCompletedStatus, splitBilingualSummary } from '../lib/mediaFormat'
 import { useCatalogFavorites } from '../useCatalogFavorites'
 
 interface CalendarEntry {
@@ -76,7 +79,7 @@ export default function Home() {
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=14&page=1'),
           api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=10&page=1&status=completed&sort=rating')
             .catch(() => ({ items: [] })),
-          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=8&page=1&sort=episodes')
+          api.get<{ items: CatalogItem[] }>('/api/v1/catalog-items?limit=10&page=1&sort=episodes')
             .catch(() => ({ items: [] })),
           api.get<AnimeRecResult>('/api/v1/recommendations/anime?limit=8&offset=0')
             .catch(() => null),
@@ -157,70 +160,80 @@ export default function Home() {
               )}
             </div>
             <div className="card-grid card-grid-4">
-              {forYou.map(it => (
-                <AnimePosterCard
-                  key={it.catalogItemId}
-                  title={it.title}
-                  coverUrl={it.coverUrl}
-                  detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.catalogItemId}`}
-                  playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.catalogItemId}`}
-                  topLeft={it.remarks?.includes('完结') ? '已完结' : '连载中'}
-                  rating={it.rating}
-                  bottomLeft={it.categoryName}
-                  bottomRight={it.remarks || `${it.episodeCount} 集`}
-                  metaLeft={it.categoryName || '番剧'}
-                  metaTag={it.reason}
-                  favorited={favIds.has(it.catalogItemId)}
-                  busy={busyId === it.catalogItemId}
-                  onToggleFavorite={() => void toggleFav(it.catalogItemId, it.title)}
-                />
-              ))}
+              {forYou.map(it => {
+                const st = formatStatusLabel(it.remarks)
+                const cleanRem = it.remarks && it.remarks !== st
+                  ? it.remarks
+                  : (it.episodeCount > 0 ? `${it.episodeCount} 集` : null)
+                return (
+                  <AnimePosterCard
+                    key={it.catalogItemId}
+                    title={it.title}
+                    coverUrl={it.coverUrl}
+                    detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.catalogItemId}`}
+                    playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.catalogItemId}`}
+                    topLeft={st}
+                    rating={it.rating}
+                    bottomRight={cleanRem}
+                    metaLeft={it.categoryName || '番剧'}
+                    metaTag={it.reason}
+                    favorited={favIds.has(it.catalogItemId)}
+                    busy={busyId === it.catalogItemId}
+                    onToggleFavorite={() => void toggleFav(it.catalogItemId, it.title)}
+                  />
+                )
+              })}
             </div>
           </div>
 
           <aside className="card home-rank-card">
             <div className="home-rank-head">
               <h2>站内榜单</h2>
-              <div className="home-rank-tabs" role="tablist" aria-label="榜单切换">
-                <button type="button" role="tab" aria-selected={rankTab === 'seasonal'}
-                        className={'mini ' + (rankTab === 'seasonal' ? '' : 'ghost')}
-                        onClick={() => setRankTab('seasonal')}>高分</button>
-                <button type="button" role="tab" aria-selected={rankTab === 'updated'}
-                        className={'mini ' + (rankTab === 'updated' ? '' : 'ghost')}
-                        onClick={() => setRankTab('updated')}>热更</button>
-                <button type="button" role="tab" aria-selected={rankTab === 'episodes'}
-                        className={'mini ' + (rankTab === 'episodes' ? '' : 'ghost')}
-                        onClick={() => setRankTab('episodes')}>长篇</button>
-              </div>
+              <SegmentedTabs
+                layoutId="home-rank-tabs"
+                size="sm"
+                ariaLabel="榜单切换"
+                value={rankTab}
+                onChange={setRankTab}
+                items={[
+                  { value: 'seasonal', label: '高分' },
+                  { value: 'updated', label: '热更' },
+                  { value: 'episodes', label: '长篇' },
+                ]}
+              />
             </div>
 
             {rankTab === 'seasonal' ? (
               <ol className="home-rank-list">
-                {seasonalPicks.slice(0, 8).map((it, i) => (
-                  <li key={it.subjectId} className="home-rank-row">
-                    <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-thumb">
-                      <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} />
-                    </Link>
-                    <div className="home-rank-info">
-                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-title">
-                        {it.nameCn || it.name}
-                      </Link>
-                      <span className="muted">
-                        {it.airWeekday ? WEEKDAYS[it.airWeekday] : '本季'} · {it.remarks || (it.covered ? '连载中' : '待更新')}
+                {seasonalPicks.slice(0, 9).map((it, i) => {
+                  const done = isCompletedStatus(it.remarks)
+                  const dayLabel = it.airWeekday && !done ? WEEKDAYS[it.airWeekday] : '本季'
+                  return (
+                    <li key={it.subjectId} className="home-rank-row">
+                      <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
+                        {String(i + 1).padStart(2, '0')}
                       </span>
-                    </div>
-                    {typeof it.rating === 'number' && (
-                      <span className="home-rank-metric tabular-nums">★ {it.rating.toFixed(1)}</span>
-                    )}
-                  </li>
-                ))}
+                      <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-thumb">
+                        <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={it.nameCn || it.name} />
+                      </Link>
+                      <div className="home-rank-info">
+                        <Link to={it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index'} className="home-rank-title">
+                          {it.nameCn || it.name}
+                        </Link>
+                        <span className="muted">
+                          {dayLabel} · {it.remarks || (it.covered ? '连载中' : '待更新')}
+                        </span>
+                      </div>
+                      {typeof it.rating === 'number' && (
+                        <span className="home-rank-metric tabular-nums">★ {it.rating.toFixed(1)}</span>
+                      )}
+                    </li>
+                  )
+                })}
               </ol>
             ) : (
               <ol className="home-rank-list">
-                {(rankTab === 'updated' ? updates : topEpisodes).slice(0, 8).map((it, i) => (
+                {(rankTab === 'updated' ? updates : topEpisodes).slice(0, 9).map((it, i) => (
                   <li key={it.id} className="home-rank-row">
                     <span className={'rank-no tabular-nums' + (i < 3 ? ' top' : '')}>
                       {String(i + 1).padStart(2, '0')}
@@ -233,13 +246,16 @@ export default function Home() {
                     </Link>
                     <div className="home-rank-info">
                       <Link to={`/catalog/${it.id}`} className="home-rank-title">{it.name}</Link>
-                      <span className="muted">{it.categoryName || '动漫'} · {it.remarks || `${it.episodeCount} 集`}</span>
+                      <span className="muted">{it.categoryName || '番剧'} · {formatStatusLabel(it.remarks)}</span>
                     </div>
                     <span className="home-rank-metric tabular-nums">{it.episodeCount} 集</span>
                   </li>
                 ))}
               </ol>
             )}
+            <Link to="/index?sort=rating" className="home-rank-foot-link">
+              查看完整番剧索引 →
+            </Link>
           </aside>
         </section>
       )}
@@ -258,7 +274,7 @@ export default function Home() {
             </h2>
             <Link to="/index?status=completed&sort=rating" className="muted">全部完结番剧 →</Link>
           </div>
-          <div className="hscroll">
+          <CarouselRail ariaLabel="完结补番精选">
             {completed.map(it => (
               <AnimePosterCard
                 key={it.id}
@@ -267,16 +283,14 @@ export default function Home() {
                 detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
                 playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
                 topLeft="已完结"
-                bottomLeft={it.categoryName}
-                bottomRight={it.remarks || `全 ${it.episodeCount} 集`}
+                bottomRight={it.episodeCount > 0 ? `全 ${it.episodeCount} 集` : (it.remarks || null)}
                 metaLeft={it.categoryName || '完结番剧'}
-                metaTag="一口气看完"
                 favorited={favIds.has(it.id)}
                 busy={busyId === it.id}
                 onToggleFavorite={() => void toggleFav(it.id, it.name)}
               />
             ))}
-          </div>
+          </CarouselRail>
         </section>
       )}
 
@@ -288,23 +302,28 @@ export default function Home() {
         {updates.length === 0
           ? <p className="muted">暂无更新内容。</p>
           : <div className="card-grid">
-              {updates.map(it => (
-                <AnimePosterCard
-                  key={it.id}
-                  title={it.name}
-                  coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
-                  detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
-                  playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
-                  topLeft={it.remarks?.includes('完结') ? '已完结' : '连载中'}
-                  topLeftVariant="dark"
-                  bottomRight={it.remarks || `${it.episodeCount} 集`}
-                  metaLeft={it.categoryName || '番剧'}
-                  metaTag={it.episodeCount > 0 ? `${it.episodeCount} 集` : undefined}
-                  favorited={favIds.has(it.id)}
-                  busy={busyId === it.id}
-                  onToggleFavorite={() => void toggleFav(it.id, it.name)}
-                />
-              ))}
+              {updates.map(it => {
+                const st = formatStatusLabel(it.remarks)
+                const cleanRem = it.remarks && it.remarks !== st
+                  ? it.remarks
+                  : (it.episodeCount > 0 ? `${it.episodeCount} 集` : null)
+                return (
+                  <AnimePosterCard
+                    key={it.id}
+                    title={it.name}
+                    coverUrl={it.bangumiSubjectId ? `/api/v1/bangumi-covers/${it.bangumiSubjectId}?size=large` : it.coverUrl}
+                    detailHref={it.workId ? `/works/${it.workId}` : `/catalog/${it.id}`}
+                    playHref={it.workId ? `/works/${it.workId}` : `/browse/${it.id}`}
+                    topLeft={st}
+                    topLeftVariant="dark"
+                    bottomRight={cleanRem}
+                    metaLeft={it.categoryName || '番剧'}
+                    favorited={favIds.has(it.id)}
+                    busy={busyId === it.id}
+                    onToggleFavorite={() => void toggleFav(it.id, it.name)}
+                  />
+                )
+              })}
             </div>}
       </section>
 
@@ -387,6 +406,9 @@ function HeroBanner({ items, favIds, onToggleFav }: {
   const hasBanner = Boolean(it.bannerUrl)
   const posterUrl = `/api/v1/bangumi-covers/${it.subjectId}?size=large`
   const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index')
+  const heroCompleted = isCompletedStatus(it.remarks)
+  const heroZhSummary = splitBilingualSummary(it.summary).zh
+  const remarksMentionsCount = Boolean(it.remarks && /\d+/.test(it.remarks))
   return (
     <section className={'hero-slide' + (hasBanner ? ' has-banner' : ' has-poster')}
              onMouseEnter={() => setPaused(true)}
@@ -407,17 +429,21 @@ function HeroBanner({ items, favIds, onToggleFav }: {
         <div className="hero-badges">
           <span className="hb hb-tv">TV</span>
           <span className="hb hb-on">本季精选</span>
-          {it.airWeekday ? <span className="hb hb-time">每周{WEEKDAYS[it.airWeekday].slice(1)}放送</span> : null}
+          {it.airWeekday && !heroCompleted ? (
+            <span className="hb hb-time">每周{WEEKDAYS[it.airWeekday].slice(1)}放送</span>
+          ) : heroCompleted ? (
+            <span className="hb hb-time">全季完结</span>
+          ) : null}
         </div>
         <h1>{it.nameCn || it.name}</h1>
         {it.nameCn && it.name !== it.nameCn && <p className="hero-sub">{it.name}</p>}
         <div className="hero-meta tabular-nums">
           {typeof it.rating === 'number' && <span className="star">★ Bangumi {it.rating.toFixed(1)}</span>}
           {it.categoryName && <span>{it.categoryName}</span>}
-          {it.episodeCount ? <span>已更 {it.episodeCount} 集</span> : null}
-          {it.remarks && <span>{it.remarks}</span>}
+          {it.remarks ? <span>{it.remarks}</span> : (it.episodeCount ? <span>已更 {it.episodeCount} 集</span> : null)}
+          {it.episodeCount && it.remarks && !remarksMentionsCount ? <span>共 {it.episodeCount} 集</span> : null}
         </div>
-        {it.summary && <p className="hero-desc">{it.summary}</p>}
+        {heroZhSummary && <p className="hero-desc">{heroZhSummary}</p>}
         <div className="hero-actions">
           <button type="button" className="pill hero-play" disabled={isBusy}
                   onClick={() => play(it)}>
@@ -451,7 +477,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
   )
 }
 
-/** 新番时刻表预览：星期切换 + 当日等比高清卡片（带悬浮播放+追番按钮）。 */
+/** 新番时刻表预览：星期切换 + 当日条目（≤3 部时展宽信息卡消除留白，>3 部走 Embla 滑轨）。 */
 function WeeklyPreview({ items, favIds, busyId, onToggleFav }: {
   items: CalendarEntry[]
   favIds: Set<string>
@@ -469,41 +495,95 @@ function WeeklyPreview({ items, favIds, busyId, onToggleFav }: {
       <div className="section-head">
         <h2>新番时刻表</h2>
         <div className="row-inline">
-          {[1, 2, 3, 4, 5, 6, 7].map(d => (
-            <button type="button" key={d} className={d === day ? 'mini' : 'mini ghost'} onClick={() => setDay(d)}>
-              {WEEKDAYS[d]}
-            </button>
-          ))}
+          <SegmentedTabs
+            layoutId="home-week-tabs"
+            size="sm"
+            ariaLabel="星期切换"
+            value={String(day)}
+            onChange={v => setDay(Number(v))}
+            items={[1, 2, 3, 4, 5, 6, 7].map(d => ({ value: String(d), label: WEEKDAYS[d] }))}
+          />
           <Link to={`/schedule?day=${day}`} className="muted" style={{ marginLeft: 4 }}>完整时刻表 →</Link>
         </div>
       </div>
-      <div className="hscroll">
-        {list.map(it => {
-          const title = it.nameCn || it.name
-          const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
-          const playHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
-          return (
-            <AnimePosterCard
-              key={it.subjectId}
-              title={title}
-              coverUrl={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
-              detailHref={detailHref}
-              playHref={playHref}
-              topLeft={WEEKDAYS[day]}
-              topLeftVariant="dark"
-              rating={it.rating}
-              bottomRight={it.remarks || (it.episodeCount ? `更新至 ${it.episodeCount} 集` : null)}
-              metaLeft={it.categoryName || WEEKDAYS[day]}
-              metaTag={it.covered ? '连载中' : '待更新'}
-              canFavorite={Boolean(it.catalogItemId)}
-              favorited={Boolean(it.catalogItemId && favIds.has(it.catalogItemId))}
-              busy={busyId === it.catalogItemId}
-              onToggleFavorite={() => void onToggleFav(it.catalogItemId, title)}
-            />
-          )
-        })}
-        {list.length === 0 && <p className="muted">这一天暂无放送条目。</p>}
-      </div>
+      {list.length === 0 ? (
+        <p className="muted">这一天暂无放送条目。</p>
+      ) : list.length <= 3 ? (
+        <div className={'home-weekly-wide-grid cols-' + list.length}>
+          {list.map(it => {
+            const title = it.nameCn || it.name
+            const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
+            const playHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
+            const isFav = Boolean(it.catalogItemId && favIds.has(it.catalogItemId))
+            const zhDesc = splitBilingualSummary(it.summary).zh
+            const st = isCompletedStatus(it.remarks) ? '已完结' : (it.covered ? '连载中' : '待更新')
+            return (
+              <article key={it.subjectId} className="weekly-wide-card card">
+                <Link to={detailHref} className="weekly-wide-poster">
+                  <CoverImage src={`/api/v1/bangumi-covers/${it.subjectId}?size=large`} alt={title} />
+                  {typeof it.rating === 'number' && it.rating > 0 && (
+                    <span className="badge-bl badge-score tabular-nums">★ {it.rating.toFixed(1)}</span>
+                  )}
+                </Link>
+                <div className="weekly-wide-body">
+                  <div className="row-inline" style={{ gap: 6 }}>
+                    <span className="chip">{WEEKDAYS[day]}</span>
+                    <span className="chip ghost">{it.remarks || st}</span>
+                  </div>
+                  <Link to={detailHref} className="weekly-wide-title">{title}</Link>
+                  <p className="weekly-wide-desc">
+                    {zhDesc || '点击查看详情或立即开始观看本季新番。'}
+                  </p>
+                  <div className="row-inline" style={{ marginTop: 'auto', gap: 8 }}>
+                    <Link to={playHref} className="btn mini pill">
+                      <PlayIcon size={12} />
+                      {it.covered ? '立即播放' : '查看详情'}
+                    </Link>
+                    {it.catalogItemId && (
+                      <button
+                        type="button"
+                        className={'pill mini ' + (isFav ? 'space-btn-rose' : 'ghost')}
+                        disabled={busyId === it.catalogItemId}
+                        onClick={() => void onToggleFav(it.catalogItemId, title)}
+                      >
+                        <HeartIcon size={12} filled={isFav} />
+                        {isFav ? '已追番' : '追番'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <CarouselRail ariaLabel={`${WEEKDAYS[day]}新番`}>
+          {list.map(it => {
+            const title = it.nameCn || it.name
+            const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
+            const playHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/browse/${it.catalogItemId}` : `/index?q=${encodeURIComponent(title)}`)
+            const st = isCompletedStatus(it.remarks) ? '已完结' : (it.covered ? '连载中' : '待更新')
+            return (
+              <AnimePosterCard
+                key={it.subjectId}
+                title={title}
+                coverUrl={`/api/v1/bangumi-covers/${it.subjectId}?size=large`}
+                detailHref={detailHref}
+                playHref={playHref}
+                topLeft={st}
+                topLeftVariant="dark"
+                rating={it.rating}
+                bottomRight={it.remarks && it.remarks !== st ? it.remarks : (it.episodeCount ? `更新至 ${it.episodeCount} 集` : null)}
+                metaLeft={it.categoryName || WEEKDAYS[day]}
+                canFavorite={Boolean(it.catalogItemId)}
+                favorited={Boolean(it.catalogItemId && favIds.has(it.catalogItemId))}
+                busy={busyId === it.catalogItemId}
+                onToggleFavorite={() => void onToggleFav(it.catalogItemId, title)}
+              />
+            )
+          })}
+        </CarouselRail>
+      )}
     </section>
   )
 }
