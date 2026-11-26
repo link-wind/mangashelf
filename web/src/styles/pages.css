@@ -41,8 +41,8 @@
 }
 .input-eye:hover { background: var(--bg-soft); color: var(--ink); }
 
-/* ── 首页（统一 1344px 黄金内容宽）── */
-.home-page { max-width: var(--container-max); margin: 0 auto; padding: 20px var(--page-gutter) 52px; }
+/* ── 首页（统一容器宽，禁止内部滑轨撑破视口）── */
+.home-page { width: 100%; min-width: 0; max-width: var(--container-max); margin: 0 auto; padding: 20px var(--page-gutter) 52px; }
 .hero {
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
   padding: 26px 28px; flex-wrap: wrap; border-radius: 16px;
@@ -79,8 +79,8 @@
 .rank-item .star { font-size: 13px; }
 .rank-item .tag { flex-shrink: 0; }
 
-/* ── 观看页与内容页（统一 1344px 黄金内容宽）── */
-.watch-page { max-width: var(--container-max); margin: 0 auto; padding: 20px var(--page-gutter) 48px; }
+/* ── 观看页与内容页 ── */
+.watch-page { width: 100%; min-width: 0; max-width: var(--container-max); margin: 0 auto; padding: 20px var(--page-gutter) 48px; }
 .watch-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
 .watch-title h1 { margin: 0; font-size: 22px; letter-spacing: -.2px; }
 .watch-title .ep-name { font-size: 16px; color: var(--ink-2); }

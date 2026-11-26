@@ -998,17 +998,51 @@ export default function Me() {
                 </div>
 
                 {shownFavs.length === 0 ? (
-                  <div className="space-empty">
-                    <span className="space-empty-ico"><BookmarkIcon size={22} /></span>
-                    <h3>{isManga ? '当前筛选下暂无漫画收藏' : '当前筛选下暂无追番收藏'}</h3>
-                    <p>
-                      {isManga
+                  <div className="space-empty-wrap">
+                    <EmptyState
+                      compact
+                      tone={isManga ? 'rose' : 'cyan'}
+                      icon={<BookmarkIcon size={22} />}
+                      title={isManga ? '当前筛选下暂无漫画收藏' : '当前筛选下暂无追番收藏'}
+                      description={isManga
                         ? '在漫画详情页点击「加入书架」或「标为已读完」，就能在这里分类管理。'
                         : '在番剧详情页或首页点击「追番」，就能在这里追踪排期与更新状态。'}
-                    </p>
-                    <Link to={isManga ? '/manga' : '/index'} className={'btn pill ' + (isManga ? 'space-btn-rose' : '')}>
-                      {isManga ? '发现漫画 →' : '发现番剧 →'}
-                    </Link>
+                      action={
+                        <Link to={isManga ? '/manga' : '/index'} className={'btn pill ' + (isManga ? 'space-btn-rose' : '')}>
+                          {isManga ? '发现漫画 →' : '发现番剧 →'}
+                        </Link>
+                      }
+                    />
+                    {!isManga && tab === 'favorites' && !needle && quickAnimePicks.length > 0 && (
+                      <div className="me-quick-picks">
+                        <div className="me-qp-head">
+                          <span>本季高分推荐 · 点击立即开看或追番</span>
+                          <Link to="/index?sort=rating" className="muted">更多高分 →</Link>
+                        </div>
+                        <div className="me-qp-grid">
+                          {quickAnimePicks.map(c => (
+                            <Link
+                              key={c.subjectId}
+                              to={c.workId ? `/works/${c.workId}` : `/catalog/${c.catalogItemId}`}
+                              className="work-card"
+                            >
+                              <div className="cover">
+                                <CoverImage src={`/api/v1/bangumi-covers/${c.subjectId}?size=large`} alt={c.nameCn || c.name} />
+                                {typeof c.rating === 'number' && (
+                                  <span className="badge-bl badge-score tabular-nums">★ {c.rating.toFixed(1)}</span>
+                                )}
+                              </div>
+                              <div className="work-card-body">
+                                <div className="work-card-title">{c.nameCn || c.name}</div>
+                                <div className="work-card-meta">
+                                  <span>{c.remarks || '本季热播'}</span>
+                                </div>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : viewMode === 'grid' ? (
                   <div className="space-card-grid">

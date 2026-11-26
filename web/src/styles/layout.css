@@ -1,13 +1,17 @@
 /* ── 全站 Sticky Footer 骨架 ── */
 .app-shell {
   min-height: 100vh;
+  width: 100%;
   display: flex;
   flex-direction: column;
+  overflow-x: clip;
 }
 .app-main {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
 }
 .brand-logo-svg {
   flex-shrink: 0;
@@ -350,7 +354,7 @@ a.up-tile:hover {
 }
 
 /* ── 通用容器与布局辅助（宽屏高占比，最大 1680px）── */
-.page { max-width: var(--container-max); margin: 0 auto; padding: 22px var(--page-gutter) 48px; }
+.page { width: 100%; min-width: 0; max-width: var(--container-max); margin: 0 auto; padding: 22px var(--page-gutter) 48px; }
 .page-center { min-height: 60vh; display: grid; place-items: center; color: var(--muted); }
 .card {
   background: var(--card); border: 1px solid var(--border);

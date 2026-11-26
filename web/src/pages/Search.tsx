@@ -125,7 +125,8 @@ export default function Search() {
     const mangaPromise = api.get<{ items: UnifiedMangaHit[] }>(
       `/api/v1/manga-discovery/search?q=${encodeURIComponent(trimmed)}&source=all&limit=21`,
     ).then(r => {
-      setMangaHits(r.items ?? [])
+      const cleaned = (r.items ?? []).filter(m => m.title && !/^(?:sitemap|robots|index)$/i.test(m.title.trim()))
+      setMangaHits(cleaned)
     }).catch(e => {
       setMangaHits([])
       nextErrors.push(`漫画检索失败：${e instanceof Error ? e.message : '未知错误'}`)
@@ -340,12 +341,13 @@ export default function Search() {
               const remarks = cleanMangaRemarks(m.remarks)
               const status = formatStatusLabel(m.remarks)
               const key = mangaFavKey(m.primarySource, m.primaryId)
+              const bestCover = m.coverUrl || m.streams?.find(s => Boolean(s.coverUrl))?.coverUrl || null
               return (
                 <AnimePosterCard
                   key={`${m.primarySource}:${m.primaryId}`}
                   actionKind="read"
                   title={m.title}
-                  coverUrl={hdCover(m.coverUrl)}
+                  coverUrl={hdCover(bestCover)}
                   detailHref={href}
                   playHref={href}
                   topLeft={status}

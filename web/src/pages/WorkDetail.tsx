@@ -3,6 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import ExternalEpisodes from './ExternalEpisodes'
 import { api, ApiError } from '../api'
 import CoverImage from '../components/CoverImage'
+import { BookOpenIcon, HeartIcon, UploadIcon } from '../components/Icons'
+import { useToast } from '../components/Toast'
+import EmptyState from '../components/ui/EmptyState'
+import { localizeWorkStatus, splitBilingualSummary } from '../lib/mediaFormat'
 import { formatAnimeLine } from '../lineLabel'
 
 interface Chapter {
@@ -29,8 +33,10 @@ interface WorkView {
 
 export default function WorkDetail() {
   const { id } = useParams()
+  const { showToast } = useToast()
   const [meta, setMeta] = useState<WorkExternalMeta | null>(null)
   const [data, setData] = useState<WorkView | null>(null)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
 
@@ -74,9 +80,13 @@ export default function WorkDetail() {
   async function addToShelf() {
     try {
       await api.put(`/api/v1/me/favorites/work/${id}`)
+      setSaved(true)
+      showToast('已加入收藏', 'success')
       setError('')
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '操作失败')
+      const msg = e instanceof ApiError ? e.message : '操作失败'
+      setError(msg)
+      showToast(msg, 'error')
     }
   }
 
@@ -93,60 +103,157 @@ export default function WorkDetail() {
   async function withdraw() {
     try {
       await api.post(`/api/v1/works/${id}/withdraw`)
+      showToast('作品已下架', 'info')
       await load()
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '操作失败')
+      const msg = e instanceof ApiError ? e.message : '操作失败'
+      setError(msg)
+      showToast(msg, 'error')
     }
   }
 
-  if (error && !data) return <main className="page"><p className="error">{error}</p></main>
-  if (!data) return <main className="page-center">加载中…</main>
+  if (error && !data) return <main className="watch-page"><p className="error">{error}</p></main>
+  if (!data) return <main className="watch-page page-center">加载中…</main>
 
   const { work, chapters, owner } = data
+  const statusInfo = localizeWorkStatus(work.status)
+  const zhSummary = splitBilingualSummary(meta?.summary || work.description).zh
+  const firstReadable = chapters.find(c => Boolean(c.currentRevisionId))
+
   return (
-    <main className="page">
-      {meta && (
-        <div className="detail-hero" style={{ marginBottom: 18 }}>
-          <div className="detail-cover">
-            <CoverImage src={meta.coverUrl} alt={work.title} loading="eager" />
-          </div>
-          <div className="detail-info">
-            <h1>{work.title}</h1>
-            <div className="watch-meta" style={{ margin: '4px 0 8px' }}>
-              {typeof meta.rating === 'number' && meta.rating > 0 && <span className="star">★ {meta.rating.toFixed(1)}</span>}
-              {meta.airWeekday && <span>{['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][meta.airWeekday]}放送</span>}
-              {meta.lines.length > 0 && <span>线路：{meta.lines.map((_, i) => formatAnimeLine(i)).join(' / ')}</span>}
-            </div>
-            {meta.summary && <p className="detail-summary">{meta.summary}</p>}
-          </div>
-        </div>
-      )}
-      <div className="row-between">
-        <div>
-          <h1 style={meta ? { display: 'none' } : undefined}>{work.title}</h1>
-          <p className="muted">{work.description}</p>
-          <span className={`tag ${work.visibility === 'PUBLIC' ? 'pub' : 'priv'}`}>
-            {work.visibility === 'PUBLIC' ? '公开' : '私人'} · {work.status === 'PUBLISHED' ? '已发布' : work.status === 'WITHDRAWN' ? '已下架' : '草稿'}
-          </span>
-        </div>
-        {!owner && <button onClick={addToShelf}>加入收藏</button>}
-        {owner && work.status === 'PUBLISHED' && <button className="ghost" onClick={withdraw}>下架</button>}
+    <main className="watch-page">
+      <div className="detail-crumb-row">
+        <nav className="breadcrumb" aria-label="面包屑">
+          <Link to="/">首页</Link>
+          <span>/</span>
+          <Link to="/uploads">我的素材</Link>
+          <span>/</span>
+          <span className="breadcrumb-cur">{work.title}</span>
+        </nav>
       </div>
 
-      <h2>章节</h2>
-      {error && <p className="error">{error}</p>}
-      <ul className="chapters">
-        {chapters.map(c => (
-          <li key={c.id}>
-            <span>{c.ordinal}. {c.title || `第 ${c.ordinal} 话`}</span>
-            {c.currentRevisionId
-              ? <a className="btn" href="#" onClick={e => { e.preventDefault(); void readLink(c).then(url => navigate(url)) }}>阅读</a>
-              : <span className="muted">未发布</span>}
-          </li>
-        ))}
-        {chapters.length === 0 && <li className="muted">还没有已发布章节</li>}
-      </ul>
-      {owner && <button className="ghost" onClick={() => navigate('/uploads')}>管理素材 →</button>}
+      <section className="detail-overview-grid">
+        <div className="detail-left-col">
+          <div className="detail-poster-card">
+            <CoverImage src={meta?.coverUrl ?? null} alt={work.title} loading="eager" fetchPriority="high" />
+            <div className="dpc-top-left">
+              <span className={'dpc-pill ' + (work.visibility === 'PUBLIC' ? 'is-pub' : 'is-cyan')}>
+                {work.visibility === 'PUBLIC' ? '公开' : '私人'}
+              </span>
+            </div>
+            {typeof meta?.rating === 'number' && meta.rating > 0 && (
+              <span className="dpc-top-right tabular-nums">★ {meta.rating.toFixed(1)}</span>
+            )}
+            <div className="dpc-bottom">
+              <div className="dpc-bottom-meta">
+                <span className="dpc-bottom-k">作品状态</span>
+                <span className="dpc-bottom-v">{statusInfo.label}</span>
+              </div>
+              {chapters.length > 0 && <span className="dpc-bottom-chip tabular-nums">{chapters.length} 话</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="detail-right-col">
+          <div className="detail-identity">
+            <div className="detail-micro-row">
+              <span className="detail-micro-pill is-cyan">{statusInfo.label}</span>
+              <span className="detail-micro-pill">{work.visibility === 'PUBLIC' ? '公开' : '私人'}</span>
+              {meta?.airWeekday && (
+                <span className="detail-micro-pill is-rose">
+                  每{['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][meta.airWeekday]}放送
+                </span>
+              )}
+              {meta && meta.lines.length > 0 && (
+                <span className="detail-micro-pill">
+                  {meta.lines.map((_, i) => formatAnimeLine(i)).join(' / ')}
+                </span>
+              )}
+            </div>
+            <h1>{work.title}</h1>
+            {zhSummary && <p className="detail-synopsis-text" style={{ marginTop: 6 }}>{zhSummary}</p>}
+          </div>
+
+          <div className="detail-action-card">
+            <div className="detail-action-status">
+              <div className="detail-action-status-main">
+                <span className="detail-action-dot" aria-hidden="true" />
+                <span>{chapters.length > 0 ? `共 ${chapters.length} 话章节` : '暂无本地章节'}</span>
+              </div>
+              <span className="detail-action-status-sub">
+                {owner ? '你是此作品的创建者，可在下方管理关联剧集或前往素材中心编辑' : '点击章节即可开始阅读'}
+              </span>
+            </div>
+            <div className="detail-action-btns">
+              {firstReadable && (
+                <button type="button" className="detail-cta-primary"
+                        onClick={() => void readLink(firstReadable).then(url => navigate(url))}>
+                  <BookOpenIcon size={16} />
+                  开始阅读（第 {firstReadable.ordinal} 话）
+                </button>
+              )}
+              {!owner && (
+                <button type="button" className={'detail-cta-fav' + (saved ? ' active' : '')}
+                        onClick={() => void addToShelf()}>
+                  <HeartIcon size={16} filled={saved} />
+                  {saved ? '已收藏' : '加入收藏'}
+                </button>
+              )}
+              {owner && (
+                <button type="button" className="ghost pill" onClick={() => navigate('/uploads')}>
+                  <UploadIcon size={15} />
+                  管理素材
+                </button>
+              )}
+              {owner && work.status === 'PUBLISHED' && (
+                <button type="button" className="ghost pill" onClick={() => void withdraw()}>下架作品</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {error && <p className="error" style={{ marginTop: 14 }}>{error}</p>}
+
+      <section style={{ marginTop: 28 }}>
+        <div className="detail-sec-head">
+          <h2 className="detail-sec-title">
+            <span className="detail-sec-bar" aria-hidden="true" />
+            章节目录（{chapters.length}）
+          </h2>
+        </div>
+        <div className="card" style={{ padding: 20, borderRadius: 16 }}>
+          {chapters.length === 0 ? (
+            <EmptyState
+              compact
+              icon={<BookOpenIcon size={20} />}
+              title="还没有已发布章节"
+              description={owner ? '你可以在「我的素材」上传章节，或在下方挂载外部动画分集。' : '暂未发布可读章节。'}
+            />
+          ) : (
+            <div className="chapter-grid">
+              {chapters.map(c => c.currentRevisionId ? (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="chapter-cell"
+                  title={c.title || `第 ${c.ordinal} 话`}
+                  onClick={() => void readLink(c).then(url => navigate(url))}
+                >
+                  <span className="cc-no">第 {c.ordinal} 话</span>
+                  <span className="cc-sub">{c.title || '阅读'}</span>
+                </button>
+              ) : (
+                <div key={c.id} className="chapter-cell" style={{ opacity: 0.5, cursor: 'default' }}>
+                  <span className="cc-no">第 {c.ordinal} 话</span>
+                  <span className="cc-sub">未发布</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       {owner && <ExternalEpisodes />}
     </main>
   )

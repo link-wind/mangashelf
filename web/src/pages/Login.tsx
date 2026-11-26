@@ -1,8 +1,12 @@
+import { motion } from 'motion/react'
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import { useAuth } from '../auth'
 import { EyeIcon } from '../components/Icons'
+import { useToast } from '../components/Toast'
+import BrandLogo from '../components/ui/BrandLogo'
+import SegmentedTabs from '../components/ui/SegmentedTabs'
 
 export default function LoginPage() {
   const [login, setLogin] = useState('')
@@ -12,6 +16,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const { refresh } = useAuth()
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const [params] = useSearchParams()
 
@@ -26,6 +31,7 @@ export default function LoginPage() {
       }
       await api.post('/api/v1/auth/login', { login, password })
       await refresh()
+      showToast(mode === 'register' ? `欢迎加入，${login}` : `欢迎回来，${login}`, 'success')
       // 登录后回到被拦截的原始页面（仅接受站内相对路径，防开放重定向）
       const next = params.get('next')
       const safe = next && next.startsWith('/') && !next.startsWith('//') ? next : '/'
@@ -39,19 +45,36 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <form className="login-glass" onSubmit={submit}>
+      <motion.form
+        className="login-glass"
+        onSubmit={submit}
+        initial={{ opacity: 0, y: 12, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      >
         <div className="login-brand">
-          <div className="login-logo" aria-hidden="true" />
+          <BrandLogo size={42} />
           <div>
             <h1>MangaShelf</h1>
-            <p className="login-sub">漫画阅读与动画内容平台</p>
+            <p className="login-sub">番剧追更与跨源漫画私人空间</p>
           </div>
         </div>
+
+        <SegmentedTabs
+          layoutId="login-mode-tabs"
+          ariaLabel="登录或注册"
+          value={mode}
+          onChange={nextMode => { setMode(nextMode); setError('') }}
+          items={[
+            { value: 'login', label: '登录账号' },
+            { value: 'register', label: '注册新账号' },
+          ]}
+        />
 
         <label>
           登录名
           <input value={login} onChange={e => setLogin(e.target.value)}
-                 pattern="[a-zA-Z0-9_\-]{3,32}" placeholder="输入登录名"
+                 pattern="[a-zA-Z0-9_\-]{3,32}" placeholder="3-32 位字母、数字、下划线或连字符"
                  autoComplete="username"
                  title="3-32 位字母数字下划线连字符" required />
         </label>
@@ -77,11 +100,11 @@ export default function LoginPage() {
         <button type="submit" className="pill" disabled={busy} style={{ padding: '10px 16px', fontWeight: 600 }}>
           {busy ? '处理中…' : (mode === 'login' ? '登录' : '注册并登录')}
         </button>
-        <button type="button" className="ghost pill" disabled={busy}
-                onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>
-          {mode === 'login' ? '没有账号？注册' : '已有账号？登录'}
-        </button>
-      </form>
+
+        <div className="login-footer-row">
+          <Link to="/" className="muted">← 返回首页继续浏览</Link>
+        </div>
+      </motion.form>
     </div>
   )
 }

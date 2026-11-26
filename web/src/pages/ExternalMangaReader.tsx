@@ -746,9 +746,13 @@ export default function ExternalMangaReader() {
     ? [Math.max(0, Math.min(total - 1, page - 1))]
     : displayPages
   const progressNo = singleMode ? page : ((spreadPages[0] ?? 0) + 1)
+  const progressPct = total > 0 ? Math.min(100, Math.max(2, Math.round((progressNo / total) * 100))) : 0
 
   return (
     <div className={'reader-full' + (uiVisible ? ' show-ui' : '')} onClick={pokeUi}>
+      <div className="reader-progress-bar" aria-hidden="true">
+        <div className="reader-progress-fill" style={{ width: `${progressPct}%` }} />
+      </div>
       {progressNotice && (
         <div role="status" style={{
           position: 'fixed', top: 78, left: '50%', transform: 'translateX(-50%)',

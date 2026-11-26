@@ -79,14 +79,14 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 .cover-fallback {
   width: 100%; height: 100%; display: grid; place-items: center;
   background:
-    radial-gradient(circle at 24% 20%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%),
-    radial-gradient(circle at 80% 82%, color-mix(in srgb, var(--rose) 16%, transparent), transparent 58%),
-    linear-gradient(155deg, color-mix(in srgb, var(--accent) 10%, var(--bg-soft)), var(--card));
+    radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 60%),
+    radial-gradient(circle at 82% 84%, color-mix(in srgb, var(--rose) 20%, transparent), transparent 58%),
+    linear-gradient(155deg, color-mix(in srgb, var(--accent) 12%, var(--bg-soft)), var(--card));
 }
 .cover-initial {
-  font-size: 38px; font-weight: 800; letter-spacing: -.04em;
-  color: color-mix(in srgb, var(--accent) 68%, var(--ink));
-  opacity: .56; user-select: none;
+  font-size: 40px; font-weight: 800; letter-spacing: -.04em;
+  color: color-mix(in srgb, var(--accent) 76%, var(--ink));
+  opacity: .78; user-select: none;
 }
 
 /* 统一四角角标语法 */
@@ -370,6 +370,18 @@ button.ext-card:hover { background: var(--card); }
 .ext-reader-stage img { width: 100%; height: auto; display: block; background: #0d0f11; min-height: 120px; }
 
 .reader-full { min-height: 100vh; background: #08090a; color: #fff; cursor: pointer; }
+.reader-progress-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 140;
+  background: rgba(255, 255, 255, .08); pointer-events: none;
+}
+.reader-progress-fill {
+  height: 100%; border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, var(--accent), var(--rose));
+  transition: width .22s ease;
+}
+.login-footer-row { text-align: center; padding-top: 2px; }
+.login-footer-row a { font-size: 13px; text-decoration: none; }
+.login-footer-row a:hover { color: var(--accent-strong); }
 body.reader-open .nav, body.reader-open .site-footer, body.reader-open .nav-fab { display: none; }
 .reader-full-inner { min-height: 100vh; display: grid; place-items: center; gap: 12px; padding: 24px; }
 
@@ -897,6 +909,8 @@ button.ui-switch-wrap:hover:not(:disabled) {
 .ui-empty-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
 
 .ui-seg-tabs {
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -909,6 +923,7 @@ button.ui-switch-wrap:hover:not(:disabled) {
 }
 .ui-seg-tab {
   position: relative;
+  z-index: 1;
   border: 0;
   background: transparent;
   color: var(--ink-2);
@@ -917,7 +932,6 @@ button.ui-switch-wrap:hover:not(:disabled) {
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
-  isolation: isolate;
 }
 .ui-seg-tabs.is-sm .ui-seg-tab { padding: 4px 11px; font-size: 12.5px; }
 button.ui-seg-tab:hover:not(:disabled) { background: transparent; color: var(--ink); }
@@ -932,9 +946,11 @@ button.ui-seg-tab.is-active:hover:not(:disabled) {
 }
 .ui-seg-pill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   border-radius: 999px;
-  z-index: -1;
+  z-index: 0;
+  pointer-events: none;
   background: var(--accent-btn);
   box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
@@ -980,14 +996,18 @@ button.ui-seg-tab.is-active:hover:not(:disabled) {
   background: var(--rose);
 }
 
-/* Embla CarouselRail：无原生滚动条 + 悬浮玻璃左右箭头 + 边缘渐隐 */
+/* Embla CarouselRail：无原生滚动条 + 悬浮玻璃左右箭头 + 严格约束宽度防撑破布局 */
 .ui-rail {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   --rail-item-w: 186px;
   --rail-gap: 14px;
 }
 .ui-rail-viewport {
   overflow: hidden;
+  width: 100%;
   padding: 6px 2px 10px;
   margin: -6px -2px -10px;
 }

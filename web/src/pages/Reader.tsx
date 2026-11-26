@@ -322,8 +322,13 @@ export default function Reader() {
     return () => document.body.classList.remove('reader-open')
   }, [])
 
+  const progressPct = pageCount > 0 ? Math.min(100, Math.max(2, Math.round((current / pageCount) * 100))) : 0
+
   return (
     <div className="reader-full local-reader show-ui">
+      <div className="reader-progress-bar" aria-hidden="true">
+        <div className="reader-progress-fill" style={{ width: `${progressPct}%` }} />
+      </div>
       <header className="rf-top">
         <Link to="/manga" className="rf-icon" aria-label="返回">←</Link>
         <div className="rf-title">
