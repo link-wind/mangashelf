@@ -39,7 +39,17 @@ interface SimilarAnime {
 
 const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const NOISE_TAGS = new Set(['TV', '日本', '中国', 'OVA', 'WEB', '动画', '番剧'])
-const EP_CHUNK = 24
+const EP_CHUNK = 30
+const DENSE_THRESHOLD = 36
+
+function formatEpHeading(ep: BrowseEpisode): string {
+  const num = String(ep.ordinal).padStart(2, '0')
+  const raw = (ep.title ?? '').trim()
+  if (!raw || /^第?\s*0*\d+\s*[集话回期]?$/i.test(raw)) {
+    return `第 ${num} 集`
+  }
+  return `第 ${num} 集 · ${raw}`
+}
 
 /**
  * 番剧资料详情页（P2 重构）：
@@ -55,8 +65,11 @@ export default function CatalogDetail() {
   const [detail, setDetail] = useState<CatalogDetailData | null>(null)
   const [browseLines, setBrowseLines] = useState<BrowseLine[]>([])
   const [activeLine, setActiveLine] = useState('')
+  const [epTab, setEpTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [epReverse, setEpReverse] = useState(false)
   const [epChunk, setEpChunk] = useState(0)
+  const [epDenseOverride, setEpDenseOverride] = useState<boolean | null>(null)
+  const [lastWatched, setLastWatched] = useState<{ episodeId: string; ordinal: number } | null>(null)
   const [similar, setSimilar] = useState<SimilarAnime[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -90,7 +103,7 @@ export default function CatalogDetail() {
   }, [id])
 
   useEffect(() => {
-    if (!id || !me) { setFavorited(false); setFavStatus('WATCHING'); return }
+    if (!id || !me) { setFavorited(false); setFavStatus('WATCHING'); setLastWatched(null); return }
     void api.get<{ catalogItemId: string | null; status?: 'WATCHING' | 'COMPLETED' }[]>('/api/v1/me/favorites?type=catalog')
       .then(list => {
         const hit = list.find(f => f.catalogItemId === id)
@@ -98,6 +111,12 @@ export default function CatalogDetail() {
         setFavStatus(hit?.status === 'COMPLETED' ? 'COMPLETED' : 'WATCHING')
       })
       .catch(() => { /* 收藏状态不可用不影响详情 */ })
+    void api.get<{ catalogItemId: string | null; episodeId: string | null; ordinal: number | null }[]>('/api/v1/me/continue?limit=30')
+      .then(rows => {
+        const hit = rows.find(r => r.catalogItemId === id && r.episodeId)
+        setLastWatched(hit && hit.episodeId ? { episodeId: hit.episodeId, ordinal: hit.ordinal ?? 1 } : null)
+      })
+      .catch(() => setLastWatched(null))
   }, [id, me])
 
   async function toggleFavorite() {
@@ -148,13 +167,32 @@ export default function CatalogDetail() {
     } finally { setBusy(false) }
   }
 
-  const lineEpisodes = useMemo(() => {
-    const raw = browseLines.find(l => l.name === activeLine)?.episodes ?? []
-    const sorted = [...raw].sort((a, b) => a.ordinal - b.ordinal)
-    return epReverse ? sorted.reverse() : sorted
-  }, [browseLines, activeLine, epReverse])
+  const activeLineObj = useMemo(
+    () => browseLines.find(l => l.name === activeLine) ?? browseLines[0] ?? null,
+    [browseLines, activeLine],
+  )
+  const activeLineIdx = Math.max(0, browseLines.findIndex(l => l.name === activeLineObj?.name))
+  const activeLineLabel = browseLines.length > 0 ? formatAnimeLine(activeLineIdx) : '国内线路 1'
+  const rawLineEpisodes = activeLineObj?.episodes ?? []
+  const mainCount = useMemo(() => rawLineEpisodes.filter(e => e.episodeType !== 'EXTRA').length, [rawLineEpisodes])
+  const extraCount = useMemo(() => rawLineEpisodes.filter(e => e.episodeType === 'EXTRA').length, [rawLineEpisodes])
+  const hasExtra = extraCount > 0
 
-  const useChunks = lineEpisodes.length > 30
+  const lineEpisodes = useMemo(() => {
+    const filtered = hasExtra
+      ? rawLineEpisodes.filter(e => (epTab === 'EXTRA' ? e.episodeType === 'EXTRA' : e.episodeType !== 'EXTRA'))
+      : rawLineEpisodes
+    const sorted = [...filtered].sort((a, b) => a.ordinal - b.ordinal)
+    return epReverse ? sorted.reverse() : sorted
+  }, [rawLineEpisodes, hasExtra, epTab, epReverse])
+
+  const latestMainOrdinal = useMemo(() => {
+    const mains = rawLineEpisodes.filter(e => e.episodeType !== 'EXTRA')
+    return mains.length > 1 ? Math.max(...mains.map(e => e.ordinal)) : -1
+  }, [rawLineEpisodes])
+
+  const isDense = epDenseOverride ?? (lineEpisodes.length > DENSE_THRESHOLD)
+  const useChunks = lineEpisodes.length > EP_CHUNK
   const safeChunk = useChunks ? Math.min(epChunk, Math.floor((lineEpisodes.length - 1) / EP_CHUNK)) : 0
   const visibleEpisodes = useChunks
     ? lineEpisodes.slice(safeChunk * EP_CHUNK, (safeChunk + 1) * EP_CHUNK)
@@ -301,8 +339,10 @@ export default function CatalogDetail() {
               </span>
             </div>
             <div className="detail-action-btns">
-              <Link className="detail-cta-primary" to={`/browse/${item.id}`}>
-                <PlayIcon size={16} />立即前往播放
+              <Link className="detail-cta-primary"
+                    to={lastWatched ? `/browse/${item.id}/${lastWatched.episodeId}` : `/browse/${item.id}`}>
+                <PlayIcon size={16} />
+                {lastWatched ? `继续播放（第 ${lastWatched.ordinal} 集）` : '立即前往播放'}
               </Link>
               <button type="button" className={'detail-cta-fav' + (favorited ? ' active' : '')}
                       onClick={() => void toggleFavorite()}>
@@ -443,34 +483,74 @@ export default function CatalogDetail() {
         </div>
       </section>
 
-      {/* 内嵌多线路分集选集 */}
+      {/* 内嵌多线路分集选集（季番 4 列大号横式分集卡 / 长番 6 列宽胶囊） */}
       <section id="episodes" style={{ marginTop: 32 }}>
         <div className="detail-sec-head">
           <h2 className="detail-sec-title">
             <span className="detail-sec-bar" aria-hidden="true" />
             选集播放
           </h2>
-          {lineEpisodes.length > 1 && (
-            <button type="button" className="mini ghost"
-                    onClick={() => { setEpReverse(v => !v); setEpChunk(0) }}>
-              {epReverse ? '倒序 ↓' : '正序 ↑'}
-            </button>
-          )}
+          <span className="detail-ep-count">
+            {lineEpisodes.length > 0 ? `共 ${lineEpisodes.length} 集 · ${activeLineLabel}` : ''}
+          </span>
         </div>
-        <div className="card" style={{ padding: 20, borderRadius: 16 }}>
-          {browseLines.length > 0 && (
-            <div className="row-inline" style={{ marginBottom: 14 }}>
-              {browseLines.map((l, idx) => (
-                <button key={l.name} type="button"
-                        className={'mini ' + (l.name === activeLine ? '' : 'ghost')}
-                        onClick={() => { setActiveLine(l.name); setEpChunk(0) }}>
-                  {formatAnimeLine(idx)}
-                </button>
-              ))}
+        <div className="detail-ep-panel">
+          <div className="detail-ep-toolbar">
+            <div className="detail-ep-toolbar-left">
+              {browseLines.length > 0 && (
+                <div className="detail-ep-seg" role="tablist" aria-label="播放线路切换">
+                  {browseLines.map((l, idx) => (
+                    <button key={l.name} type="button" role="tab"
+                            aria-selected={l.name === activeLineObj?.name}
+                            className={'detail-ep-seg-btn' + (l.name === activeLineObj?.name ? ' active' : '')}
+                            onClick={() => { setActiveLine(l.name); setEpTab('MAIN'); setEpChunk(0) }}>
+                      {formatAnimeLine(idx)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {hasExtra && (
+                <div className="detail-ep-seg" role="tablist" aria-label="正片与番外切换">
+                  <button type="button" role="tab" aria-selected={epTab === 'MAIN'}
+                          className={'detail-ep-seg-btn' + (epTab === 'MAIN' ? ' active' : '')}
+                          onClick={() => { setEpTab('MAIN'); setEpChunk(0) }}>
+                    正片 ({mainCount})
+                  </button>
+                  <button type="button" role="tab" aria-selected={epTab === 'EXTRA'}
+                          className={'detail-ep-seg-btn' + (epTab === 'EXTRA' ? ' active' : '')}
+                          onClick={() => { setEpTab('EXTRA'); setEpChunk(0) }}>
+                    番外 ({extraCount})
+                  </button>
+                </div>
+              )}
             </div>
-          )}
+
+            <div className="detail-ep-toolbar-right">
+              {lineEpisodes.length > 0 && (
+                <div className="detail-ep-seg" role="group" aria-label="选集显示密度">
+                  <button type="button"
+                          className={'detail-ep-seg-btn' + (!isDense ? ' active' : '')}
+                          onClick={() => setEpDenseOverride(false)}>
+                    卡片
+                  </button>
+                  <button type="button"
+                          className={'detail-ep-seg-btn' + (isDense ? ' active' : '')}
+                          onClick={() => setEpDenseOverride(true)}>
+                    紧凑
+                  </button>
+                </div>
+              )}
+              {lineEpisodes.length > 1 && (
+                <button type="button" className="mini ghost"
+                        onClick={() => { setEpReverse(v => !v); setEpChunk(0) }}>
+                  {epReverse ? '倒序 ↓' : '正序 ↑'}
+                </button>
+              )}
+            </div>
+          </div>
+
           {useChunks && (
-            <div className="row-inline ep-chunks" style={{ marginBottom: 14 }}>
+            <div className="detail-ep-chunks">
               {Array.from({ length: Math.ceil(lineEpisodes.length / EP_CHUNK) }, (_, idx) => {
                 const slice = lineEpisodes.slice(idx * EP_CHUNK, (idx + 1) * EP_CHUNK)
                 return (
@@ -483,14 +563,43 @@ export default function CatalogDetail() {
               })}
             </div>
           )}
+
           {visibleEpisodes.length > 0 ? (
-            <div className="episode-grid">
-              {visibleEpisodes.map(e => (
-                <Link key={e.id} to={`/browse/${item.id}/${e.id}`} className="episode-cell" style={{ textDecoration: 'none' }}>
-                  <div className="no tabular-nums">{String(e.ordinal).padStart(2, '0')}</div>
-                  <div className="name">{e.title}</div>
-                </Link>
-              ))}
+            <div className={'detail-ep-grid' + (isDense ? ' is-dense' : '')}>
+              {visibleEpisodes.map(e => {
+                const isLatest = e.episodeType !== 'EXTRA' && e.ordinal === latestMainOrdinal
+                const isWatched = Boolean(
+                  lastWatched && (e.id === lastWatched.episodeId
+                    || (e.episodeType !== 'EXTRA' && e.ordinal === lastWatched.ordinal)),
+                )
+                const heading = formatEpHeading(e)
+                return (
+                  <Link key={e.id} to={`/browse/${item.id}/${e.id}`}
+                        className={'detail-ep-card' + (isWatched ? ' is-watched' : '')}
+                        title={heading}>
+                    <div className="detail-ep-badge">
+                      <span className="detail-ep-no">{String(e.ordinal).padStart(2, '0')}</span>
+                      <span className="detail-ep-play" aria-hidden="true">
+                        <PlayIcon size={isDense ? 14 : 18} />
+                      </span>
+                    </div>
+                    <div className="detail-ep-body">
+                      <span className="detail-ep-title">{heading}</span>
+                      <span className="detail-ep-sub">
+                        {activeLineLabel} · {e.episodeType === 'EXTRA' ? '番外' : '正片'}
+                      </span>
+                    </div>
+                    <div className="detail-ep-right">
+                      {isWatched ? (
+                        <span className="detail-ep-tag is-watched">上次看到</span>
+                      ) : isLatest ? (
+                        <span className="detail-ep-tag is-new">最新</span>
+                      ) : null}
+                      <span className="detail-ep-go" aria-hidden="true">播放 →</span>
+                    </div>
+                  </Link>
+                )
+              })}
             </div>
           ) : (
             <p className="muted" style={{ margin: 0 }}>暂无剧集，点击上方「立即前往播放」尝试加载。</p>
