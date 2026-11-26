@@ -242,11 +242,11 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                 </div>
 
                 <div className="up-stats-row tabular-nums">
-                  <Link to="/me?tab=favorites&kind=anime" className="up-stat-pill" onClick={() => setOpen(false)}>
+                  <Link to="/me?space=anime&tab=favorites" className="up-stat-pill" onClick={() => setOpen(false)}>
                     <strong className="is-cyan">{loadingSummary && !summary ? '…' : (summary?.animeWatching ?? 0)}</strong>
                     <span>在追动画</span>
                   </Link>
-                  <Link to="/me?tab=favorites&kind=manga" className="up-stat-pill" onClick={() => setOpen(false)}>
+                  <Link to="/me?space=manga&tab=favorites" className="up-stat-pill" onClick={() => setOpen(false)}>
                     <strong className="is-rose">{loadingSummary && !summary ? '…' : (summary?.mangaWatching ?? 0)}</strong>
                     <span>在追漫画</span>
                   </Link>
