@@ -28,16 +28,18 @@ interface ReaderSettings {
   pageMode: PageMode
   anim: Anim
   hd: boolean
+  autoNext: boolean
 }
 
 const SETTINGS_KEY = 'ms-manga-reader-settings'
+const AUTO_NEXT_SECONDS = 3
 
 function loadSettings(): ReaderSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) return { dir: 'ltr', pageMode: 'single', anim: 'fade', hd: false, ...JSON.parse(raw) }
+    if (raw) return { dir: 'ltr', pageMode: 'single', anim: 'fade', hd: false, autoNext: true, ...JSON.parse(raw) }
   } catch { /* 忽略损坏配置 */ }
-  return { dir: 'ltr', pageMode: 'single', anim: 'fade', hd: false }
+  return { dir: 'ltr', pageMode: 'single', anim: 'fade', hd: false, autoNext: true }
 }
 
 /* ── 手势判定（阈值规则移植 HOMURA-reader readerGestures）── */
@@ -132,8 +134,14 @@ export default function ExternalMangaReader() {
   const [progressNotice, setProgressNotice] = useState('')
   const [tocOpen, setTocOpen] = useState(false)
   const [tocAsc, setTocAsc] = useState(true)
+  const [autoNextCountdown, setAutoNextCountdown] = useState<number | null>(null)
+  const [autoNextCancelled, setAutoNextCancelled] = useState(false)
+  const [endInView, setEndInView] = useState(false)
   const pendingScroll = useRef<number | null>(null)
   const layoutAnchor = useRef<{ ordinal: number; top: number } | null>(null)
+  const endSentinelRef = useRef<HTMLDivElement>(null)
+  const chapterEnteredAtRef = useRef(Date.now())
+  const prefetchedNextRef = useRef<string | null>(null)
   const pageRef = useRef(1)
   pageRef.current = page
   const spreadRef = useRef(0)
@@ -172,6 +180,11 @@ export default function ExternalMangaReader() {
     setRestoredData(null)
     setSpread(0)
     setPage(1)
+    setAutoNextCountdown(null)
+    setAutoNextCancelled(false)
+    setEndInView(false)
+    chapterEnteredAtRef.current = Date.now()
+    window.scrollTo({ top: 0 })
     layoutAnchor.current = null
     pendingScroll.current = null
     setMeasured({ key: `${source}:${chapterId}`, sizes: loadPageSizes(`${source}:${chapterId}`) })
@@ -464,30 +477,140 @@ export default function ExternalMangaReader() {
     return () => { probes.forEach(image => { image.onerror = null; image.src = '' }) }
   }, [source, isRestored, effectiveMode, effSpread, data])
 
+  const jumpChapter = useCallback((id: string, autoNotice?: string) => {
+    setAutoNextCountdown(null)
+    setEndInView(false)
+    if (autoNotice) {
+      setProgressNotice(autoNotice)
+      window.setTimeout(() => setProgressNotice(cur => (cur === autoNotice ? '' : cur)), 2500)
+    }
+    navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&source=${source}` +
+             `&title=${encodeURIComponent(comicTitle)}`)
+  }, [navigate, mangaId, lang, source, comicTitle])
+
+  const formatChapterLabel = useCallback((c: Chapter) => {
+    const base = `第 ${c.chapter || '?'} 话`
+    return c.title ? `${base} ${c.title}` : base
+  }, [])
+
+  const triggerAutoNextNow = useCallback(() => {
+    if (!nextCh) return
+    jumpChapter(nextCh.id, `已自动切换至 ${formatChapterLabel(nextCh)}`)
+  }, [nextCh, jumpChapter, formatChapterLabel])
+
+  // 临近末页时后台预热下一话页列表，切话更顺滑（每话最多一次）
+  useEffect(() => {
+    if (!isRestored || !settings.autoNext || !nextCh || total <= 0) return
+    const currentPos = effectiveMode === 'single' ? page : ((spreadPages[0] ?? 0) + 1)
+    if (currentPos < Math.max(1, total - 1)) return
+    const key = `${source}:${nextCh.id}`
+    if (prefetchedNextRef.current === key) return
+    prefetchedNextRef.current = key
+    void api.get<Pages>(`/api/v1/manga-sources/${source}/chapter/${nextCh.id}/pages`).catch(() => {})
+  }, [isRestored, settings.autoNext, nextCh, total, effectiveMode, page, spreadPages, source])
+
+  // 滚动模式：监听章末卡片进入视口，触发可取消的 3 秒自动下一话倒计时
+  useEffect(() => {
+    if (!isRestored || effectiveMode !== 'single' || !nextCh || !settings.autoNext) {
+      setEndInView(false)
+      return
+    }
+    const el = endSentinelRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(entries => {
+      const visible = entries.some(entry => entry.isIntersecting)
+      setEndInView(visible)
+    }, { threshold: 0.45 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [isRestored, effectiveMode, nextCh, settings.autoNext, chapterId, total])
+
+  // 仅当真正滚动到章末（且非刚进章节 1.2 秒内的初始闪现、非打开抽屉时）才启动倒计时
+  useEffect(() => {
+    const shouldRun = effectiveMode === 'single'
+      && isRestored
+      && settings.autoNext
+      && Boolean(nextCh)
+      && !autoNextCancelled
+      && !tocOpen
+      && !settingsOpen
+      && endInView
+      && total > 0
+      && page >= Math.max(1, total - 1)
+
+    if (!shouldRun) {
+      setAutoNextCountdown(null)
+      return
+    }
+    const elapsed = Date.now() - chapterEnteredAtRef.current
+    const startDelay = Math.max(0, 1200 - elapsed)
+    let tickTimer: number | null = null
+    const armTimer = window.setTimeout(() => {
+      setAutoNextCountdown(AUTO_NEXT_SECONDS)
+      let left = AUTO_NEXT_SECONDS
+      tickTimer = window.setInterval(() => {
+        left -= 1
+        if (left <= 0) {
+          if (tickTimer !== null) window.clearInterval(tickTimer)
+          setAutoNextCountdown(null)
+          triggerAutoNextNow()
+        } else {
+          setAutoNextCountdown(left)
+        }
+      }, 1000)
+    }, startDelay)
+
+    return () => {
+      window.clearTimeout(armTimer)
+      if (tickTimer !== null) window.clearInterval(tickTimer)
+    }
+  }, [
+    effectiveMode, isRestored, settings.autoNext, nextCh,
+    autoNextCancelled, tocOpen, settingsOpen, endInView, total, page, triggerAutoNextNow,
+  ])
+
   function jumpSpread(index: number) {
+    if (!isRestored) return
+    if (index >= spreadCount) {
+      if (settings.autoNext && nextCh) triggerAutoNextNow()
+      return
+    }
     const next = Math.max(0, Math.min(spreadCount - 1, index))
-    if (!isRestored || next === effSpread || spreads[next]?.some(i => !list[i])) return
+    if (next === effSpread || spreads[next]?.some(i => !list[i])) return
     setSpread(next)
     setPage((spreads[next]?.[0] ?? 0) + 1)
     saveProgress((spreads[next]?.[0] ?? 0) + 1, total)
   }
 
   function jumpPage(index: number) {
+    if (!isRestored) return
+    if (index > total) {
+      if (settings.autoNext && nextCh) triggerAutoNextNow()
+      return
+    }
     const next = Math.max(1, Math.min(total, index))
-    if (!isRestored || next === page || !list[next - 1]) return
+    if (next === page || !list[next - 1]) return
     stageRef.current?.querySelectorAll('[data-reader-page]')[next - 1]?.scrollIntoView({ block: 'center' })
     setPage(next)
     saveProgress(next, total)
   }
 
   function flip(delta: number) {
-    if (effectiveMode !== 'single' && spreads[effSpread + delta]?.some(i => !list[i])) return
-    if (effectiveMode === 'single' && !list[Math.max(0, Math.min(total - 1, page - 1 + delta))]) return
-    if (effectiveMode === 'single') {
-      jumpPage(page + delta)
-    } else {
+    if (effectiveMode !== 'single') {
+      if (delta > 0 && effSpread + delta >= spreadCount) {
+        if (settings.autoNext && nextCh) triggerAutoNextNow()
+        return
+      }
+      if (spreads[effSpread + delta]?.some(i => !list[i])) return
       jumpSpread(effSpread + delta)
+      return
     }
+    if (delta > 0 && page + delta > total) {
+      if (settings.autoNext && nextCh) triggerAutoNextNow()
+      return
+    }
+    if (!list[Math.max(0, Math.min(total - 1, page - 1 + delta))]) return
+    jumpPage(page + delta)
   }
 
   function tapAction(zone: 'left' | 'right' | 'center') {
@@ -571,9 +694,7 @@ export default function ExternalMangaReader() {
     }
   }, [])
 
-  const jumpChapter = (id: string) =>
-    navigate(`/manga-ext/read/${id}?mangaId=${mangaId}&lang=${lang}&source=${source}` +
-             `&title=${encodeURIComponent(comicTitle)}`)
+  // jumpChapter 已上移至自动下一话回调区域
 
   if (error) {
     return (
@@ -619,9 +740,10 @@ export default function ExternalMangaReader() {
     <div className={'reader-full' + (uiVisible ? ' show-ui' : '')} onClick={pokeUi}>
       {progressNotice && (
         <div role="status" style={{
-          position: 'fixed', top: 64, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(20,20,24,.92)', color: '#fff', padding: '6px 12px',
-          borderRadius: 6, fontSize: 13, zIndex: 20,
+          position: 'fixed', top: 78, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(20,22,28,.92)', color: '#fff', padding: '7px 16px',
+          borderRadius: 999, fontSize: 13, zIndex: 130, whiteSpace: 'nowrap',
+          border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 8px 24px rgba(0,0,0,.4)',
         }}>{progressNotice}</div>
       )}
       <header className="rf-top">
@@ -650,6 +772,53 @@ export default function ExternalMangaReader() {
               <span>第 {i + 1} 页 · 加载中…</span>
             </div>
           ))}
+
+          <div ref={endSentinelRef} className="rf-chapter-end" onClick={e => e.stopPropagation()}>
+            <span className="rf-chapter-end-meta">
+              {chapter ? `本话已读完 · ${formatChapterLabel(chapter)}` : '本话已读完'}
+            </span>
+            {nextCh ? (
+              <>
+                <div className="rf-chapter-end-title">
+                  {autoNextCountdown !== null
+                    ? `${autoNextCountdown} 秒后自动进入下一话：${formatChapterLabel(nextCh)}`
+                    : `下一话：${formatChapterLabel(nextCh)}`}
+                </div>
+                {autoNextCountdown !== null && (
+                  <div className="rf-chapter-end-bar" aria-hidden="true">
+                    <div className="rf-chapter-end-bar-fill"
+                         style={{ width: `${((AUTO_NEXT_SECONDS - autoNextCountdown + 1) / AUTO_NEXT_SECONDS) * 100}%` }} />
+                  </div>
+                )}
+                <div className="rf-chapter-end-actions">
+                  <button type="button" className="btn pill" onClick={() => jumpChapter(nextCh.id)}>
+                    立即下一话
+                  </button>
+                  {autoNextCountdown !== null ? (
+                    <button type="button" className="rf-text-btn"
+                            onClick={() => { setAutoNextCancelled(true); setAutoNextCountdown(null) }}>
+                      取消自动连播
+                    </button>
+                  ) : (
+                    <button type="button" className="rf-text-btn"
+                            onClick={() => {
+                              patchSettings({ autoNext: !settings.autoNext })
+                              setAutoNextCancelled(false)
+                            }}>
+                      自动下一话：{settings.autoNext ? '已开启' : '已关闭'}
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rf-chapter-end-title">已是最新一话</div>
+                <div className="rf-chapter-end-actions">
+                  <Link className="rf-text-btn" to={backTo}>返回章节列表</Link>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div className={'rf-paged' + (settings.anim === 'fade' ? ' rf-fade' : '')}
@@ -664,6 +833,19 @@ export default function ExternalMangaReader() {
               <span>第 {pageNo + 1} 页 · 加载中…</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {!singleMode && effSpread >= spreadCount - 1 && nextCh && !tocOpen && !settingsOpen && (
+        <div className="rf-auto-pill" onClick={e => e.stopPropagation()}>
+          <span>
+            {settings.autoNext
+              ? `已到末页 · 继续翻页自动进入 ${formatChapterLabel(nextCh)}`
+              : `已到末页 · ${formatChapterLabel(nextCh)}`}
+          </span>
+          <button type="button" className="rf-auto-pill-btn" onClick={() => jumpChapter(nextCh.id)}>
+            下一话
+          </button>
         </div>
       )}
 
@@ -729,6 +911,15 @@ export default function ExternalMangaReader() {
                       onClick={() => patchSettings({ hd: true })}>高清</button>
             </div>
           </div>
+          <div className="rf-sheet-row">
+            <span>自动下一话</span>
+            <div className="row-inline">
+              <button className={settings.autoNext ? 'mini' : 'mini ghost'}
+                      onClick={() => { patchSettings({ autoNext: true }); setAutoNextCancelled(false) }}>开启</button>
+              <button className={!settings.autoNext ? 'mini' : 'mini ghost'}
+                      onClick={() => { patchSettings({ autoNext: false }); setAutoNextCountdown(null) }}>关闭</button>
+            </div>
+          </div>
           <div className="rf-sheet-row muted" style={{ fontSize: 12 }}>
             点击左右 30% 区域翻页，中央切换浮层；Esc 逐层退出；F 全屏
           </div>
@@ -745,9 +936,11 @@ export default function ExternalMangaReader() {
           </span>
           {singleMode ? (
             <input type="range" min={1} max={Math.max(total, 1)} value={page}
+                   onPointerUp={e => e.currentTarget.blur()}
                    onChange={e => jumpPage(Number(e.target.value))} />
           ) : (
             <input type="range" min={1} max={Math.max(spreadCount, 1)} value={effSpread + 1}
+                   onPointerUp={e => e.currentTarget.blur()}
                    onChange={e => jumpSpread(Number(e.target.value) - 1)} />
           )}
         </div>

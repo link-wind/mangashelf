@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, mediaUrl } from '../api'
 import { useAuth } from '../auth'
+
+const AUTO_NEXT_KEY = 'ms-local-reader-autonext'
+
+function loadAutoNext(): boolean {
+  try {
+    const v = localStorage.getItem(AUTO_NEXT_KEY)
+    return v === null ? true : v === 'true'
+  } catch {
+    return true
+  }
+}
 
 interface PageView {
   id: string
@@ -50,6 +61,7 @@ interface WorkChapter {
 export default function Reader() {
   const { me } = useAuth()
   const { revisionId } = useParams()
+  const navigate = useNavigate()
   const [pagesByOrdinal, setPagesByOrdinal] = useState<Record<number, PageView>>({})
   const [pageCount, setPageCount] = useState(0)
   const [current, setCurrent] = useState(0) // 1 起页序
@@ -63,6 +75,7 @@ export default function Reader() {
   const [chapters, setChapters] = useState<WorkChapter[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [tocAsc, setTocAsc] = useState(true)
+  const [autoNext, setAutoNext] = useState<boolean>(loadAutoNext)
   const loadedRef = useRef(false)
   const wheelLockRef = useRef(0)
   const pagesRef = useRef<Record<number, PageView>>({})
@@ -123,6 +136,9 @@ export default function Reader() {
     pagesRef.current = {}
     prefetchedUrlsRef.current.clear()
     setPagesByOrdinal({})
+    setCurrent(0)
+    setPageCount(0)
+    setError('')
     const params = new URLSearchParams(window.location.search)
     const resume = Number(params.get('resume') || '0')
     const chapter = params.get('chapter')
@@ -248,7 +264,36 @@ export default function Reader() {
     }
   }, [chapterId, revisionId, version])
 
+  const readableChapters = chapters.filter(c => Boolean(c.currentRevisionId))
+  const currentChIdx = readableChapters.findIndex(c => c.id === chapterId || c.currentRevisionId === revisionId)
+  const nextCh = currentChIdx >= 0 && currentChIdx < readableChapters.length - 1
+    ? readableChapters[currentChIdx + 1] : null
+
+  function toggleAutoNext() {
+    setAutoNext(prev => {
+      const next = !prev
+      try { localStorage.setItem(AUTO_NEXT_KEY, String(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
+
+  function jumpChapter(c: WorkChapter, autoSwitch = false) {
+    if (!c.currentRevisionId) return
+    setTocOpen(false)
+    if (autoSwitch) {
+      setNotice(`已自动切换至第 ${c.ordinal} 话`)
+      window.setTimeout(() => setNotice(''), 2500)
+    }
+    navigate(`/read/${c.currentRevisionId}?chapter=${c.id}`)
+  }
+
   async function jumpTo(target: number) {
+    if (pageCount > 0 && target > pageCount) {
+      if (autoNext && nextCh) {
+        jumpChapter(nextCh, true)
+      }
+      return
+    }
     const next = Math.min(Math.max(1, target), pageCount)
     if (next === current) return
     setCurrent(next)
@@ -278,6 +323,12 @@ export default function Reader() {
           <span className="rf-chapter">{titles.chapter} · 第 {current} / {pageCount} 页</span>
         </div>
         {notice && <span className="rf-chapter">{notice}</span>}
+        <button type="button"
+                className={'rf-top-toggle' + (autoNext ? ' active' : '')}
+                onClick={toggleAutoNext}
+                aria-pressed={autoNext}>
+          自动下一话：{autoNext ? '开' : '关'}
+        </button>
         <button className="rf-icon" aria-label="目录"
                 onClick={() => setTocOpen(v => !v)}>☰</button>
       </header>
@@ -293,14 +344,9 @@ export default function Reader() {
           <div className="rf-toc-list">
             {(tocAsc ? chapters : [...chapters].reverse()).map(c => (
               <button key={c.id}
-                      className={'rf-toc-item' + (c.currentRevisionId ? '' : ' disabled')}
+                      className={'rf-toc-item' + (c.id === chapterId ? ' active' : '') + (c.currentRevisionId ? '' : ' disabled')}
                       disabled={!c.currentRevisionId}
-                      onClick={() => {
-                        if (!c.currentRevisionId) return
-                        setTocOpen(false)
-                        window.location.href =
-                          `/read/${c.currentRevisionId}?chapter=${c.id}`
-                      }}>
+                      onClick={() => jumpChapter(c)}>
                 第 {c.ordinal} 话 {c.title}
               </button>
             ))}
@@ -317,17 +363,35 @@ export default function Reader() {
           ? <img className="local-page" src={mediaUrl(currentUrl)} alt={`第 ${current} 页`} />
           : <p className="muted">加载中…</p>}
         <button className="rf-hit rf-hit-right" onClick={e => { e.stopPropagation(); void go(1) }}
-                disabled={current >= pageCount} aria-label="下一页">›</button>
+                disabled={current >= pageCount && !(autoNext && nextCh)} aria-label="下一页">›</button>
       </div>
+
+      {pageCount > 0 && current >= pageCount && nextCh && !tocOpen && (
+        <div className="rf-auto-pill" onClick={e => e.stopPropagation()}>
+          <span>
+            {autoNext
+              ? `已到末页 · 继续翻页自动进入第 ${nextCh.ordinal} 话`
+              : `已到末页 · 第 ${nextCh.ordinal} 话 ${nextCh.title || ''}`}
+          </span>
+          <button type="button" className="rf-auto-pill-btn" onClick={() => jumpChapter(nextCh)}>
+            下一话
+          </button>
+        </div>
+      )}
 
       <footer className="rf-bottom">
         <button className="rf-text-btn" onClick={() => void go(-1)} disabled={current <= 1}>上一页</button>
         <div className="rf-progress">
           <span className="rf-page">{current} / {pageCount}</span>
           <input type="range" min={1} max={Math.max(pageCount, 1)} value={current}
+                 onPointerUp={e => e.currentTarget.blur()}
                  onChange={e => { void jumpTo(Number(e.target.value)) }} />
         </div>
-        <button className="rf-text-btn" onClick={() => void go(1)} disabled={current >= pageCount}>下一页</button>
+        <button className="rf-text-btn"
+                onClick={() => current >= pageCount && nextCh ? jumpChapter(nextCh) : void go(1)}
+                disabled={current >= pageCount && !nextCh}>
+          {current >= pageCount && nextCh ? '下一话' : '下一页'}
+        </button>
       </footer>
 
       {adaptations.length > 0 && (
