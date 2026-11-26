@@ -7,7 +7,7 @@ import CoverImage from './CoverImage'
 import {
   BoltIcon, BookOpenIcon, BookmarkIcon, CalendarIcon, ChevronDownIcon,
   ClockIcon, CloseIcon, FilmIcon, LogOutIcon, MoonIcon, PlayIcon,
-  SettingsIcon, SparklesIcon, SunIcon, UploadIcon, UserIcon,
+  SettingsIcon, SparklesIcon, SunIcon, UserIcon,
 } from './Icons'
 
 interface MiniFavorite {
@@ -304,18 +304,18 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                       <span>{hasCatchUp ? `${summary?.catchUpCount} 部新集待看` : '动画与漫画续看'}</span>
                     </span>
                   </Link>
-                  <Link to="/uploads" className="up-tile" onClick={() => setOpen(false)}>
-                    <span className="up-tile-ico is-amber"><UploadIcon size={15} /></span>
+                  <Link to="/schedule" className="up-tile" onClick={() => setOpen(false)}>
+                    <span className="up-tile-ico is-amber"><CalendarIcon size={15} /></span>
                     <span className="up-tile-copy">
-                      <strong>我的素材</strong>
-                      <span>站内作品与章节</span>
+                      <strong>新番时刻表</strong>
+                      <span>每周放送与高分前瞻</span>
                     </span>
                   </Link>
                   <Link to="/settings" className="up-tile" onClick={() => setOpen(false)}>
                     <span className="up-tile-ico is-slate"><SettingsIcon size={15} /></span>
                     <span className="up-tile-copy">
-                      <strong>设置与令牌</strong>
-                      <span>账号安全与 API</span>
+                      <strong>偏好与设置</strong>
+                      <span>外观主题与播放习惯</span>
                     </span>
                   </Link>
                 </div>
@@ -385,10 +385,10 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                     </span>
                   </div>
                   <div className="up-tile">
-                    <span className="up-tile-ico is-amber"><UploadIcon size={15} /></span>
+                    <span className="up-tile-ico is-amber"><SparklesIcon size={15} /></span>
                     <span className="up-tile-copy">
-                      <strong>私人素材管理</strong>
-                      <span>上传漫画与令牌配置</span>
+                      <strong>高分精选索引</strong>
+                      <span>按地区与评分智能发现</span>
                     </span>
                   </div>
                 </div>

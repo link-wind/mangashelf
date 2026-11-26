@@ -8,10 +8,10 @@ import CommandPalette, { pushRecentSearch } from './components/ui/CommandPalette
 import UserPopover from './components/UserPopover'
 import {
   BookmarkIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
-  SearchIcon, SettingsIcon, SunIcon, UploadIcon,
+  SearchIcon, SettingsIcon, SunIcon,
 } from './components/Icons'
 
-// 路由级代码分割：把播放器（hls.js）、阅读器、上传页从首屏主包拆出
+// 路由级代码分割：把播放器（hls.js）、阅读器等重组件从首屏主包拆出
 const LoginPage = lazy(() => import('./pages/Login'))
 const Home = lazy(() => import('./pages/Home'))
 const CatalogIndex = lazy(() => import('./pages/CatalogIndex'))
@@ -24,7 +24,6 @@ const ExternalMangaReader = lazy(() => import('./pages/ExternalMangaReader'))
 const WorkDetail = lazy(() => import('./pages/WorkDetail'))
 const Reader = lazy(() => import('./pages/Reader'))
 const Watch = lazy(() => import('./pages/Watch'))
-const MyUploads = lazy(() => import('./pages/MyUploads'))
 const Me = lazy(() => import('./pages/Me'))
 const Search = lazy(() => import('./pages/Search'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -48,7 +47,6 @@ const PAGE_TITLES: Array<[RegExp, string]> = [
   [/^\/schedule$/, '新番时刻表 · MangaShelf'],
   [/^\/me$/, '个人空间 · MangaShelf'],
   [/^\/search$/, '搜索 · MangaShelf'],
-  [/^\/uploads$/, '我的素材 · MangaShelf'],
   [/^\/settings$/, '设置 · MangaShelf'],
 ]
 
@@ -165,8 +163,7 @@ function Nav() {
             {me ? (
               <>
                 <NavLink to="/me"><BookmarkIcon size={15} />个人空间</NavLink>
-                <NavLink to="/uploads"><UploadIcon size={15} />我的素材</NavLink>
-                <NavLink to="/settings"><SettingsIcon size={15} />设置与令牌</NavLink>
+                <NavLink to="/settings"><SettingsIcon size={15} />账号与设置</NavLink>
               </>
             ) : (
               <NavLink to="/login"><LogOutIcon size={15} />登录 / 注册</NavLink>
@@ -239,7 +236,7 @@ export default function App() {
           <Route path="/me" element={<RequireAuth><Me /></RequireAuth>} />
           <Route path="/shelf" element={<RequireAuth><Navigate to="/me?tab=favorites" replace /></RequireAuth>} />
           <Route path="/history" element={<RequireAuth><Navigate to="/me?tab=history" replace /></RequireAuth>} />
-          <Route path="/uploads" element={<RequireAuth><MyUploads /></RequireAuth>} />
+          <Route path="/uploads" element={<Navigate to="/me" replace />} />
           <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
           <Route path="/works/:workId/external" element={<RequireAuth><ExternalEpisodes /></RequireAuth>} />
           <Route path="/works/:workId/external/:episodeId" element={<RequireAuth><ExternalWatch /></RequireAuth>} />
@@ -269,7 +266,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
       <main className="page">
         <div className="login-required">
           <h1>需要登录</h1>
-          <p className="muted">该页面需要登录后才能访问（追更、收藏、观看/阅读记录、我的素材与设置均为私有数据）。</p>
+          <p className="muted">该页面需要登录后才能访问（追更、收藏、观看/阅读记录与个人设置均为私有数据）。</p>
           <div className="login-required-actions">
             <NavLink to={`/login?next=${next}`} className="pill nav-login-btn">去登录</NavLink>
             <NavLink to="/" className="ghost pill">返回番剧</NavLink>
@@ -304,7 +301,7 @@ function Footer() {
           <h3>个人空间</h3>
           <NavLink to="/me?space=anime">动画空间</NavLink>
           <NavLink to="/me?space=manga">漫画空间</NavLink>
-          <NavLink to="/uploads">我的素材</NavLink>
+          <NavLink to="/me?tab=history">足迹历史</NavLink>
         </div>
         <div className="footer-col">
           <h3>账号与搜索</h3>

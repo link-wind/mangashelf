@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import CoverImage from '../components/CoverImage'
-import { BookOpenIcon, HeartIcon, UploadIcon } from '../components/Icons'
+import { BookOpenIcon, HeartIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import { localizeWorkStatus } from '../lib/mediaFormat'
@@ -79,8 +79,6 @@ export default function MangaDetailPage() {
       <div className="detail-crumb-row">
         <nav className="breadcrumb" aria-label="面包屑">
           <Link to="/manga">漫画</Link>
-          <span>/</span>
-          <Link to="/uploads">站内书架</Link>
           <span>/</span>
           <span className="breadcrumb-cur">{work.title}</span>
         </nav>
@@ -160,12 +158,6 @@ export default function MangaDetailPage() {
                   {saved ? '已加入书架' : '加入书架'}
                 </button>
               )}
-              {owner && (
-                <Link className="btn ghost pill" to="/uploads">
-                  <UploadIcon size={15} />
-                  管理素材与章节
-                </Link>
-              )}
             </div>
           </div>
         </div>
@@ -208,8 +200,7 @@ export default function MangaDetailPage() {
               tone="rose"
               icon={<BookOpenIcon size={22} />}
               title="还没有已发布章节"
-              description={owner ? '前往我的素材上传漫画压缩包或单页图片即可发布章节。' : '作者尚未发布可读章节。'}
-              action={owner ? <Link to="/uploads" className="btn mini pill space-btn-rose">前往上传章节 →</Link> : undefined}
+              description="当前作品尚未发布可读章节。"
             />
           ) : (
             <div className="chapter-grid">

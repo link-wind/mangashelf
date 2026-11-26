@@ -4,18 +4,12 @@ import { api } from '../api'
 import { useAuth } from '../auth'
 import AnimePosterCard from '../components/AnimePosterCard'
 import CoverImage from '../components/CoverImage'
-import { BookOpenIcon, HeartIcon, InfoIcon, UploadIcon } from '../components/Icons'
+import { BookOpenIcon, HeartIcon, InfoIcon } from '../components/Icons'
 import CarouselRail from '../components/ui/CarouselRail'
 import SegmentedTabs from '../components/ui/SegmentedTabs'
 import { hdCover } from '../externalManga'
 import { cleanMangaRemarks, cleanSubtitle, formatStatusLabel } from '../lib/mediaFormat'
 import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
-
-interface MangaCard {
-  id: string; title: string; description: string; visibility: string
-  chapterCount: number; latestOrdinal: number | null; latestTitle: string | null
-  coverUrl: string | null; updatedAt: string
-}
 
 interface RankItem {
   source: string; id: string; title: string; authors: string[]; coverUrl: string | null
@@ -125,10 +119,7 @@ export default function MangaIndex() {
       {activeSearch ? (
         <MangaSearchView query={activeSearch} onClear={clearSearch} fav={fav} />
       ) : (
-        <>
-          <MangaDiscovery fav={fav} />
-          <LocalManga />
-        </>
+        <MangaDiscovery fav={fav} />
       )}
     </main>
   )
@@ -518,7 +509,7 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
                 )
               })}
             </ol>
-            <Link to="/index?kind=manga&sort=episodes" className="home-rank-foot-link">
+            <Link to="/index?kind=manga" className="home-rank-foot-link">
               查看全部漫画索引 →
             </Link>
           </aside>
@@ -573,9 +564,12 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
           </div>
         </div>
         <div className="explore-tags">
+          <Link to="/index?kind=manga&region=JP" className="explore-tag-pill">日本漫画</Link>
+          <Link to="/index?kind=manga&region=CN" className="explore-tag-pill">国产漫画</Link>
+          <Link to="/index?kind=manga&region=KR" className="explore-tag-pill">韩国漫画</Link>
+          <Link to="/index?kind=manga&sort=rating" className="explore-tag-pill">高分必看</Link>
           <Link to="/index?kind=manga&status=ongoing" className="explore-tag-pill">连载新作</Link>
           <Link to="/index?kind=manga&status=completed" className="explore-tag-pill">完结一口气读</Link>
-          <Link to="/index?kind=manga&sort=episodes" className="explore-tag-pill">长篇必看</Link>
           <Link to="/index?kind=manga&sort=updated" className="explore-tag-pill">最近更新</Link>
           {genres.slice(0, 12).map(g => (
             <Link key={g.tag} to={`/index?kind=manga&genre=${encodeURIComponent(g.tag)}`} className="explore-tag-pill">
@@ -584,85 +578,6 @@ function MangaDiscovery({ fav }: { fav: MangaFavHook }) {
           ))}
         </div>
       </section>
-    </section>
-  )
-}
-
-/** 本地漫画：有上传漫画时完整展示；已登录且尚未上传时提供轻巧的一行入口。 */
-function LocalManga() {
-  const { me } = useAuth()
-  const [items, setItems] = useState<MangaCard[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const load = useCallback(async (nextCursor: string | null, replace: boolean) => {
-    setLoading(true); setError('')
-    try {
-      const qs = new URLSearchParams({ limit: '12' })
-      if (nextCursor) qs.set('cursor', nextCursor)
-      const page = await api.get<{ items: MangaCard[]; nextCursor: string | null }>(`/api/v1/manga?${qs}`)
-      setItems(prev => replace ? page.items : [...prev, ...page.items])
-      setCursor(page.nextCursor)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
-    } finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { void load(null, true) }, [load])
-
-  if (!loading && !error && items.length === 0) {
-    if (!me) return null
-    return (
-      <section className="local-manga-cta" style={{ marginTop: 22 }}>
-        <div className="row-inline" style={{ gap: 12 }}>
-          <span className="studio-ico is-rose"><UploadIcon size={17} /></span>
-          <div>
-            <strong>上传你的私人漫画收藏</strong>
-            <p className="muted" style={{ margin: '2px 0 0', fontSize: 12.5 }}>
-              支持 CBZ / ZIP 压缩包与单图拖拽上传，自动切图归档并与跨源书架统一管理。
-            </p>
-          </div>
-        </div>
-        <Link to="/uploads" className="btn mini pill space-btn-rose">前往我的素材 →</Link>
-      </section>
-    )
-  }
-
-  return (
-    <section className="manga-local">
-      <div className="section-head" style={{ marginTop: 30 }}>
-        <h2>我的书架漫画</h2>
-        <Link to="/uploads">上传漫画 →</Link>
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      <div className="card-grid">
-        {items.map(m => (
-          <AnimePosterCard
-            key={m.id}
-            actionKind="read"
-            title={m.title}
-            coverUrl={m.coverUrl}
-            detailHref={`/manga/${m.id}`}
-            playHref={`/manga/${m.id}`}
-            topLeft={m.visibility === 'PRIVATE' ? '私人' : '书架'}
-            bottomRight={m.latestOrdinal != null ? `第 ${m.latestOrdinal} 话` : `${m.chapterCount} 话`}
-            metaLeft="书架漫画"
-            metaTag={`${m.chapterCount} 话`}
-            canFavorite={false}
-          />
-        ))}
-      </div>
-
-      {cursor && (
-        <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <button type="button" className="ghost" disabled={loading} onClick={() => void load(cursor, false)}>
-            {loading ? '加载中…' : '加载更多'}
-          </button>
-        </div>
-      )}
     </section>
   )
 }

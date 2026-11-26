@@ -1,14 +1,13 @@
 import { BookOpen, Clock, Flame, Search as SearchIcon, Sparkles, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, ApiError } from '../api'
+import { api } from '../api'
 import AnimePosterCard from '../components/AnimePosterCard'
 import {
   clearRecentSearches, loadRecentSearches, pushRecentSearch,
 } from '../components/ui/CommandPalette'
 import EmptyState from '../components/ui/EmptyState'
 import SegmentedTabs from '../components/ui/SegmentedTabs'
-import Switch from '../components/ui/Switch'
 import { hdCover } from '../externalManga'
 import { cleanMangaRemarks, cleanSubtitle, formatStatusLabel } from '../lib/mediaFormat'
 import { useCatalogFavorites } from '../useCatalogFavorites'
@@ -17,6 +16,7 @@ import { mangaFavKey, useMangaFavorites } from '../useMangaFavorites'
 interface CatalogHit {
   id: string; name: string; coverUrl: string; remarks: string; episodeCount: number
   workId: string | null; bangumiSubjectId: number | null; categoryName?: string | null
+  rating?: number | null
 }
 
 interface StreamEntry {
@@ -30,19 +30,7 @@ interface UnifiedMangaHit {
   sourceCount: number; streams: StreamEntry[]
 }
 
-interface Hit {
-  kind: 'work' | 'page'
-  workId: string
-  workTitle: string
-  chapterId: string | null
-  revisionId: string | null
-  pageOrdinal: number
-  chapterTitle: string | null
-  snippet: string
-  hasAnimation: boolean
-}
-
-type FilterTab = 'all' | 'anime' | 'manga' | 'local'
+type FilterTab = 'all' | 'anime' | 'manga'
 
 const QUICK_GENRES = ['热血', '奇幻', '冒险', '恋爱', '搞笑', '悬疑', '科幻', '治愈', '校园', '日常']
 
@@ -55,13 +43,9 @@ function mangaHref(source: string, id: string, title: string, workId?: string | 
 export default function Search() {
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState(params.get('q') ?? '')
-  const [hits, setHits] = useState<Hit[]>([])
   const [catalog, setCatalog] = useState<CatalogHit[]>([])
   const [mangaHits, setMangaHits] = useState<UnifiedMangaHit[]>([])
   const [tab, setTab] = useState<FilterTab>('all')
-  const [semanticEnabled, setSemanticEnabled] = useState(false)
-  const [semantic, setSemantic] = useState(false)
-  const [hasAnimation, setHasAnimation] = useState(false)
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
@@ -90,28 +74,13 @@ export default function Search() {
   const run = useCallback(async (query: string) => {
     const trimmed = query.trim()
     if (!trimmed) {
-      setHits([]); setCatalog([]); setMangaHits([]); setSearched(false); setErrors([])
+      setCatalog([]); setMangaHits([]); setSearched(false); setErrors([])
       return
     }
     pushRecentSearch(trimmed)
     setRecent(loadRecentSearches())
     setLoading(true)
     const nextErrors: string[] = []
-
-    const localPromise = api.post<{ semanticEnabled: boolean; hits: Hit[] }>('/api/v1/search', {
-      q: trimmed, mode: semantic ? 'semantic' : 'title', withAnimation: hasAnimation, limit: 15,
-    }).then(res => {
-      setHits(res.hits)
-      setSemanticEnabled(res.semanticEnabled)
-    }).catch(e => {
-      if (e instanceof ApiError && e.code === 'SEMANTIC_UNAVAILABLE') {
-        setSemantic(false)
-        nextErrors.push(e.message)
-      } else {
-        nextErrors.push(`站内搜索失败：${e instanceof Error ? e.message : '未知错误'}`)
-      }
-      setHits([])
-    })
 
     const animePromise = api.get<{ items: CatalogHit[] }>(
       `/api/v1/catalog-items?limit=14&page=1&q=${encodeURIComponent(trimmed)}`,
@@ -132,11 +101,11 @@ export default function Search() {
       nextErrors.push(`漫画检索失败：${e instanceof Error ? e.message : '未知错误'}`)
     })
 
-    await Promise.all([localPromise, animePromise, mangaPromise])
+    await Promise.all([animePromise, mangaPromise])
     setErrors(nextErrors)
     setSearched(true)
     setLoading(false)
-  }, [hasAnimation, semantic])
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -163,24 +132,23 @@ export default function Search() {
     setRecent([])
   }
 
-  const totalCount = catalog.length + mangaHits.length + hits.length
+  const totalCount = catalog.length + mangaHits.length
   const showAnime = (tab === 'all' || tab === 'anime') && catalog.length > 0
   const showManga = (tab === 'all' || tab === 'manga') && mangaHits.length > 0
-  const showLocal = (tab === 'all' || tab === 'local') && hits.length > 0
 
   return (
     <main className="watch-page">
       <section className="search-hero-card">
         <div className="search-hero-top">
           <h1>全站搜索</h1>
-          <p className="muted">并行检索全站番剧、跨源漫画与站内上传作品及台词 · 任意页面按 <kbd>⌘K</kbd> 可随时快搜</p>
+          <p className="muted">并行检索全站番剧与跨源漫画 · 任意页面按 <kbd>⌘K</kbd> 可随时快搜</p>
         </div>
         <div className="search-hero-bar">
           <SearchIcon size={18} className="search-hero-ico" />
           <input
             value={q}
             onChange={e => setQ(e.target.value)}
-            placeholder="输入番剧名、漫画名或台词关键词…"
+            placeholder="输入番剧名、漫画名或关键词…"
             aria-label="全站搜索"
             autoFocus
           />
@@ -271,18 +239,8 @@ export default function Search() {
               { value: 'all', label: '全部', count: totalCount },
               { value: 'anime', label: '番剧', count: catalog.length },
               { value: 'manga', label: '漫画', count: mangaHits.length },
-              { value: 'local', label: '站内内容', count: hits.length },
             ]}
           />
-
-          {(tab === 'local' || tab === 'all') && (
-            <div className="row-inline" style={{ gap: 14 }}>
-              <Switch checked={hasAnimation} onChange={setHasAnimation} label="站内仅看有动画" />
-              {semanticEnabled && (
-                <Switch checked={semantic} onChange={setSemantic} label="语义搜索" />
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -317,6 +275,7 @@ export default function Search() {
                   detailHref={detailHref}
                   playHref={playHref}
                   topLeft={status}
+                  rating={c.rating}
                   bottomRight={c.remarks && c.remarks !== status ? c.remarks : (c.episodeCount > 0 ? `${c.episodeCount} 集` : null)}
                   metaLeft={c.categoryName || '动画'}
                   favorited={animeFav.favIds.has(c.id)}
@@ -361,39 +320,6 @@ export default function Search() {
                 />
               )
             })}
-          </div>
-        </section>
-      )}
-
-      {!loading && showLocal && (
-        <section className="search-section">
-          <div className="section-head">
-            <h2>站内作品与台词 <span className="space-sec-count tabular-nums">{hits.length}</span></h2>
-          </div>
-          <div className="stack">
-            {hits.map((h, i) => (
-              <div key={i} className="card">
-                {h.kind === 'work' ? (
-                  <>
-                    <div className="row-between">
-                      <Link to={`/works/${h.workId}`}><strong>《{h.workTitle}》</strong></Link>
-                      {h.hasAnimation && <span className="tag pub">有动画</span>}
-                    </div>
-                    <p className="muted" style={{ marginBottom: 0 }}>{h.snippet || '（站内作品）'}</p>
-                  </>
-                ) : (
-                  <>
-                    <div className="row-between">
-                      <Link to={`/read/${h.revisionId}?chapter=${h.chapterId}&resume=${h.pageOrdinal}`}>
-                        <strong>《{h.workTitle}》{h.chapterTitle} · 第 {h.pageOrdinal} 页</strong>
-                      </Link>
-                      {h.hasAnimation && <span className="tag pub">有动画</span>}
-                    </div>
-                    <p className="muted" style={{ marginBottom: 0 }}>{h.snippet}</p>
-                  </>
-                )}
-              </div>
-            ))}
           </div>
         </section>
       )}

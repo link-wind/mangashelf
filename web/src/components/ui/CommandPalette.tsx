@@ -1,7 +1,7 @@
 import { Command } from 'cmdk'
 import {
   BookOpen, Calendar, Clock, Compass, Film, Moon, Search,
-  Settings, Sparkles, Sun, Upload, X,
+  Settings, Sparkles, Sun, X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
@@ -291,11 +291,6 @@ export default function CommandPalette({
                           <Sparkles size={15} className="cmdk-item-ico is-rose" />
                           <span className="cmdk-item-title">个人空间 · 漫画空间</span>
                           <span className="cmdk-item-hint">/me</span>
-                        </Command.Item>
-                        <Command.Item value="nav:uploads" onSelect={() => go('/uploads')}>
-                          <Upload size={15} className="cmdk-item-ico" />
-                          <span className="cmdk-item-title">我的素材</span>
-                          <span className="cmdk-item-hint">/uploads</span>
                         </Command.Item>
                         <Command.Item value="nav:settings" onSelect={() => go('/settings')}>
                           <Settings size={15} className="cmdk-item-ico" />

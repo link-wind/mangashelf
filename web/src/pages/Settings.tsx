@@ -1,5 +1,5 @@
 import {
-  Check, Copy, Database, KeyRound, Moon, Plus, RefreshCw,
+  Check, Database, Moon, Plus, RefreshCw,
   Server, ShieldCheck, Sliders, Sparkles, Sun, Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -11,15 +11,6 @@ import EmptyState from '../components/ui/EmptyState'
 import SegmentedTabs from '../components/ui/SegmentedTabs'
 import Switch from '../components/ui/Switch'
 
-interface TokenRow {
-  id: string
-  prefix: string
-  scopes: string
-  createdAt: string
-  expiresAt: string | null
-  revokedAt: string | null
-}
-
 interface SourceRow {
   id: string
   name: string
@@ -27,19 +18,9 @@ interface SourceRow {
   enabled: boolean
 }
 
-type SettingsTab = 'preferences' | 'tokens' | 'admin'
+type SettingsTab = 'preferences' | 'admin'
 
-const ALL_SCOPES = [
-  { key: 'catalog:read', title: '读取目录', desc: '浏览作品、章节与目录索引' },
-  { key: 'materials:read', title: '导出漫画页面', desc: '供 MangaWeaver 拉取高清页面素材' },
-  { key: 'search:read', title: '检索内容', desc: '搜索标题与页内文本/台词' },
-  { key: 'animations:write', title: '管理动画草稿', desc: '上传动画视频并绑定来源页' },
-  { key: 'animations:publish', title: '发布成片', desc: '发布或下架已核验的动画版本' },
-]
-
-const EXPIRY_PRESETS = ['30', '90', '365']
-
-/** 现代双栏账号与设置中心：偏好设置 + MangaWeaver API Token + 管理员维护中心（修复 ADMIN 大小写 Bug）。 */
+/** 账号与设置中心：偏好设置 + 管理员数据维护中心。 */
 export default function Settings() {
   const { me } = useAuth()
   const isAdmin = me?.role?.toUpperCase() === 'ADMIN'
@@ -56,30 +37,22 @@ export default function Settings() {
       <div className="set-page-head">
         <div>
           <h1>账号与设置</h1>
-          <p className="muted">管理界面外观、播放与阅读默认习惯、MangaWeaver 接入令牌{isAdmin ? '及站点数据维护' : ''}。</p>
+          <p className="muted">管理界面外观、播放与阅读默认习惯{isAdmin ? '及站点数据维护' : ''}。</p>
         </div>
         <Link to="/me" className="btn ghost mini">← 返回个人空间</Link>
       </div>
 
-      <div className="set-layout">
-        <aside className="set-nav" aria-label="设置分区">
-          <button
-            type="button"
-            className={'set-nav-item' + (section === 'preferences' ? ' is-active' : '')}
-            onClick={() => setSection('preferences')}
-          >
-            <Sliders size={16} />
-            <span>外观与偏好</span>
-          </button>
-          <button
-            type="button"
-            className={'set-nav-item' + (section === 'tokens' ? ' is-active' : '')}
-            onClick={() => setSection('tokens')}
-          >
-            <KeyRound size={16} />
-            <span>API 接入令牌</span>
-          </button>
-          {isAdmin && (
+      <div className={'set-layout' + (isAdmin ? '' : ' is-single')}>
+        {isAdmin && (
+          <aside className="set-nav" aria-label="设置分区">
+            <button
+              type="button"
+              className={'set-nav-item' + (section === 'preferences' ? ' is-active' : '')}
+              onClick={() => setSection('preferences')}
+            >
+              <Sliders size={16} />
+              <span>外观与偏好</span>
+            </button>
             <button
               type="button"
               className={'set-nav-item' + (section === 'admin' ? ' is-active' : '')}
@@ -88,12 +61,11 @@ export default function Settings() {
               <ShieldCheck size={16} />
               <span>站点管理中心</span>
             </button>
-          )}
-        </aside>
+          </aside>
+        )}
 
         <div className="set-content">
           {section === 'preferences' && <PreferencesSection />}
-          {section === 'tokens' && <TokenSection />}
           {section === 'admin' && isAdmin && <ExternalSourceAdmin />}
         </div>
       </div>
@@ -233,230 +205,6 @@ function PreferencesSection() {
   )
 }
 
-function TokenSection() {
-  const { showToast } = useToast()
-  const [tokens, setTokens] = useState<TokenRow[]>([])
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(['catalog:read', 'materials:read', 'animations:write', 'animations:publish']),
-  )
-  const [days, setDays] = useState('90')
-  const [rawToken, setRawToken] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const load = useCallback(async () => {
-    try {
-      setTokens(await api.get<TokenRow[]>('/api/v1/me/api-tokens'))
-      setError('')
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : '加载令牌失败')
-    }
-  }, [])
-  useEffect(() => { void load() }, [load])
-
-  function toggleScope(scope: string) {
-    const next = new Set(selected)
-    if (next.has(scope)) next.delete(scope)
-    else next.add(scope)
-    setSelected(next)
-  }
-
-  function applyPreset(preset: 'readonly' | 'full') {
-    if (preset === 'readonly') {
-      setSelected(new Set(['catalog:read', 'materials:read', 'search:read']))
-    } else {
-      setSelected(new Set(ALL_SCOPES.map(s => s.key)))
-    }
-  }
-
-  async function create() {
-    setBusy(true)
-    try {
-      const res = await api.post<{ token: TokenRow; rawToken: string }>('/api/v1/me/api-tokens', {
-        scopes: [...selected],
-        expiresInDays: Math.max(1, Number(days) || 90),
-      })
-      setRawToken(res.rawToken)
-      setCopied(false)
-      showToast('API Token 创建成功，请立即复制保存', 'success')
-      await load()
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : '创建失败'
-      setError(msg)
-      showToast(msg, 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function revoke(id: string) {
-    try {
-      await api.delete(`/api/v1/me/api-tokens/${id}`)
-      showToast('令牌已撤销', 'info')
-      await load()
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : '撤销失败'
-      setError(msg)
-      showToast(msg, 'error')
-    }
-  }
-
-  function copyText(text: string, label: string) {
-    void navigator.clipboard.writeText(text)
-    showToast(`已复制${label}`, 'success')
-  }
-
-  const endpointUrl = typeof window !== 'undefined' ? window.location.origin : ''
-
-  return (
-    <div className="set-stack">
-      {error && <p className="error">{error}</p>}
-
-      <section className="set-card">
-        <div className="set-card-head row-between">
-          <div>
-            <h2>创建 MangaWeaver 接入令牌</h2>
-            <p className="muted">在桌面端配置站点地址与本令牌即可直连读写；原始令牌仅在创建时展示一次。</p>
-          </div>
-          <div className="row-inline">
-            <button type="button" className="mini ghost" onClick={() => applyPreset('readonly')}>仅只读预设</button>
-            <button type="button" className="mini ghost" onClick={() => applyPreset('full')}>全权限预设</button>
-          </div>
-        </div>
-
-        <div className="set-endpoint-bar">
-          <span className="muted">当前平台地址</span>
-          <code>{endpointUrl}</code>
-          <button type="button" className="mini ghost" onClick={() => copyText(endpointUrl, '平台地址')}>
-            <Copy size={13} />复制地址
-          </button>
-        </div>
-
-        <div className="set-scope-grid">
-          {ALL_SCOPES.map(s => {
-            const on = selected.has(s.key)
-            return (
-              <button
-                key={s.key}
-                type="button"
-                className={'set-scope-tile' + (on ? ' is-selected' : '')}
-                onClick={() => toggleScope(s.key)}
-              >
-                <div className="set-scope-top">
-                  <strong>{s.title}</strong>
-                  <span className={'set-scope-check' + (on ? ' is-on' : '')}>
-                    {on && <Check size={12} />}
-                  </span>
-                </div>
-                <span className="set-scope-desc">{s.desc}</span>
-                <code className="set-scope-key">{s.key}</code>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="set-token-foot">
-          <div className="row-inline">
-            <span className="muted" style={{ fontSize: 13 }}>有效期</span>
-            {EXPIRY_PRESETS.map(p => (
-              <button
-                key={p}
-                type="button"
-                className={'set-exp-pill' + (days === p ? ' is-active' : '')}
-                onClick={() => setDays(p)}
-              >
-                {p} 天
-              </button>
-            ))}
-            <input
-              type="text"
-              inputMode="numeric"
-              className="set-exp-input tabular-nums"
-              value={days}
-              onChange={e => setDays(e.target.value.replace(/\D/g, ''))}
-              aria-label="自定义有效天数"
-              placeholder="天数"
-            />
-          </div>
-          <button
-            type="button"
-            className="pill"
-            onClick={() => void create()}
-            disabled={busy || selected.size === 0}
-          >
-            <Plus size={15} />
-            {busy ? '生成中…' : '创建新令牌'}
-          </button>
-        </div>
-
-        {rawToken && (
-          <div className="set-token-reveal">
-            <div className="row-between">
-              <strong>请立即复制并妥善保存（离开页面后将不再展示）</strong>
-              <button
-                type="button"
-                className="mini"
-                onClick={() => { copyText(rawToken, 'API Token'); setCopied(true) }}
-              >
-                {copied ? <Check size={13} /> : <Copy size={13} />}
-                {copied ? '已复制' : '复制令牌'}
-              </button>
-            </div>
-            <code>{rawToken}</code>
-          </div>
-        )}
-      </section>
-
-      <section className="set-card">
-        <div className="set-card-head">
-          <h2>已签发的令牌 <span className="space-sec-count tabular-nums">{tokens.length}</span></h2>
-        </div>
-        {tokens.length === 0 ? (
-          <EmptyState
-            compact
-            tone="neutral"
-            icon={<KeyRound size={20} />}
-            title="还没有接入令牌"
-            description="在上方勾选所需权限并点击「创建新令牌」，即可通过 Bearer Token 接入 MangaWeaver 或自动化脚本。"
-          />
-        ) : (
-          <div className="set-token-list">
-            {tokens.map(t => {
-              const revoked = Boolean(t.revokedAt)
-              return (
-                <div key={t.id} className={'set-token-row' + (revoked ? ' is-revoked' : '')}>
-                  <div className="set-token-info">
-                    <div className="row-inline">
-                      <code className="set-token-prefix">{t.prefix}…</code>
-                      <span className={'space-tag ' + (revoked ? 'is-watching' : 'is-done')}>
-                        {revoked ? '已撤销' : '生效中'}
-                      </span>
-                    </div>
-                    <div className="set-token-scopes">
-                      {t.scopes.split(/[\s,]+/).filter(Boolean).map(sc => (
-                        <span key={sc} className="set-mini-scope">{sc}</span>
-                      ))}
-                    </div>
-                    <span className="muted tabular-nums" style={{ fontSize: 12 }}>
-                      创建于 {new Date(t.createdAt).toLocaleString()} · 过期 {t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : '长期'}
-                    </span>
-                  </div>
-                  {!revoked && (
-                    <button type="button" className="mini ghost" onClick={() => void revoke(t.id)}>
-                      <Trash2 size={13} />撤销
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
-
 /** 管理员数据维护中心：Bangumi 同步 + 高清横幅/封面补齐 + 外部规则源管理。 */
 function ExternalSourceAdmin() {
   const { showToast } = useToast()
@@ -530,6 +278,7 @@ function ExternalSourceAdmin() {
   return (
     <div className="set-stack">
       <BangumiSyncCard />
+      <RankingMaintenanceCard />
 
       <section className="set-card">
         <div className="set-card-head row-between">
@@ -693,6 +442,86 @@ function BangumiSyncCard() {
         </button>
         <button type="button" className="ghost pill" onClick={() => void enrichHd()} disabled={busy !== null}>
           <Sparkles size={14} />{busy === 'hd' ? '补齐中…' : '批量补齐高清横幅与封面'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function RankingMaintenanceCard() {
+  const { showToast } = useToast()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [statusMsg, setStatusMsg] = useState('')
+
+  async function enrichAnime() {
+    setBusy('anime')
+    setStatusMsg('正在通过 Bangumi v0 + AniList 批量补齐番剧评分、评分数与精确地区（支持断点续跑）…')
+    try {
+      const res = await api.post<{
+        subjectsRefreshed: number; checked: number; matchedBangumi: number
+        matchedAniList: number; regionUpdated: number; recomputed: number
+      }>('/api/v1/admin/catalog-ranking/enrich-anime?limit=80')
+      const msg = `番剧补齐完成：检查 ${res.checked} 部（命中 Bangumi ${res.matchedBangumi}、AniList ${res.matchedAniList}），修正地区 ${res.regionUpdated} 部，重算 ${res.recomputed} 部推荐分`
+      setStatusMsg(msg)
+      showToast(msg, 'success')
+    } catch (e) {
+      const msg = e instanceof Error ? `番剧评分补齐失败：${e.message}` : '补齐失败'
+      setStatusMsg(msg)
+      showToast(msg, 'error')
+    } finally { setBusy(null) }
+  }
+
+  async function enrichManga() {
+    setBusy('manga')
+    setStatusMsg('正在按哔哩官方地区扫榜并匹配 Bangumi 书籍 / AniList 补齐漫画评分与精确地区…')
+    try {
+      const res = await api.post<{
+        bilibiliSynced: number; checked: number; matchedBangumi: number
+        matchedAniList: number; regionUpdated: number; recomputed: number
+      }>('/api/v1/admin/catalog-ranking/enrich-manga?limit=80&bilibiliAreas=true&bilibiliPages=25')
+      const msg = `漫画补齐完成：哔哩地区同步 ${res.bilibiliSynced} 条，检查 ${res.checked} 部（命中 Bangumi ${res.matchedBangumi}、AniList ${res.matchedAniList}），修正地区 ${res.regionUpdated} 部，重算 ${res.recomputed} 条推荐分`
+      setStatusMsg(msg)
+      showToast(msg, 'success')
+    } catch (e) {
+      const msg = e instanceof Error ? `漫画评分补齐失败：${e.message}` : '补齐失败'
+      setStatusMsg(msg)
+      showToast(msg, 'error')
+    } finally { setBusy(null) }
+  }
+
+  async function recompute() {
+    setBusy('recompute')
+    setStatusMsg('正在重算全站跨源地区传播、贝叶斯评分与综合推荐分…')
+    try {
+      const res = await api.post<{ animeUpdated: number; mangaUpdated: number }>('/api/v1/admin/catalog-ranking/recompute')
+      const msg = `推荐分重算完成：番剧 ${res.animeUpdated} 部、漫画 ${res.mangaUpdated} 条`
+      setStatusMsg(msg)
+      showToast(msg, 'success')
+    } catch (e) {
+      const msg = e instanceof Error ? `重算失败：${e.message}` : '重算失败'
+      setStatusMsg(msg)
+      showToast(msg, 'error')
+    } finally { setBusy(null) }
+  }
+
+  return (
+    <section className="set-card">
+      <div className="set-card-head">
+        <h2>评分、地区与推荐排序维护</h2>
+        <p className="muted">
+          按「日本 → 国产 → 韩国 → 海外」分层维护索引排序，从 Bangumi、AniList 与哔哩官方地区榜自动补齐真实评分与国家地区。
+        </p>
+      </div>
+      {statusMsg && <div className="set-status-note">{statusMsg}</div>}
+      <div className="row-inline" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <button type="button" className="pill" onClick={() => void enrichAnime()} disabled={busy !== null}>
+          <Sparkles size={14} />{busy === 'anime' ? '补齐番剧中…' : '补齐番剧评分与地区（80 部/批）'}
+        </button>
+        <button type="button" className="pill space-btn-rose" onClick={() => void enrichManga()} disabled={busy !== null}>
+          <Database size={14} />{busy === 'manga' ? '补齐漫画中…' : '补齐漫画地区与评分（哔哩+80 部）'}
+        </button>
+        <button type="button" className="ghost pill" onClick={() => void recompute()} disabled={busy !== null}>
+          <RefreshCw size={14} />{busy === 'recompute' ? '重算中…' : '重算全站推荐分'}
         </button>
       </div>
     </section>

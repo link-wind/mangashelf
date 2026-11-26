@@ -6,7 +6,7 @@ import CoverImage from '../components/CoverImage'
 import {
   BoltIcon, BookOpenIcon, BookmarkIcon, CalendarIcon, CheckCircleIcon,
   ClockIcon, CloseIcon, FilmIcon, GridIcon, LayersIcon, ListIcon, PlayIcon,
-  SearchIcon, SettingsIcon, SparklesIcon, UploadIcon,
+  SearchIcon, SettingsIcon, SparklesIcon,
 } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -521,8 +521,8 @@ export default function Me() {
                   <Link to="/manga" className="space-act-btn is-tint">
                     <BookOpenIcon size={15} />漫画发现页
                   </Link>
-                  <Link to="/uploads" className="space-act-btn">
-                    <UploadIcon size={15} />我的素材
+                  <Link to="/index?kind=manga" className="space-act-btn">
+                    <SparklesIcon size={15} />漫画索引
                   </Link>
                   <Link to="/settings" className="space-act-btn">
                     <SettingsIcon size={15} />账号设置
@@ -1203,7 +1203,7 @@ export default function Me() {
                     <div className="space-side-empty">
                       <BookOpenIcon size={22} />
                       <p>尚无漫画书架与阅读来源</p>
-                      <span>去漫画发现页收藏跨源漫画，或在「我的素材」上传私人漫画。</span>
+                      <span>去漫画发现页或漫画索引探索并收藏跨源漫画。</span>
                     </div>
                   ) : (
                     <ul className="space-source-list">
@@ -1226,7 +1226,7 @@ export default function Me() {
 
                   <div className="space-side-links">
                     <Link to="/manga" className="space-side-link is-rose">探索全站漫画 →</Link>
-                    <Link to="/uploads" className="space-side-link">管理站内素材 →</Link>
+                    <Link to="/index?kind=manga" className="space-side-link">浏览漫画索引 →</Link>
                   </div>
                 </section>
 

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import ExternalEpisodes from './ExternalEpisodes'
 import { api, ApiError } from '../api'
 import CoverImage from '../components/CoverImage'
-import { BookOpenIcon, HeartIcon, UploadIcon } from '../components/Icons'
+import { BookOpenIcon, HeartIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import { localizeWorkStatus, splitBilingualSummary } from '../lib/mediaFormat'
@@ -126,8 +126,6 @@ export default function WorkDetail() {
         <nav className="breadcrumb" aria-label="面包屑">
           <Link to="/">首页</Link>
           <span>/</span>
-          <Link to="/uploads">我的素材</Link>
-          <span>/</span>
           <span className="breadcrumb-cur">{work.title}</span>
         </nav>
       </div>
@@ -181,7 +179,7 @@ export default function WorkDetail() {
                 <span>{chapters.length > 0 ? `共 ${chapters.length} 话章节` : '暂无本地章节'}</span>
               </div>
               <span className="detail-action-status-sub">
-                {owner ? '你是此作品的创建者，可在下方管理关联剧集或前往素材中心编辑' : '点击章节即可开始阅读'}
+                {owner ? '你是此作品的创建者，可在下方管理关联剧集' : '点击章节即可开始阅读'}
               </span>
             </div>
             <div className="detail-action-btns">
@@ -197,12 +195,6 @@ export default function WorkDetail() {
                         onClick={() => void addToShelf()}>
                   <HeartIcon size={16} filled={saved} />
                   {saved ? '已收藏' : '加入收藏'}
-                </button>
-              )}
-              {owner && (
-                <button type="button" className="ghost pill" onClick={() => navigate('/uploads')}>
-                  <UploadIcon size={15} />
-                  管理素材
                 </button>
               )}
               {owner && work.status === 'PUBLISHED' && (
@@ -228,7 +220,7 @@ export default function WorkDetail() {
               compact
               icon={<BookOpenIcon size={20} />}
               title="还没有已发布章节"
-              description={owner ? '你可以在「我的素材」上传章节，或在下方挂载外部动画分集。' : '暂未发布可读章节。'}
+              description={owner ? '可在下方挂载外部动画分集。' : '暂未发布可读章节。'}
             />
           ) : (
             <div className="chapter-grid">
