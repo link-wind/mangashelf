@@ -1,34 +1,82 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
+import {
+  Maximize, Minimize, Pause, PictureInPicture2, Play, RectangleHorizontal,
+  SkipForward, Volume1, Volume2, VolumeX,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface DanmakuItem {
   id: string
   timeMs: number
   content: string
   color: string
+  userName?: string
 }
 
-interface PlayerProps {
-  src: string | null
-  kind: 'hls' | 'mp4' | null
-  resumeMs?: number
-  poster?: string
-  /** 解析中/失败等覆盖层（由调用方提供） */
-  overlay?: React.ReactNode
-  onProgress?: (positionMs: number, durationMs: number) => void
-  onEnded?: () => void
-  onFatal?: () => void
-  danmaku?: {
-    items: DanmakuItem[]
-    enabled: boolean
-    sending?: boolean
-    onToggle: () => void
-    onSend: (content: string, color: string, timeMs: number) => Promise<void>
+export type DanmakuDensity = 'all' | 'lite' | 'off'
+
+export interface DanmakuSettings {
+  mode: DanmakuDensity
+  opacity: number   // 0.3 ~ 1.0
+  fontSize: number  // 14 ~ 24 px
+  speed: number     // 5 ~ 12 s（越小越快）
+  area: number      // 0.25 | 0.5 | 0.75 | 1.0
+}
+
+export const DEFAULT_DANMAKU_SETTINGS: DanmakuSettings = {
+  mode: 'all',
+  opacity: 0.88,
+  fontSize: 18,
+  speed: 8,
+  area: 0.75,
+}
+
+const DM_SETTINGS_KEY = 'ms-danmaku-settings:v1'
+const VOL_KEY = 'ms-player-vol'
+const SPEED_KEY = 'ms-player-speed'
+const SPEEDS = [2, 1.5, 1.25, 1, 0.75, 0.5]
+const LANES = 8
+
+export function loadDanmakuSettings(): DanmakuSettings {
+  try {
+    const legacyOff = localStorage.getItem('ms-danmaku') === 'off'
+    const raw = localStorage.getItem(DM_SETTINGS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<DanmakuSettings>
+      return {
+        ...DEFAULT_DANMAKU_SETTINGS,
+        ...parsed,
+        mode: legacyOff ? 'off' : (parsed.mode ?? 'all'),
+      }
+    }
+    return { ...DEFAULT_DANMAKU_SETTINGS, mode: legacyOff ? 'off' : 'all' }
+  } catch {
+    return DEFAULT_DANMAKU_SETTINGS
   }
 }
 
-const SPEEDS = [1, 1.25, 1.5, 2, 0.75, 0.5]
-const LANES = 7
+export function saveDanmakuSettings(next: DanmakuSettings) {
+  try {
+    localStorage.setItem(DM_SETTINGS_KEY, JSON.stringify(next))
+    localStorage.setItem('ms-danmaku', next.mode === 'off' ? 'off' : 'on')
+  } catch { /* ignore */ }
+}
+
+function loadSavedVol(): number {
+  try {
+    const n = Number(localStorage.getItem(VOL_KEY))
+    if (Number.isFinite(n) && n >= 0 && n <= 1) return n
+  } catch { /* ignore */ }
+  return 0.9
+}
+
+function loadSavedSpeed(): number {
+  try {
+    const n = Number(localStorage.getItem(SPEED_KEY))
+    if (SPEEDS.includes(n)) return n
+  } catch { /* ignore */ }
+  return 1
+}
 
 function fmt(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '00:00'
@@ -39,27 +87,100 @@ function fmt(sec: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${String(m).padStart(2, '0')}:${ss}`
 }
 
+interface PlayerProps {
+  src: string | null
+  kind: 'hls' | 'mp4' | null
+  resumeMs?: number
+  poster?: string | null
+  subtitleUrl?: string | null
+  /** 解析中 / 失败 / 登录拦截覆盖层 */
+  overlay?: ReactNode
+  widescreen?: boolean
+  lightsOff?: boolean
+  onToggleWidescreen?: () => void
+  onToggleLightsOff?: () => void
+  onPrev?: (() => void) | null
+  onNext?: (() => void) | null
+  onTimeTick?: (currentSec: number) => void
+  onProgress?: (positionMs: number, durationMs: number) => void
+  onEnded?: () => void
+  onFatal?: () => void
+  danmaku?: {
+    items: DanmakuItem[]
+    settings: DanmakuSettings
+    onCycleMode: () => void
+  }
+}
+
 /**
- * 自定义播放器（M13，参照 gugu/哔哩哔哩皮肤）：HLS/MP4、进度条、倍速、
- * 全屏、键盘快捷键与弹幕层。调用方通过 overlay 提供解析中/失败覆盖层。
+ * 影院级自定义视频播放器：
+ * - HLS / MP4 + 续播 + 模糊高清封面氛围底；
+ * - 拖拽进度条 + 悬停时间预览气泡 + 音量/静音 + 倍速直选菜单 + 画中画 PiP + 宽屏 + 全屏；
+ * - 全局键盘快捷键（Space / ←→ / ↑↓ / M / T / L / F / D / Shift+P/N）与瞬时 HUD 提示；
+ * - 可定制弹幕层（全量/精简/关闭、透明度、字号、速度、区域）。
  */
-export default function Player({ src, kind, resumeMs = 0, poster, overlay,
-                                onProgress, onEnded, onFatal, danmaku }: PlayerProps) {
+export default function Player({
+  src, kind, resumeMs = 0, poster, subtitleUrl, overlay,
+  widescreen = false, lightsOff = false,
+  onToggleWidescreen, onToggleLightsOff, onPrev, onNext,
+  onTimeTick, onProgress, onEnded, onFatal, danmaku,
+}: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const hideTimer = useRef<number | null>(null)
+  const hudTimer = useRef<number | null>(null)
+  const draggingRef = useRef(false)
+  const onEndedRef = useRef(onEnded)
+  const onProgressRef = useRef(onProgress)
+  const onTimeTickRef = useRef(onTimeTick)
+  onEndedRef.current = onEnded
+  onProgressRef.current = onProgress
+  onTimeTickRef.current = onTimeTick
+
   const [playing, setPlaying] = useState(false)
+  const [hasFrame, setHasFrame] = useState(false)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [buffered, setBuffered] = useState(0)
-  const [speedIdx, setSpeedIdx] = useState(0)
+  const [volume, setVolume] = useState<number>(loadSavedVol)
+  const [muted, setMuted] = useState(false)
+  const [speed, setSpeed] = useState<number>(loadSavedSpeed)
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
-  const hideTimer = useRef<number | null>(null)
+  const [hoverSeek, setHoverSeek] = useState<{ ratio: number; time: number } | null>(null)
+  const [hudText, setHudText] = useState('')
+
+  const showHud = useCallback((msg: string) => {
+    setHudText(msg)
+    if (hudTimer.current) window.clearTimeout(hudTimer.current)
+    hudTimer.current = window.setTimeout(() => setHudText(''), 950)
+  }, [])
+
+  // 同步音量与倍速到 <video>
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    v.volume = volume
+    v.muted = muted
+  }, [volume, muted, src])
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    v.playbackRate = speed
+  }, [speed, src])
 
   // 加载媒体源（HLS 用 hls.js，Safari 原生回退）
   useEffect(() => {
     const v = videoRef.current
+    setPlaying(false)
+    setHasFrame(false)
+    setCurrent(0)
+    setDuration(0)
+    setBuffered(0)
     if (!v || !src) return
     let hls: Hls | null = null
     if (kind === 'hls' && Hls.isSupported()) {
@@ -74,7 +195,13 @@ export default function Player({ src, kind, resumeMs = 0, poster, overlay,
     } else {
       v.src = src
     }
-    const tryPlay = () => { void v.play().catch(() => { /* 自动播放被拦截，等用户点击 */ }) }
+    const tryPlay = () => {
+      setHasFrame(true)
+      v.playbackRate = speed
+      v.volume = volume
+      v.muted = muted
+      void v.play().catch(() => { /* 自动播放被浏览器拦截时等用户点击 */ })
+    }
     v.addEventListener('loadeddata', tryPlay, { once: true })
     return () => {
       v.removeEventListener('loadeddata', tryPlay)
@@ -83,6 +210,7 @@ export default function Player({ src, kind, resumeMs = 0, poster, overlay,
       v.removeAttribute('src')
       v.load()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, kind, onFatal])
 
   // 续播
@@ -98,39 +226,41 @@ export default function Player({ src, kind, resumeMs = 0, poster, overlay,
     return () => v.removeEventListener('loadedmetadata', onLoaded)
   }, [resumeMs, src])
 
-  // 进度与缓冲
+  // 进度、缓冲与播放状态监听
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
     let lastSave = 0
     const onTime = () => {
-      setCurrent(v.currentTime)
+      if (!draggingRef.current) setCurrent(v.currentTime)
+      onTimeTickRef.current?.(v.currentTime)
       if (v.buffered.length > 0) setBuffered(v.buffered.end(v.buffered.length - 1))
       const now = Date.now()
       if (now - lastSave > 5000) {
         lastSave = now
-        onProgress?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
+        onProgressRef.current?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
       }
     }
     const onMeta = () => setDuration(v.duration || 0)
-    const onPlay = () => setPlaying(true)
+    const onPlay = () => { setPlaying(true); setHasFrame(true) }
     const onPause = () => {
       setPlaying(false)
-      if (v.currentTime > 0) onProgress?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
+      if (v.currentTime > 0) onProgressRef.current?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
     }
+    const handleEnded = () => onEndedRef.current?.()
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('durationchange', onMeta)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
-    v.addEventListener('ended', () => onEnded?.())
+    v.addEventListener('ended', handleEnded)
     return () => {
       v.removeEventListener('timeupdate', onTime)
       v.removeEventListener('durationchange', onMeta)
       v.removeEventListener('play', onPlay)
       v.removeEventListener('pause', onPause)
-      if (v.currentTime > 0) onProgress?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
+      v.removeEventListener('ended', handleEnded)
+      if (v.currentTime > 0) onProgressRef.current?.(Math.floor(v.currentTime * 1000), Math.floor((v.duration || 0) * 1000))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src])
 
   // 全屏状态同步
@@ -144,127 +274,350 @@ export default function Player({ src, kind, resumeMs = 0, poster, overlay,
     setControlsVisible(true)
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
-      if (!videoRef.current?.paused) setControlsVisible(false)
+      if (!videoRef.current?.paused && !speedMenuOpen) setControlsVisible(false)
     }, 2600)
-  }, [])
+  }, [speedMenuOpen])
 
-  function togglePlay() {
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current
+    if (!v || !src) return
+    if (v.paused) {
+      void v.play().catch(() => {})
+      showHud('继续播放')
+    } else {
+      v.pause()
+      showHud('已暂停')
+    }
+  }, [src, showHud])
+
+  const seekTo = useCallback((sec: number, hudLabel?: string) => {
     const v = videoRef.current
     if (!v) return
-    if (v.paused) void v.play().catch(() => {})
-    else v.pause()
-  }
+    const target = Math.max(0, Math.min(sec, v.duration || sec))
+    v.currentTime = target
+    setCurrent(target)
+    if (hudLabel) showHud(hudLabel)
+  }, [showHud])
 
-  function seekTo(sec: number) {
-    const v = videoRef.current
-    if (!v) return
-    v.currentTime = Math.max(0, Math.min(sec, v.duration || sec))
-  }
+  const changeVolume = useCallback((nextVol: number) => {
+    const clamped = Math.max(0, Math.min(1, Math.round(nextVol * 100) / 100))
+    setVolume(clamped)
+    setMuted(clamped === 0)
+    try { localStorage.setItem(VOL_KEY, String(clamped)) } catch { /* ignore */ }
+    showHud(clamped === 0 ? '已静音' : `音量 ${Math.round(clamped * 100)}%`)
+  }, [showHud])
 
-  function cycleSpeed() {
-    const v = videoRef.current
-    if (!v) return
-    const next = (speedIdx + 1) % SPEEDS.length
-    setSpeedIdx(next)
-    v.playbackRate = SPEEDS[next]
-  }
+  const toggleMute = useCallback(() => {
+    setMuted(prev => {
+      const next = !prev
+      showHud(next ? '已静音' : `音量 ${Math.round(volume * 100)}%`)
+      return next
+    })
+  }, [volume, showHud])
 
-  function toggleFullscreen() {
+  const pickSpeed = useCallback((nextSpeed: number) => {
+    setSpeed(nextSpeed)
+    setSpeedMenuOpen(false)
+    try { localStorage.setItem(SPEED_KEY, String(nextSpeed)) } catch { /* ignore */ }
+    showHud(`倍速 ${nextSpeed}x`)
+  }, [showHud])
+
+  const toggleFullscreen = useCallback(() => {
     const el = shellRef.current
     if (!el) return
     if (document.fullscreenElement) void document.exitFullscreen()
     else void el.requestFullscreen().catch(() => {})
-  }
-
-  // 键盘快捷键（聚焦在播放器内生效）
-  useEffect(() => {
-    const v = videoRef.current
-    const el = shellRef.current
-    if (!v || !el) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.code === 'Space') { e.preventDefault(); togglePlay() }
-      else if (e.code === 'ArrowLeft') { e.preventDefault(); seekTo(v.currentTime - 5) }
-      else if (e.code === 'ArrowRight') { e.preventDefault(); seekTo(v.currentTime + 5) }
-      else if (e.key === 'f' || e.key === 'F') toggleFullscreen()
-    }
-    el.addEventListener('keydown', onKey)
-    return () => el.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const pct = duration > 0 ? (current / duration) * 100 : 0
-  const bufPct = duration > 0 ? (buffered / duration) * 100 : 0
+  const togglePip = useCallback(() => {
+    const v = videoRef.current
+    if (!v || !document.pictureInPictureEnabled) return
+    if (document.pictureInPictureElement) {
+      void document.exitPictureInPicture().catch(() => {})
+    } else {
+      void v.requestPictureInPicture().catch(() => {})
+    }
+  }, [])
+
+  // 全局键盘快捷键（输入框及组合键 Cmd/Ctrl/Alt 下不拦截）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+        return
+      }
+      const v = videoRef.current
+      if (e.code === 'Space') {
+        e.preventDefault()
+        togglePlay()
+      } else if (e.code === 'ArrowLeft' && v) {
+        e.preventDefault()
+        seekTo(v.currentTime - 5, '快退 -5s')
+      } else if (e.code === 'ArrowRight' && v) {
+        e.preventDefault()
+        seekTo(v.currentTime + 5, '快进 +5s')
+      } else if (e.code === 'ArrowUp') {
+        e.preventDefault()
+        changeVolume((muted ? 0 : volume) + 0.1)
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault()
+        changeVolume((muted ? 0 : volume) - 0.1)
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault()
+        toggleMute()
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        toggleFullscreen()
+      } else if ((e.key === 't' || e.key === 'T') && onToggleWidescreen) {
+        e.preventDefault()
+        onToggleWidescreen()
+        showHud(widescreen ? '退出宽屏' : '宽屏模式')
+      } else if ((e.key === 'l' || e.key === 'L') && onToggleLightsOff) {
+        e.preventDefault()
+        onToggleLightsOff()
+        showHud(lightsOff ? '已开灯' : '关灯沉浸模式')
+      } else if (e.key === 'Escape' && lightsOff && onToggleLightsOff) {
+        onToggleLightsOff()
+      } else if ((e.key === 'd' || e.key === 'D') && danmaku) {
+        e.preventDefault()
+        danmaku.onCycleMode()
+      } else if (e.shiftKey && (e.key === 'N' || e.key === 'n') && onNext) {
+        e.preventDefault()
+        onNext()
+      } else if (e.shiftKey && (e.key === 'P' || e.key === 'p') && onPrev) {
+        e.preventDefault()
+        onPrev()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    togglePlay, seekTo, changeVolume, toggleMute, toggleFullscreen,
+    onToggleWidescreen, onToggleLightsOff, widescreen, lightsOff,
+    danmaku, onNext, onPrev, volume, muted, showHud,
+  ])
+
+  // 拖拽进度条
+  function calcRatio(clientX: number): number {
+    const rect = progressRef.current?.getBoundingClientRect()
+    if (!rect || rect.width <= 0) return 0
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+  }
+
+  function handleProgressPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!duration) return
+    e.preventDefault()
+    draggingRef.current = true
+    const r = calcRatio(e.clientX)
+    setCurrent(r * duration)
+
+    const onMove = (ev: PointerEvent) => {
+      const ratio = calcRatio(ev.clientX)
+      setCurrent(ratio * duration)
+      setHoverSeek({ ratio, time: ratio * duration })
+    }
+    const onUp = (ev: PointerEvent) => {
+      draggingRef.current = false
+      const ratio = calcRatio(ev.clientX)
+      seekTo(ratio * duration)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const pct = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0
+  const bufPct = duration > 0 ? Math.min(100, Math.max(0, (buffered / duration) * 100)) : 0
+  const canPip = typeof document !== 'undefined' && Boolean(document.pictureInPictureEnabled) && Boolean(src)
+  const dmMode = danmaku?.settings.mode ?? 'off'
+  const showPosterBg = Boolean(poster && (!hasFrame || !src || overlay))
 
   return (
-    <div ref={shellRef} className={'ms-player' + (controlsVisible ? ' show-ui' : '')}
-         tabIndex={0} onMouseMove={poke} onMouseLeave={() => playing && setControlsVisible(false)}>
-      <video ref={videoRef} poster={poster} playsInline
-             onClick={togglePlay} onDoubleClick={toggleFullscreen} />
+    <div
+      ref={shellRef}
+      className={'ms-player' + (controlsVisible || speedMenuOpen ? ' show-ui' : '')}
+      tabIndex={0}
+      onMouseMove={poke}
+      onMouseLeave={() => {
+        setSpeedMenuOpen(false)
+        setHoverSeek(null)
+        if (playing) setControlsVisible(false)
+      }}
+    >
+      {showPosterBg && poster && (
+        <div
+          className="mp-poster-bg"
+          style={{ backgroundImage: `url(${poster})` }}
+          aria-hidden="true"
+        />
+      )}
 
-      {danmaku?.enabled && src && (
-        <DanmakuLayer video={videoRef.current} items={danmaku.items} current={current} />
+      <video
+        ref={videoRef}
+        playsInline
+        onClick={togglePlay}
+        onDoubleClick={toggleFullscreen}
+      >
+        {subtitleUrl && (
+          <track kind="subtitles" label="中文字幕" srcLang="zh-CN" src={subtitleUrl} default />
+        )}
+      </video>
+
+      {danmaku && dmMode !== 'off' && src && (
+        <DanmakuLayer items={danmaku.items} current={current} settings={danmaku.settings} />
+      )}
+
+      {hudText && (
+        <div className="mp-hud" role="status" aria-live="polite">{hudText}</div>
       )}
 
       {!playing && src && !overlay && (
-        <button className="mp-bigplay" onClick={togglePlay} aria-label="播放">
-          <svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M8 5v14l11-7z" /></svg>
+        <button type="button" className="mp-bigplay" onClick={togglePlay} aria-label="播放">
+          <Play size={28} fill="currentColor" style={{ transform: 'translateX(2px)' }} />
         </button>
       )}
 
       {overlay}
 
-      <div className="mp-controls">
-        <div className="mp-progress" onClick={e => {
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-          seekTo(((e.clientX - rect.left) / rect.width) * (duration || 0))
-        }}>
+      <div className="mp-controls" onClick={e => e.stopPropagation()}>
+        <div
+          ref={progressRef}
+          className="mp-progress"
+          onPointerDown={handleProgressPointerDown}
+          onMouseMove={e => {
+            if (!duration) return
+            const ratio = calcRatio(e.clientX)
+            setHoverSeek({ ratio, time: ratio * duration })
+          }}
+          onMouseLeave={() => { if (!draggingRef.current) setHoverSeek(null) }}
+        >
           <div className="mp-buffer" style={{ width: `${bufPct}%` }} />
           <div className="mp-played" style={{ width: `${pct}%` }} />
           <span className="mp-knob" style={{ left: `${pct}%` }} />
-        </div>
-        <div className="mp-bar">
-          <button className="mp-icon" onClick={togglePlay} aria-label={playing ? '暂停' : '播放'}>
-            {playing
-              ? <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
-              : <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M8 5v14l11-7z" /></svg>}
-          </button>
-          <span className="mp-time">{fmt(current)} / {fmt(duration)}</span>
-          <span className="mp-spacer" />
-          <button className="mp-icon mp-text" onClick={cycleSpeed} title="播放速度">{SPEEDS[speedIdx]}x</button>
-          {danmaku && (
-            <button className={'mp-icon mp-text' + (danmaku.enabled ? ' on' : '')}
-                    onClick={danmaku.onToggle} title="弹幕开关">弹</button>
+          {hoverSeek && (
+            <span className="mp-seek-tip tabular-nums" style={{ left: `${hoverSeek.ratio * 100}%` }}>
+              {fmt(hoverSeek.time)}
+            </span>
           )}
-          <button className="mp-icon" onClick={toggleFullscreen} aria-label="全屏">
-            <svg viewBox="0 0 24 24" width="20" height="20">
-              <path fill="currentColor" d={fullscreen
-                ? 'M6 6h4v2H8v2H6zm8 0h4v4h-2V8h-2zm-8 8h2v2h2v2H6zm10 2h-2v2h-4v-2h2v-2h4z'
-                : 'M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z'} />
-            </svg>
+        </div>
+
+        <div className="mp-bar">
+          <button type="button" className="mp-icon" onClick={togglePlay} aria-label={playing ? '暂停' : '播放'} title={playing ? '暂停 (Space)' : '播放 (Space)'}>
+            {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+          </button>
+
+          {onNext && (
+            <button type="button" className="mp-icon" onClick={onNext} aria-label="下一集" title="下一集 (Shift+N)">
+              <SkipForward size={17} />
+            </button>
+          )}
+
+          <span className="mp-time tabular-nums">{fmt(current)} / {fmt(duration)}</span>
+
+          <span className="mp-spacer" />
+
+          {/* 音量控制 */}
+          <div className="mp-vol-wrap">
+            <button type="button" className="mp-icon" onClick={toggleMute} aria-label={muted || volume === 0 ? '取消静音' : '静音'} title="静音切换 (M)">
+              {muted || volume === 0 ? <VolumeX size={17} /> : volume < 0.5 ? <Volume1 size={17} /> : <Volume2 size={17} />}
+            </button>
+            <input
+              type="range"
+              className="mp-vol-range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              aria-label="音量"
+              onChange={e => changeVolume(Number(e.target.value))}
+            />
+          </div>
+
+          {/* 倍速悬浮直选菜单 */}
+          <div className="mp-speed-wrap">
+            <button
+              type="button"
+              className={'mp-icon mp-text' + (speed !== 1 ? ' on' : '')}
+              onClick={() => setSpeedMenuOpen(v => !v)}
+              title="播放倍速"
+              aria-expanded={speedMenuOpen}
+            >
+              {speed === 1 ? '倍速' : `${speed}x`}
+            </button>
+            {speedMenuOpen && (
+              <div className="mp-speed-menu" role="menu">
+                {SPEEDS.map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={speed === s}
+                    className={'mp-speed-opt tabular-nums' + (speed === s ? ' is-active' : '')}
+                    onClick={() => pickSpeed(s)}
+                  >
+                    {s.toFixed(s % 1 === 0 ? 1 : 2).replace(/0$/, '')}x
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {danmaku && (
+            <button
+              type="button"
+              className={'mp-icon mp-text' + (dmMode !== 'off' ? ' on' : '')}
+              onClick={danmaku.onCycleMode}
+              title={`弹幕：${dmMode === 'all' ? '全量' : dmMode === 'lite' ? '精简' : '关闭'} (D)`}
+            >
+              {dmMode === 'lite' ? '精' : '弹'}
+            </button>
+          )}
+
+          {canPip && (
+            <button type="button" className="mp-icon" onClick={togglePip} aria-label="画中画" title="画中画">
+              <PictureInPicture2 size={17} />
+            </button>
+          )}
+
+          {onToggleWidescreen && (
+            <button
+              type="button"
+              className={'mp-icon' + (widescreen ? ' on' : '')}
+              onClick={() => {
+                onToggleWidescreen()
+                showHud(widescreen ? '退出宽屏' : '宽屏模式')
+              }}
+              aria-label={widescreen ? '退出宽屏' : '宽屏模式'}
+              title={widescreen ? '退出宽屏 (T)' : '宽屏模式 (T)'}
+            >
+              <RectangleHorizontal size={18} />
+            </button>
+          )}
+
+          <button type="button" className="mp-icon" onClick={toggleFullscreen} aria-label={fullscreen ? '退出全屏' : '全屏'} title="全屏 (F)">
+            {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
           </button>
         </div>
-        {danmaku?.enabled && (
-          <DanmakuSender sending={danmaku.sending} current={current} onSend={danmaku.onSend} />
-        )}
       </div>
     </div>
   )
 }
 
-/** 弹幕层：按时间轴滚动，最多 7 条轨道，seek 后退时重置。 */
-function DanmakuLayer({ video, items, current }: {
-  video: HTMLVideoElement | null
+/** 弹幕层：支持全量/精简模式、透明度、字号、速度与显示区域定制。 */
+function DanmakuLayer({ items, current, settings }: {
   items: DanmakuItem[]
   current: number
+  settings: DanmakuSettings
 }) {
   const layerRef = useRef<HTMLDivElement>(null)
   const cursorRef = useRef(0)
   const lastTimeRef = useRef(0)
+  const lastSpawnAtRef = useRef(0)
   const laneFreeRef = useRef<number[]>(new Array(LANES).fill(0))
 
   useEffect(() => {
-    // 跳转/回退：重置游标
     if (current < lastTimeRef.current - 2) {
       cursorRef.current = 0
       laneFreeRef.current = new Array(LANES).fill(0)
@@ -274,71 +627,54 @@ function DanmakuLayer({ video, items, current }: {
     const ms = current * 1000
     const layer = layerRef.current
     if (!layer) return
+    const maxLanes = settings.mode === 'lite' ? 3 : Math.max(2, Math.round(LANES * settings.area))
     while (cursorRef.current < items.length && items[cursorRef.current].timeMs <= ms) {
       const item = items[cursorRef.current]
       cursorRef.current++
-      // 丢弃迟到太久的（跳转后）
       if (ms - item.timeMs > 4000) continue
-      spawn(layer, item, laneFreeRef.current)
+      const now = performance.now()
+      if (settings.mode === 'lite' && now - lastSpawnAtRef.current < 420) continue
+      lastSpawnAtRef.current = now
+      spawn(layer, item, laneFreeRef.current, maxLanes, settings)
     }
-  }, [current, items])
+  }, [current, items, settings])
 
-  // 换集/关闭时清空
   useEffect(() => () => layerRef.current?.replaceChildren(), [items])
 
-  return <div ref={layerRef} className="mp-danmaku" />
+  return (
+    <div
+      ref={layerRef}
+      className="mp-danmaku"
+      style={{
+        height: `${Math.round(settings.area * 100)}%`,
+        opacity: settings.opacity,
+      }}
+    />
+  )
 }
 
-function spawn(layer: HTMLDivElement, item: DanmakuItem, laneFree: number[]) {
+function spawn(
+  layer: HTMLDivElement,
+  item: DanmakuItem,
+  laneFree: number[],
+  maxLanes: number,
+  settings: DanmakuSettings,
+) {
   const now = performance.now()
-  // 选择最空闲的轨道；全部占用时退化为随机
   let lane = 0
   let best = laneFree[0]
-  for (let i = 1; i < LANES; i++) {
+  for (let i = 1; i < maxLanes; i++) {
     if (laneFree[i] < best) { best = laneFree[i]; lane = i }
   }
-  laneFree[lane] = now + 1200
+  laneFree[lane] = now + 1150
   const el = document.createElement('span')
   el.className = 'mp-danmaku-item'
   el.textContent = item.content
   el.style.color = item.color
-  el.style.top = `${6 + lane * 12}%`
-  el.style.animationDuration = '8s'
-  // 位移按播放器宽度计算，速度与窗口宽度无关
-  el.style.setProperty('--dm-dist', `-${layer.clientWidth + 120}px`)
+  el.style.fontSize = `${settings.fontSize}px`
+  el.style.top = `${4 + (lane / Math.max(1, maxLanes)) * 88}%`
+  el.style.animationDuration = `${settings.speed}s`
+  el.style.setProperty('--dm-dist', `-${layer.clientWidth + 140}px`)
   el.addEventListener('animationend', () => el.remove())
   layer.appendChild(el)
-}
-
-/** 弹幕发送条：输入 + 颜色选择，发送到当前时间点。 */
-function DanmakuSender({ sending, current, onSend }: {
-  sending?: boolean
-  current: number
-  onSend: (content: string, color: string, timeMs: number) => Promise<void>
-}) {
-  const [text, setText] = useState('')
-  const [color, setColor] = useState('#ffffff')
-  const COLORS = ['#ffffff', '#00aeec', '#ff9500', '#ff5c8a', '#7c5cff', '#00c48c']
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    const t = text.trim()
-    if (!t) return
-    await onSend(t, color, Math.floor(current * 1000))
-    setText('')
-  }
-
-  return (
-    <form className="mp-danmaku-send" onSubmit={submit}>
-      <span className="mp-colors">
-        {COLORS.map(c => (
-          <button type="button" key={c} className={'mp-color' + (c === color ? ' on' : '')}
-                  style={{ background: c }} onClick={() => setColor(c)} aria-label={'颜色 ' + c} />
-        ))}
-      </span>
-      <input value={text} maxLength={200} placeholder="发一条友善的弹幕…"
-             onChange={e => setText(e.target.value)} />
-      <button type="submit" className="mp-send" disabled={sending || !text.trim()}>发送</button>
-    </form>
-  )
 }

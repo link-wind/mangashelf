@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
-import EpisodePlayerShell from '../components/EpisodePlayerShell'
-import type { DanmakuItem } from '../components/Player'
+import { useAuth } from '../auth'
+import EpisodePlayerShell, { type PlayerWorkOverview } from '../components/EpisodePlayerShell'
+import {
+  loadDanmakuSettings,
+  saveDanmakuSettings,
+  type DanmakuItem,
+  type DanmakuSettings,
+} from '../components/Player'
 import { formatAnimeLine } from '../lineLabel'
+import { formatEpisodeTitle } from '../lib/mediaFormat'
 import { useEpisodePlayback } from '../useEpisodePlayback'
 
 interface BoundEpisode {
@@ -12,18 +19,28 @@ interface BoundEpisode {
   episodeType: 'MAIN' | 'EXTRA'
 }
 
-/** 作品播放页：复用 EpisodePlayerShell，线路显示为「国内线路 1/2」，附带弹幕功能。 */
+interface WorkExternalMeta {
+  coverUrl: string | null
+  catalogTitle: string | null
+  rating: number | null
+  summary: string | null
+  airWeekday: number | null
+  lines: string[]
+}
+
+/** 已入库作品播放页：复用 8:4 影院壳 + 外置弹幕发送条 + 弹幕外观设置 + 右侧本集弹幕列表。 */
 export default function ExternalWatch() {
   const { workId, episodeId } = useParams()
   const navigate = useNavigate()
+  const { me } = useAuth()
   const [episodes, setEpisodes] = useState<BoundEpisode[]>([])
   const [lineName, setLineName] = useState('')
   const [tab, setTab] = useState<'MAIN' | 'EXTRA'>('MAIN')
   const [loadError, setLoadError] = useState('')
   const [workTitle, setWorkTitle] = useState('')
+  const [overview, setOverview] = useState<PlayerWorkOverview | null>(null)
   const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
-  const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(
-    () => localStorage.getItem('ms-danmaku') !== 'off')
+  const [dmSettings, setDmSettings] = useState<DanmakuSettings>(loadDanmakuSettings)
   const [sending, setSending] = useState(false)
   const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
     useEpisodePlayback(episodeId)
@@ -35,9 +52,21 @@ export default function ExternalWatch() {
       try {
         const list = await api.get<BoundEpisode[]>(`/api/v1/works/${workId}/external-episodes`)
         setEpisodes(list)
-        void api.get<{ work: { title: string } }>(`/api/v1/works/${workId}`)
+        void api.get<{ work: { title: string; description?: string } }>(`/api/v1/works/${workId}`)
           .then(v => setWorkTitle(v.work.title))
           .catch(() => { /* 标题失败不影响播放 */ })
+        void api.get<WorkExternalMeta | null>(`/api/v1/works/${workId}/external-meta`)
+          .then(m => {
+            if (m) {
+              setOverview({
+                coverUrl: m.coverUrl,
+                rating: m.rating,
+                summary: m.summary,
+                airWeekday: m.airWeekday,
+              })
+            }
+          })
+          .catch(() => { /* 无扩展元数据时忽略 */ })
       } catch (e) {
         setLoadError(e instanceof ApiError ? e.message : '加载选集失败')
       }
@@ -45,16 +74,19 @@ export default function ExternalWatch() {
   }, [workId])
 
   useEffect(() => {
-    if (current) setLineName(current.lineName)
+    if (current) {
+      setLineName(current.lineName)
+      if (current.episodeType === 'EXTRA') setTab('EXTRA')
+    }
   }, [current?.id])
 
   useEffect(() => {
     if (workTitle) {
-      document.title = current?.title
-        ? `${workTitle} · ${current.title} · MangaShelf`
+      document.title = current
+        ? `${workTitle} · ${formatEpisodeTitle(current.ordinal, current.title)} · MangaShelf`
         : `${workTitle} · MangaShelf`
     }
-  }, [workTitle, current?.title])
+  }, [workTitle, current?.ordinal, current?.title])
 
   useEffect(() => {
     if (workId && current) {
@@ -64,11 +96,9 @@ export default function ExternalWatch() {
     }
   }, [workId, current?.ordinal])
 
-  function toggleDanmaku() {
-    setDanmakuEnabled(v => {
-      localStorage.setItem('ms-danmaku', v ? 'off' : 'on')
-      return !v
-    })
+  function updateDmSettings(next: DanmakuSettings) {
+    setDmSettings(next)
+    saveDanmakuSettings(next)
   }
 
   async function sendDanmaku(content: string, color: string, timeMs: number) {
@@ -90,8 +120,11 @@ export default function ExternalWatch() {
   const displayLines = rawLines.map((key, idx) => ({ key, label: formatAnimeLine(idx) }))
   const activeLineLabel = displayLines.find(l => l.key === lineName)?.label ?? '国内线路 1'
 
-  const lineEpisodes = episodes
-    .filter(e => e.lineName === lineName && e.episodeType === tab)
+  const lineAll = episodes.filter(e => e.lineName === lineName)
+  const mainCount = lineAll.filter(e => e.episodeType !== 'EXTRA').length
+  const extraCount = lineAll.filter(e => e.episodeType === 'EXTRA').length
+  const lineEpisodes = lineAll
+    .filter(e => e.episodeType === tab)
     .sort((a, b) => a.ordinal - b.ordinal)
   const goto = (id: string) => navigate(`/works/${workId}/external/${id}`)
 
@@ -102,9 +135,9 @@ export default function ExternalWatch() {
     <EpisodePlayerShell
       title={workTitle || '动画播放'}
       current={current}
-      metaText={`共 ${lineEpisodes.length} 集 · ${activeLineLabel}`}
+      activeLineLabel={activeLineLabel}
       backLinkTo={`/works/${workId}`}
-      backLinkLabel="← 返回作品"
+      backLinkLabel="作品详情"
       notice={notice}
       status={status}
       resumeMs={resumeMs}
@@ -120,16 +153,20 @@ export default function ExternalWatch() {
           ?? episodes.find(e => e.lineName === target && e.episodeType === tab)
         if (match) goto(match.id)
       }}
-      hasExtra={episodes.some(e => e.episodeType === 'EXTRA')}
+      hasExtra={lineAll.some(e => e.episodeType === 'EXTRA')}
+      mainCount={mainCount}
+      extraCount={extraCount}
       tab={tab}
       onSelectTab={setTab}
       episodes={lineEpisodes}
       onSelectEpisode={goto}
+      overview={overview}
       danmaku={{
         items: danmakuItems,
-        enabled: danmakuEnabled,
+        settings: dmSettings,
         sending,
-        onToggle: toggleDanmaku,
+        canSend: Boolean(me),
+        onUpdateSettings: updateDmSettings,
         onSend: sendDanmaku,
       }}
     />

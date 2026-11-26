@@ -9,7 +9,7 @@ import {
   CalendarIcon, CheckCircleIcon, FilmIcon, HeartIcon, LayersIcon, PlayIcon, StarIcon,
 } from '../components/Icons'
 import { useToast } from '../components/Toast'
-import { formatStatusLabel, isCompletedStatus, splitBilingualSummary } from '../lib/mediaFormat'
+import { cleanStudioName, formatStatusLabel, isCompletedStatus, splitBilingualSummary } from '../lib/mediaFormat'
 import { formatAnimeLine } from '../lineLabel'
 import { useCatalogFavorites } from '../useCatalogFavorites'
 
@@ -26,6 +26,9 @@ interface CatalogDetailData {
   summary: string | null
   airWeekday: number | null
   airDate: string | null
+  airTime?: string | null
+  studio?: string | null
+  mediaType?: string | null
   tags: string[]
   lines: { name: string; episodeCount: number }[]
 }
@@ -457,8 +460,14 @@ export default function CatalogDetail() {
               </div>
               <div className="detail-facts-row">
                 <dt>更新周期</dt>
-                <dd>{detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}` : '—'}</dd>
+                <dd>{detail.airWeekday ? `每${WEEKDAYS[detail.airWeekday]}${detail.airTime ? ` ${detail.airTime}` : ''}` : '—'}</dd>
               </div>
+              {cleanStudioName(detail.studio, 28) && (
+                <div className="detail-facts-row">
+                  <dt>动画制作</dt>
+                  <dd title={detail.studio || ''}>{cleanStudioName(detail.studio, 28)}</dd>
+                </div>
+              )}
               <div className="detail-facts-row">
                 <dt>总集数</dt>
                 <dd className="tabular-nums">{item.episodeCount > 0 ? `共 ${item.episodeCount} 集` : '—'}</dd>

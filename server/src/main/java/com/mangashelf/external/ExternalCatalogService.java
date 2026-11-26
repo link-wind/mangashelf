@@ -222,7 +222,8 @@ public class ExternalCatalogService {
 
     public record CatalogDetail(ExternalCatalogItem item, String bangumiName, String bangumiNameCn,
                                 Double rating, String summary, Integer airWeekday,
-                                java.time.LocalDate airDate, List<String> tags, List<LineInfo> lines) {}
+                                java.time.LocalDate airDate, String airTime, String studio, String mediaType,
+                                List<String> tags, List<LineInfo> lines) {}
 
     public CatalogDetail itemDetail(CurrentUser user, UUID itemId) {
         ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
@@ -249,11 +250,11 @@ public class ExternalCatalogService {
                 }
             }
         }
-        // Bangumi 元数据（若已桥接）
+        // Bangumi 元数据（若已桥接，含制作公司、精确放送时刻与媒体制式）
         record B(String orig, String cn, Double rating, String summary, Integer weekday,
-                 java.time.LocalDate airDate, List<String> tags) {}
+                 java.time.LocalDate airDate, String airTime, String studio, String mediaType, List<String> tags) {}
         List<B> rows = jdbc.query(
-                "SELECT name, name_cn, rating, summary, air_weekday, air_date, tags FROM bangumi_subjects WHERE subject_id = ?",
+                "SELECT name, name_cn, rating, summary, air_weekday, air_date, air_time, studio, media_type, tags FROM bangumi_subjects WHERE subject_id = ?",
                 (rs, i) -> {
                     var r = rs.getBigDecimal("rating");
                     var d = rs.getDate("air_date");
@@ -262,7 +263,11 @@ public class ExternalCatalogService {
                     return new B(rs.getString("name"), rs.getString("name_cn"),
                             r == null ? null : r.doubleValue(), rs.getString("summary"),
                             (Integer) rs.getObject("air_weekday"),
-                            d == null ? null : d.toLocalDate(), tagList);
+                            d == null ? null : d.toLocalDate(),
+                            rs.getString("air_time"),
+                            rs.getString("studio"),
+                            rs.getString("media_type"),
+                            tagList);
                 }, item.bangumiSubjectId() == null ? -1L : item.bangumiSubjectId());
         B b = rows.isEmpty() ? null : rows.get(0);
         List<LineInfo> lines = new ArrayList<>();
@@ -293,6 +298,9 @@ public class ExternalCatalogService {
                 b == null ? null : b.summary(),
                 b == null ? null : b.weekday(),
                 b == null ? null : b.airDate(),
+                b == null ? null : b.airTime(),
+                b == null ? null : b.studio(),
+                b == null ? null : b.mediaType(),
                 TagNormalizer.normalize(mergedTags),
                 lines);
     }
