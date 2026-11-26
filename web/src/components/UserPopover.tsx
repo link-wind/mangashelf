@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { Me } from '../auth'
+import { BRAND_TITLE_FULL, DEFAULT_AVATAR_URL } from '../lib/brand'
 import CoverImage from './CoverImage'
 import {
   BoltIcon, BookOpenIcon, BookmarkIcon, CalendarIcon, ChevronDownIcon,
@@ -154,7 +155,6 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
     navigate('/login')
   }
 
-  const avatarChar = (me?.login || 'U').slice(0, 1).toUpperCase()
   const hasCatchUp = (summary?.catchUpCount ?? 0) > 0
   const latest = summary?.latest ?? null
   const latestIsAnime = latest ? (latest.type === 'animation-watch' || latest.type === 'external-watch') : false
@@ -202,7 +202,9 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
             aria-expanded={open}
             onClick={() => setOpen(v => !v)}
           >
-            <span className="user-avatar">{avatarChar}</span>
+            <span className="user-avatar">
+              <img src={DEFAULT_AVATAR_URL} alt={me.login} className="avatar-img" decoding="async" />
+            </span>
             <span className="user-name">{me.login}</span>
             <ChevronDownIcon size={13} />
           </button>
@@ -235,7 +237,9 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
               <>
                 <div className="up-head">
                   <div className="up-identity">
-                    <span className="up-avatar">{avatarChar}</span>
+                    <span className="up-avatar">
+                      <img src={DEFAULT_AVATAR_URL} alt={me.login} className="avatar-img" decoding="async" />
+                    </span>
                     <div className="up-id-text">
                       <div className="up-name-row">
                         <strong>{me.login}</strong>
@@ -243,7 +247,7 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                           {me.role === 'ADMIN' ? '管理员' : '成员'}
                         </span>
                       </div>
-                      <span className="up-sub">动画与漫画私人空间</span>
+                      <span className="up-sub">杰米猫 · 动画与漫画私人空间</span>
                     </div>
                   </div>
                   <Link to="/me" className="up-space-link" onClick={() => setOpen(false)}>
@@ -352,7 +356,7 @@ export default function UserPopover({ me, theme, onToggleTheme, onLogout }: Prop
                 <div className="up-guest-banner">
                   <div className="up-guest-eyebrow">
                     <SparklesIcon size={13} />
-                    <span>MangaShelf · 动画与漫画空间</span>
+                    <span>{BRAND_TITLE_FULL}</span>
                   </div>
                   <strong>收藏好故事 · 记录每份进度</strong>
                   <p>跨设备同步番剧播放进度、漫画书架与每周更新提醒。</p>

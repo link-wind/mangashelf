@@ -43,7 +43,7 @@ export default function MangaDetailPage() {
 
   useEffect(() => {
     if (data?.work.title) {
-      document.title = `${data.work.title} · MangaShelf`
+      document.title = `${data.work.title} · GemiNeko`
     }
   }, [data?.work.title])
 

@@ -396,8 +396,8 @@ function HeroBanner({ items, favIds, onToggleFav }: {
     return (
       <section className="hero">
         <div>
-          <h1>MangaShelf</h1>
-          <p className="muted">追动画、读漫画，简洁无广告的私人影音漫画空间。</p>
+          <h1>GemiNeko</h1>
+          <p className="muted">杰米猫 · 追动画、读漫画，简洁无广告的私人影音漫画空间。</p>
         </div>
         <div className="hero-search">
           <Link to="/index" className="btn ghost pill">浏览索引 →</Link>

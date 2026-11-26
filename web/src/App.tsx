@@ -6,6 +6,7 @@ import { ToastProvider } from './components/Toast'
 import BrandLogo from './components/ui/BrandLogo'
 import CommandPalette, { pushRecentSearch } from './components/ui/CommandPalette'
 import UserPopover from './components/UserPopover'
+import { BRAND_NAME, BRAND_NAME_ZH, BRAND_TITLE_FULL, pageTitle } from './lib/brand'
 import {
   BookmarkIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
   SearchIcon, SettingsIcon, SunIcon,
@@ -39,15 +40,15 @@ const NAV_ENTRIES = [
 ]
 
 const PAGE_TITLES: Array<[RegExp, string]> = [
-  [/^\/$/, '番剧 · MangaShelf'],
-  [/^\/login$/, '登录 · MangaShelf'],
-  [/^\/manga$/, '漫画 · MangaShelf'],
-  [/^\/index$/, '索引 · MangaShelf'],
-  [/^\/anime$/, '索引 · MangaShelf'],
-  [/^\/schedule$/, '新番时刻表 · MangaShelf'],
-  [/^\/me$/, '个人空间 · MangaShelf'],
-  [/^\/search$/, '搜索 · MangaShelf'],
-  [/^\/settings$/, '设置 · MangaShelf'],
+  [/^\/$/, pageTitle('番剧')],
+  [/^\/login$/, pageTitle('登录')],
+  [/^\/manga$/, pageTitle('漫画')],
+  [/^\/index$/, pageTitle('索引')],
+  [/^\/anime$/, pageTitle('索引')],
+  [/^\/schedule$/, pageTitle('新番时刻表')],
+  [/^\/me$/, pageTitle('个人空间')],
+  [/^\/search$/, pageTitle('搜索')],
+  [/^\/settings$/, pageTitle('设置')],
 ]
 
 /** 这些动态详情/播放/阅读路由由页面组件自行设置作品名称标题，App 不再在父级 effect 覆盖。 */
@@ -103,9 +104,10 @@ function Nav() {
   return (
     <>
       <header className="nav">
-        <NavLink to="/" className="brand">
-          <BrandLogo size={28} />
-          <span>MangaShelf</span>
+        <NavLink to="/" className="brand" title={`${BRAND_NAME} · ${BRAND_NAME_ZH}`}>
+          <BrandLogo size={30} />
+          <span className="brand-text">{BRAND_NAME}</span>
+          <span className="brand-zh">{BRAND_NAME_ZH}</span>
         </NavLink>
         <nav aria-label="主导航">
           {NAV_ENTRIES.map(e => (
@@ -191,14 +193,14 @@ export default function App() {
   useEffect(() => {
     const titleFromQuery = new URLSearchParams(location.search).get('title')?.trim()
     if (titleFromQuery && /^\/manga-ext/.test(location.pathname)) {
-      document.title = `${titleFromQuery} · MangaShelf`
+      document.title = pageTitle(titleFromQuery)
       return
     }
     if (SELF_TITLED_ROUTES.test(location.pathname)) {
       return
     }
     const matched = PAGE_TITLES.find(([re]) => re.test(location.pathname))
-    document.title = matched ? matched[1] : 'MangaShelf · 动画与漫画空间'
+    document.title = matched ? matched[1] : BRAND_TITLE_FULL
   }, [location.pathname, location.search])
 
   if (loading) {
@@ -285,10 +287,11 @@ function Footer() {
       <div className="footer-inner">
         <div className="footer-col footer-brand">
           <span className="brand">
-            <BrandLogo size={22} />
-            <span>MangaShelf</span>
+            <BrandLogo size={26} />
+            <span>{BRAND_NAME}</span>
+            <span className="brand-zh">{BRAND_NAME_ZH}</span>
           </span>
-          <p className="muted">私人动画与漫画空间 · 简洁无广告</p>
+          <p className="muted">杰米猫 · 私人番剧与漫画空间 · 简洁无广告</p>
         </div>
         <div className="footer-col">
           <h3>发现内容</h3>

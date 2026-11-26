@@ -62,7 +62,7 @@ export default function Watch() {
       try {
         const a = await api.get<{ title?: string }>(`/api/v1/animations/${animationId}`)
         setTitle(a.title ?? '')
-        if (a.title) document.title = `${a.title} · MangaShelf`
+        if (a.title) document.title = `${a.title} · GemiNeko`
       } catch { /* 标题获取失败不阻塞播放 */ }
     })()
   }, [animationId])

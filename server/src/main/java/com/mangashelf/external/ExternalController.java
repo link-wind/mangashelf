@@ -394,7 +394,7 @@ public class ExternalController {
                                               @RequestParam(defaultValue = "false") boolean onlyMine,
                                               @RequestParam(defaultValue = "false") boolean coveredOnly) {
         List<BangumiService.CalendarEntry> entries = bangumi.calendar();
-        String calName = "MangaShelf 新番时刻表";
+        String calName = "GemiNeko 新番时刻表";
         if (onlyMine) {
             if (user == null || user.isGuest()) {
                 throw new com.mangashelf.config.ApiException(401, "UNAUTHENTICATED", "导出个人追番日历需要登录或携带 API Token。");
@@ -403,15 +403,15 @@ public class ExternalController {
             entries = entries.stream()
                     .filter(e -> e.catalogItemId() != null && favIds.contains(e.catalogItemId()))
                     .toList();
-            calName = "MangaShelf 我的追番表";
+            calName = "GemiNeko 我的追番表";
         } else if (coveredOnly) {
             entries = entries.stream().filter(BangumiService.CalendarEntry::covered).toList();
-            calName = "MangaShelf 可播新番表";
+            calName = "GemiNeko 可播新番表";
         }
         String ics = BangumiService.buildCalendarIcs(entries, calName);
         return ResponseEntity.ok()
                 .header("Content-Type", "text/calendar; charset=utf-8")
-                .header("Content-Disposition", "inline; filename=\"mangashelf-schedule.ics\"")
+                .header("Content-Disposition", "inline; filename=\"gemineko-schedule.ics\"")
                 .header("Cache-Control", onlyMine ? "private, max-age=300" : "public, max-age=1800")
                 .body(ics);
     }

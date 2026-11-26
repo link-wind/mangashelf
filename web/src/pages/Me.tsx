@@ -11,6 +11,7 @@ import {
 import { useToast } from '../components/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import SegmentedTabs from '../components/ui/SegmentedTabs'
+import { BRAND_NAME, DEFAULT_AVATAR_URL } from '../lib/brand'
 import { sourceShortLabel } from '../lib/mediaFormat'
 
 interface Favorite {
@@ -455,7 +456,6 @@ export default function Me() {
   }, [shownHistory])
 
   const showCatchUp = !isManga && catchUp.length > 0 && !needle
-  const avatarChar = (me?.login || 'U').slice(0, 1).toUpperCase()
   const joinDate = fmtDate(me?.createdAt)
   const recentQuick = curContinue.slice(0, 3)
   const maxSourceCount = split.mangaSources[0]?.count || 1
@@ -486,7 +486,9 @@ export default function Me() {
           <div className="space-profile-top">
             <div className="space-id-left">
               <div className="space-avatar-ring">
-                <span className="space-avatar">{avatarChar}</span>
+                <span className="space-avatar">
+                  <img src={DEFAULT_AVATAR_URL} alt={me?.login ?? '默认头像'} className="avatar-img" decoding="async" />
+                </span>
               </div>
               <div className="space-id-meta">
                 <div className="space-name-row">
@@ -495,7 +497,7 @@ export default function Me() {
                     {me?.role === 'ADMIN' ? '站点管理员' : '成员'}
                   </span>
                   {joinDate && (
-                    <span className="space-join-date tabular-nums">{joinDate} 加入 MangaShelf</span>
+                    <span className="space-join-date tabular-nums">{joinDate} 加入 {BRAND_NAME}</span>
                   )}
                 </div>
                 <p className="space-bio">

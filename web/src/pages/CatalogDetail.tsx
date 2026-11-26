@@ -208,7 +208,7 @@ export default function CatalogDetail() {
 
   useEffect(() => {
     const t = detail?.bangumiNameCn || detail?.item.name
-    if (t) document.title = `${t} · MangaShelf`
+    if (t) document.title = `${t} · GemiNeko`
   }, [detail?.bangumiNameCn, detail?.item.name])
 
   if (error) return <main className="watch-page"><p className="error">{error}</p></main>

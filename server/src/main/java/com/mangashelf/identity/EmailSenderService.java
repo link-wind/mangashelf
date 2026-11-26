@@ -40,7 +40,7 @@ public class EmailSenderService {
             MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
             helper.setFrom(parseFromAddress(props.from()));
             helper.setTo(toEmail);
-            helper.setSubject("【MangaShelf】注册邮箱验证码：" + code);
+            helper.setSubject("【GemiNeko 杰米猫】注册邮箱验证码：" + code);
             helper.setText(buildPlainText(code, ttlMinutes), buildHtml(code, ttlMinutes));
             sender.send(message);
             log.info("sent registration verification email to {}", maskEmail(toEmail));
@@ -89,7 +89,7 @@ public class EmailSenderService {
 
     private static String buildPlainText(String code, int ttlMinutes) {
         return """
-                你好，欢迎注册 MangaShelf！
+                你好，欢迎注册 GemiNeko（杰米猫）！
 
                 你的注册邮箱验证码是：%s
 
@@ -103,7 +103,7 @@ public class EmailSenderService {
                 <html lang="zh-CN">
                 <body style="margin:0;padding:24px;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;color:#18191c;">
                   <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px 28px;border:1px solid #e5e7eb;">
-                    <div style="font-size:18px;font-weight:800;letter-spacing:-0.3px;color:#00aeec;margin-bottom:8px;">MangaShelf</div>
+                    <div style="font-size:18px;font-weight:800;letter-spacing:-0.3px;color:#00aeec;margin-bottom:8px;">GemiNeko · 杰米猫</div>
                     <h1 style="margin:0 0 12px;font-size:20px;color:#111827;">验证你的注册邮箱</h1>
                     <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:#4b5563;">
                       请将下方 6 位数字验证码填入注册页面以完成账号创建：

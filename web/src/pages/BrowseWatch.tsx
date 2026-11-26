@@ -132,8 +132,8 @@ export default function BrowseWatch() {
   useEffect(() => {
     if (finalTitle) {
       document.title = current
-        ? `${finalTitle} · ${formatEpisodeTitle(current.ordinal, current.title)} · MangaShelf`
-        : `${finalTitle} · MangaShelf`
+        ? `${finalTitle} · ${formatEpisodeTitle(current.ordinal, current.title)} · GemiNeko`
+        : `${finalTitle} · GemiNeko`
     }
   }, [finalTitle, current?.ordinal, current?.title, episodeId])
 

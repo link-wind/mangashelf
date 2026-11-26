@@ -202,8 +202,8 @@ export default function Reader() {
   useEffect(() => {
     if (titles.work && titles.work !== '本地漫画') {
       document.title = titles.chapter
-        ? `${titles.work} · ${titles.chapter} · MangaShelf`
-        : `${titles.work} · MangaShelf`
+        ? `${titles.work} · ${titles.chapter} · GemiNeko`
+        : `${titles.work} · GemiNeko`
     }
   }, [titles.work, titles.chapter])
 

@@ -83,8 +83,8 @@ export default function ExternalWatch() {
   useEffect(() => {
     if (workTitle) {
       document.title = current
-        ? `${workTitle} · ${formatEpisodeTitle(current.ordinal, current.title)} · MangaShelf`
-        : `${workTitle} · MangaShelf`
+        ? `${workTitle} · ${formatEpisodeTitle(current.ordinal, current.title)} · GemiNeko`
+        : `${workTitle} · GemiNeko`
     }
   }, [workTitle, current?.ordinal, current?.title])
 

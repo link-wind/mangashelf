@@ -2176,14 +2176,14 @@ a.sched-next-pill:hover {
   box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .space-avatar {
-  width: 100%; height: 100%; border-radius: 50%;
+  width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
   display: grid; place-items: center;
-  background: linear-gradient(145deg, #1cc4ff, #0084cf);
+  background: linear-gradient(145deg, #d8b4fe, #93c5fd);
   color: #fff; font-size: 32px; font-weight: 800;
   border: 3px solid var(--card);
 }
 .space-page-root.is-manga .space-avatar {
-  background: linear-gradient(145deg, #ff7aa6, #d93c74);
+  background: linear-gradient(145deg, #f9a8d4, #c4b5fd);
 }
 .space-id-meta { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .space-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

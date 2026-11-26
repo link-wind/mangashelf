@@ -243,8 +243,8 @@ export default function ExternalMangaReader() {
 
   useEffect(() => {
     document.title = currentChapterLabel
-      ? `${comicTitle} · ${currentChapterLabel} · MangaShelf`
-      : `${comicTitle} · MangaShelf`
+      ? `${comicTitle} · ${currentChapterLabel} · GemiNeko`
+      : `${comicTitle} · GemiNeko`
   }, [comicTitle, currentChapterLabel])
 
   const notifyConflict = useCallback(() => {

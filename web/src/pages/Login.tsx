@@ -7,6 +7,7 @@ import { EyeIcon } from '../components/Icons'
 import { useToast } from '../components/Toast'
 import BrandLogo from '../components/ui/BrandLogo'
 import SegmentedTabs from '../components/ui/SegmentedTabs'
+import { BRAND_NAME, BRAND_TAGLINE } from '../lib/brand'
 
 interface AuthConfig {
   emailVerificationRequired: boolean
@@ -108,10 +109,10 @@ export default function LoginPage() {
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className="login-brand">
-          <BrandLogo size={42} />
+          <BrandLogo size={52} />
           <div>
-            <h1>MangaShelf</h1>
-            <p className="login-sub">番剧追更与跨源漫画私人空间</p>
+            <h1>{BRAND_NAME}</h1>
+            <p className="login-sub">{BRAND_TAGLINE}</p>
           </div>
         </div>
 

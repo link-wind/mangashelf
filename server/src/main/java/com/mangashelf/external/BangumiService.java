@@ -1041,10 +1041,10 @@ public class BangumiService {
         StringBuilder sb = new StringBuilder();
         sb.append("BEGIN:VCALENDAR\r\n");
         sb.append("VERSION:2.0\r\n");
-        sb.append("PRODID:-//MangaShelf//Anime Schedule//ZH\r\n");
+        sb.append("PRODID:-//GemiNeko//Anime Schedule//ZH\r\n");
         sb.append("CALSCALE:GREGORIAN\r\n");
         sb.append("METHOD:PUBLISH\r\n");
-        sb.append("X-WR-CALNAME:").append(escapeIcs(calendarName == null ? "MangaShelf 新番时刻表" : calendarName)).append("\r\n");
+        sb.append("X-WR-CALNAME:").append(escapeIcs(calendarName == null ? "GemiNeko 新番时刻表" : calendarName)).append("\r\n");
         sb.append("X-WR-TIMEZONE:Asia/Shanghai\r\n");
 
         for (CalendarEntry e : entries) {

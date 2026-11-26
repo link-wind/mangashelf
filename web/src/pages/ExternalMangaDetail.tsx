@@ -197,7 +197,7 @@ export default function ExternalMangaDetail() {
 
   useEffect(() => {
     if (detail?.manga.title) {
-      document.title = `${detail.manga.title} · MangaShelf`
+      document.title = `${detail.manga.title} · GemiNeko`
     }
   }, [detail?.manga.title])
 
