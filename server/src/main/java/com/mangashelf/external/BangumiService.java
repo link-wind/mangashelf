@@ -21,9 +21,14 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -53,6 +58,27 @@ public class BangumiService {
         t.setDaemon(true);
         return t;
     });
+    private final ConcurrentHashMap<UUID, CompletableFuture<OnDemandEnrichResult>> onDemandInflight =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Instant> onDemandNegative = new ConcurrentHashMap<>();
+
+    private static final String ANILIST_GRAPHQL_URL = "https://graphql.anilist.co";
+    private static final Duration ON_DEMAND_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration ON_DEMAND_NEGATIVE_TTL = Duration.ofHours(24);
+    private static final int MAX_BANNER_BYTES = 5 * 1024 * 1024;
+    private static final String ANILIST_SEARCH_QUERY = """
+            query ($search: String) {
+              Page(page: 1, perPage: 5) {
+                media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+                  id
+                  title { romaji english native }
+                  synonyms
+                  bannerImage
+                  coverImage { extraLarge large }
+                }
+              }
+            }
+            """;
 
     @Autowired
     public BangumiService(MangaShelfProperties props, JdbcTemplate jdbc, ObjectMapper objectMapper,
@@ -188,6 +214,18 @@ public class BangumiService {
                 if (toWarm > 0) {
                     log.info("bangumi cover warmup finished ({} subjects checked)", toWarm);
                 }
+                List<Long> bannerIds = jdbc.query(
+                        "SELECT subject_id FROM bangumi_subjects WHERE in_calendar AND banner_url <> '' ORDER BY rating DESC NULLS LAST",
+                        (rs, i) -> rs.getLong(1));
+                for (long sid : bannerIds) {
+                    if (!coverCache.isCached("bangumi-banner", sid + "-banner")) {
+                        try {
+                            fetchBanner(sid);
+                        } catch (Exception ignored) {
+                            // 单张横幅预热失败不影响其他条目
+                        }
+                    }
+                }
             } catch (Exception e) {
                 log.debug("bangumi cover warmup skipped: {}", e.getMessage());
             }
@@ -231,6 +269,81 @@ public class BangumiService {
             return data == null ? null : new Cover(data.bytes(), data.contentType());
         }
         return fetchCoverRemote(subjectId, sz);
+    }
+
+    /** 横幅代理：按 subjectId 取高清宽幅 Banner（仅读库内白名单域名 banner_url，防 SSRF）。 */
+    public Cover fetchBanner(long subjectId) throws Exception {
+        if (coverCache != null) {
+            CoverCacheService.CoverData data = coverCache.getOrFetch(
+                    "bangumi-banner", subjectId + "-banner", () -> fetchBannerRemoteQuietly(subjectId));
+            return data == null ? null : new Cover(data.bytes(), data.contentType());
+        }
+        return fetchBannerRemote(subjectId);
+    }
+
+    private CoverCacheService.CoverData fetchBannerRemoteQuietly(long subjectId) {
+        try {
+            Cover c = fetchBannerRemote(subjectId);
+            return c == null ? null : new CoverCacheService.CoverData(c.bytes(), c.contentType());
+        } catch (Exception e) {
+            log.warn("bangumi banner fetch failed for {}: {}", subjectId, e.getMessage());
+            return null;
+        }
+    }
+
+    private Cover fetchBannerRemote(long subjectId) throws Exception {
+        List<String> urls = jdbc.query(
+                "SELECT banner_url FROM bangumi_subjects WHERE subject_id = ? AND banner_url <> ''",
+                (rs, i) -> rs.getString(1), subjectId);
+        if (urls.isEmpty()) return null;
+        String url = urls.get(0).trim();
+        if (!isAllowedMediaImageUrl(url) || !CoverCacheService.isSafePublicHttpUri(URI.create(url))) {
+            log.warn("rejected non-allowlisted banner url for subject {}", subjectId);
+            return null;
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .header("User-Agent", UA)
+                .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                .GET().build();
+        Exception lastErr = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpResponse<byte[]> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                if (resp.statusCode() != 200) return null;
+                String ct = resp.headers().firstValue("content-type").orElse("image/jpeg")
+                        .split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+                byte[] body = resp.body();
+                if (!ct.startsWith("image/") || body == null || body.length == 0 || body.length > MAX_BANNER_BYTES) {
+                    return null;
+                }
+                return new Cover(body, ct);
+            } catch (java.io.IOException e) {
+                lastErr = e;
+                if (attempt < 2) {
+                    Thread.sleep(200);
+                }
+            }
+        }
+        throw lastErr != null ? lastErr : new java.io.IOException("Bangumi banner fetch failed");
+    }
+
+    /** 仅允许 AniList CDN 与 Bangumi 图床的 HTTPS 公开地址，杜绝 SSRF。 */
+    static boolean isAllowedMediaImageUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) return false;
+        URI uri;
+        try {
+            uri = URI.create(rawUrl.trim());
+        } catch (Exception e) {
+            return false;
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+            return false;
+        }
+        String host = uri.getHost().toLowerCase(Locale.ROOT);
+        return host.equals("s4.anilist.co")
+                || host.endsWith(".anilist.co")
+                || host.equals("lain.bgm.tv");
     }
 
     private static String normalizeCoverSize(String size) {
@@ -460,7 +573,18 @@ public class BangumiService {
                                 Double rating, Integer airWeekday, boolean covered,
                                 String catalogItemId, String workId, String summary,
                                 String remarks, Integer episodeCount, String categoryName,
-                                LocalDate airDate, String airTime, String studio, String mediaType) {}
+                                LocalDate airDate, String airTime, String studio, String mediaType,
+                                String bannerUrl) {
+        public CalendarEntry(long subjectId, String name, String nameCn, String coverUrl,
+                             Double rating, Integer airWeekday, boolean covered,
+                             String catalogItemId, String workId, String summary,
+                             String remarks, Integer episodeCount, String categoryName,
+                             LocalDate airDate, String airTime, String studio, String mediaType) {
+            this(subjectId, name, nameCn, coverUrl, rating, airWeekday, covered,
+                    catalogItemId, workId, summary, remarks, episodeCount, categoryName,
+                    airDate, airTime, studio, mediaType, null);
+        }
+    }
 
     public record SeasonOption(String code, String label) {}
 
@@ -504,7 +628,7 @@ public class BangumiService {
                            b.subject_id, b.name, b.name_cn, b.cover_url, b.rating, b.air_weekday,
                            TRUE AS covered, c.id AS catalog_item_id, c.work_id, b.summary,
                            c.remarks, c.episode_count, c.category_name,
-                           b.air_date, b.air_time, b.studio, b.media_type
+                           b.air_date, b.air_time, b.studio, b.media_type, b.banner_url
                     FROM bangumi_subjects b
                     JOIN external_catalog_items c ON c.bangumi_subject_id = b.subject_id
                     """ + whereClause + "\n" + SCHEDULE_CONTENT_FILTER + """
@@ -513,16 +637,21 @@ public class BangumiService {
             List<CalendarEntry> out = jdbc.query(sql, rs -> {
                 List<CalendarEntry> list = new ArrayList<>();
                 while (rs.next()) {
+                    long sid = rs.getLong(1);
                     var rating = rs.getBigDecimal(5);
                     var airDateSql = rs.getDate(14);
+                    String rawBanner = rs.getString(18);
+                    String resolvedBanner = (rawBanner != null && !rawBanner.isBlank())
+                            ? "/api/v1/bangumi-banners/" + sid : null;
                     list.add(new CalendarEntry(
-                            rs.getLong(1), rs.getString(2), rs.getString(3),
+                            sid, rs.getString(2), rs.getString(3),
                             rs.getString(4), rating == null ? null : rating.doubleValue(),
                             (Integer) rs.getObject(6),
                             rs.getBoolean(7), rs.getString(8), rs.getString(9), rs.getString(10),
                             rs.getString(11), (Integer) rs.getObject(12), rs.getString(13),
                             airDateSql == null ? null : airDateSql.toLocalDate(),
-                            rs.getString(15), rs.getString(16), rs.getString(17)));
+                            rs.getString(15), rs.getString(16), rs.getString(17),
+                            resolvedBanner));
                 }
                 return list;
             }, args);
@@ -959,6 +1088,440 @@ public class BangumiService {
                 .replace(";", "\\;");
     }
 
+    // ── 高清横幅（AniList 1900×400）与详情页按需高清封面回填 ──
+
+    public record AniListMedia(String bannerImage, String coverExtraLarge) {}
+
+    public record OnDemandEnrichResult(Long bangumiSubjectId, String hdCoverUrl) {}
+
+    public record HdEnrichStats(int bannersChecked, int bannersFilled,
+                                int catalogChecked, int catalogLinkedBangumi, int catalogFilledHdCover) {}
+
+    /**
+     * 详情页按需高清封面与元数据补齐（单飞 + 24h 负缓存 + 短超时）：
+     * 1) 先以严格标题相似度搜索 Bangumi v0，命中则拉取 v0 详情写入 bangumi_subjects 并关联，
+     *    详情页即刻获得 1200×1700 级大图 + 评分 + 简介 + 标签；
+     * 2) 若 Bangumi 未命中，则回退查询 AniList coverImage.extraLarge 写入 external_catalog_items.hd_cover_url
+     *    并失效旧低清封面缓存。
+     */
+    public OnDemandEnrichResult enrichCatalogItemOnDemand(UUID itemId, String itemName) {
+        if (itemId == null || itemName == null || itemName.isBlank()) {
+            return null;
+        }
+        String trimmed = itemName.trim();
+        if (trimmed.length() < 2 || trimmed.contains("动态漫")) {
+            return null;
+        }
+        Instant negUntil = onDemandNegative.get(itemId);
+        if (negUntil != null) {
+            if (Instant.now().isBefore(negUntil)) {
+                return null;
+            }
+            onDemandNegative.remove(itemId, negUntil);
+        }
+
+        CompletableFuture<OnDemandEnrichResult> created = new CompletableFuture<>();
+        CompletableFuture<OnDemandEnrichResult> existing = onDemandInflight.putIfAbsent(itemId, created);
+        if (existing != null) {
+            return existing.join();
+        }
+        try {
+            OnDemandEnrichResult result = performOnDemandEnrich(itemId, trimmed);
+            if (result == null) {
+                markOnDemandNegative(itemId);
+            }
+            created.complete(result);
+            return result;
+        } catch (Exception e) {
+            log.debug("on-demand HD enrich failed for {} ({}): {}", itemId, trimmed, e.getMessage());
+            markOnDemandNegative(itemId);
+            created.complete(null);
+            return null;
+        } finally {
+            onDemandInflight.remove(itemId, created);
+        }
+    }
+
+    private OnDemandEnrichResult performOnDemandEnrich(UUID itemId, String itemName) {
+        // 1) 优先匹配 Bangumi（可同时补齐高清 1200px+ 封面、评分、简介、标签与首播日）
+        try {
+            List<Subject> candidates = searchAnimeWithTimeout(itemName, ON_DEMAND_TIMEOUT);
+            Subject best = pickBestBangumiSubject(itemName, candidates);
+            if (best != null && best.subjectId() > 0 && best.coverUrl() != null && !best.coverUrl().isBlank()) {
+                Subject toSave = best;
+                EnrichedDetail v0 = null;
+                try {
+                    JsonNode detail = getWithTimeout("https://api.bgm.tv/v0/subjects/" + best.subjectId(), ON_DEMAND_TIMEOUT);
+                    v0 = parseV0SubjectDetail(detail);
+                    String detailCover = pickImage(detail.path("images"));
+                    toSave = new Subject(
+                            best.subjectId(),
+                            detail.path("name").asText(best.name()),
+                            v0.nameCn().isBlank() ? best.nameCn() : v0.nameCn(),
+                            detailCover.isBlank() ? best.coverUrl() : detailCover,
+                            v0.rating(),
+                            v0.airDate() != null ? v0.airDate() : best.airDate(),
+                            null,
+                            v0.summary(),
+                            v0.tags().isEmpty() ? best.tags() : v0.tags());
+                } catch (Exception ignored) {
+                    // v0 详情偶发超时时先保存搜索命中的基础字段与封面
+                }
+                upsertSubject(toSave, false);
+                if (v0 != null) {
+                    jdbc.update("""
+                            UPDATE bangumi_subjects
+                               SET air_time = COALESCE(?, air_time),
+                                   studio = CASE WHEN ? <> '' THEN ? ELSE studio END,
+                                   media_type = CASE WHEN ? <> '' THEN ? ELSE media_type END
+                             WHERE subject_id = ?
+                            """, v0.airTime(), v0.studio(), v0.studio(),
+                            v0.mediaType(), v0.mediaType(), best.subjectId());
+                }
+                catalogItems.linkSubject(itemId, best.subjectId());
+                hotspotCache.invalidate("catalog_page");
+                return new OnDemandEnrichResult(best.subjectId(), null);
+            }
+        } catch (Exception e) {
+            log.debug("bangumi on-demand search skipped for {}: {}", itemName, e.getMessage());
+        }
+
+        // 2) 回退 AniList 高清竖版封面（coverImage.extraLarge）
+        try {
+            AniListMedia media = queryAniListMedia(ON_DEMAND_TIMEOUT, itemName);
+            if (media != null && media.coverExtraLarge() != null && !media.coverExtraLarge().isBlank()) {
+                jdbc.update("UPDATE external_catalog_items SET hd_cover_url = ? WHERE id = ?",
+                        media.coverExtraLarge(), itemId);
+                if (coverCache != null) {
+                    coverCache.evict("catalog", itemId.toString());
+                }
+                hotspotCache.invalidate("catalog_page");
+                return new OnDemandEnrichResult(null, media.coverExtraLarge());
+            }
+        } catch (Exception e) {
+            log.debug("anilist on-demand cover skipped for {}: {}", itemName, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 管理员批量补齐高清横幅与热门番剧高清封面：
+     * 1) 为缺少 banner_url 的 bangumi_subjects（优先本季新番与高分番）拉取 AniList 1900×400 横幅并预热落盘；
+     * 2) 为未关联 Bangumi 的热门目录条目按需补齐 Bangumi 关联或 AniList 高清封面。
+     */
+    public HdEnrichStats batchEnrichHdAssets(int bannerLimit, int catalogLimit) {
+        int safeBannerLimit = Math.min(Math.max(bannerLimit, 0), 150);
+        int safeCatalogLimit = Math.min(Math.max(catalogLimit, 0), 150);
+
+        int bannersChecked = 0;
+        int bannersFilled = 0;
+        if (safeBannerLimit > 0) {
+            record S(long id, String name, String cn) {}
+            List<S> subjects = jdbc.query("""
+                    SELECT subject_id, name, name_cn
+                      FROM bangumi_subjects
+                     WHERE banner_url = ''
+                     ORDER BY in_calendar DESC, rating DESC NULLS LAST, subject_id DESC
+                     LIMIT ?
+                    """, (rs, i) -> new S(rs.getLong(1), rs.getString(2), rs.getString(3)), safeBannerLimit);
+            for (int i = 0; i < subjects.size(); i++) {
+                S s = subjects.get(i);
+                bannersChecked++;
+                try {
+                    AniListMedia media = queryAniListMedia(Duration.ofSeconds(8), s.name(), s.cn());
+                    if (media != null && media.bannerImage() != null && !media.bannerImage().isBlank()) {
+                        jdbc.update("UPDATE bangumi_subjects SET banner_url = ? WHERE subject_id = ?",
+                                media.bannerImage(), s.id());
+                        bannersFilled++;
+                        try {
+                            fetchBanner(s.id());
+                        } catch (Exception ignored) {
+                            // 预热失败不影响入库，前台访问时会按需再拉
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("anilist banner batch failed for {}: {}", s.id(), e.getMessage());
+                }
+                if (i + 1 < subjects.size()) {
+                    try {
+                        Thread.sleep(380);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        int catalogChecked = 0;
+        int catalogLinkedBangumi = 0;
+        int catalogFilledHdCover = 0;
+        if (safeCatalogLimit > 0) {
+            record C(UUID id, String name) {}
+            List<C> items = jdbc.query("""
+                    SELECT id, name
+                      FROM external_catalog_items
+                     WHERE bangumi_subject_id IS NULL
+                       AND hd_cover_url = ''
+                       AND name NOT LIKE '%动态漫%'
+                       AND name NOT LIKE '%动态漫画%'
+                     ORDER BY episode_count DESC, COALESCE(resource_updated_at, synced_at) DESC
+                     LIMIT ?
+                    """, (rs, i) -> new C(rs.getObject("id", UUID.class), rs.getString("name")), safeCatalogLimit);
+            for (int i = 0; i < items.size(); i++) {
+                C c = items.get(i);
+                catalogChecked++;
+                OnDemandEnrichResult res = enrichCatalogItemOnDemand(c.id(), c.name());
+                if (res != null) {
+                    if (res.bangumiSubjectId() != null) {
+                        catalogLinkedBangumi++;
+                    } else if (res.hdCoverUrl() != null) {
+                        catalogFilledHdCover++;
+                    }
+                }
+                if (i + 1 < items.size()) {
+                    try {
+                        Thread.sleep(300);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (bannersFilled > 0 || catalogLinkedBangumi > 0 || catalogFilledHdCover > 0) {
+            hotspotCache.invalidate("calendar");
+            hotspotCache.invalidate("catalog_page");
+            hotspotCache.invalidate("catalog_genres");
+        }
+        return new HdEnrichStats(bannersChecked, bannersFilled, catalogChecked,
+                catalogLinkedBangumi, catalogFilledHdCover);
+    }
+
+    private List<Subject> searchAnimeWithTimeout(String keyword, Duration timeout) throws Exception {
+        var body = objectMapper.createObjectNode();
+        body.put("keyword", keyword);
+        body.set("filter", objectMapper.createObjectNode().set("type", objectMapper.createArrayNode().add(2)));
+        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.bgm.tv/v0/search/subjects?limit=5"))
+                .timeout(timeout)
+                .header("User-Agent", UA)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                .build();
+        HttpResponse<String> resp = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new IllegalStateException("Bangumi 搜索 HTTP " + resp.statusCode());
+        }
+        List<Subject> out = new ArrayList<>();
+        for (JsonNode x : objectMapper.readTree(resp.body()).path("data")) {
+            List<String> tags = new ArrayList<>();
+            x.path("tags").forEach(t -> {
+                String tag = t.path("name").asText("").trim();
+                if (!tag.isBlank()) tags.add(tag);
+            });
+            out.add(new Subject(x.path("id").asLong(), x.path("name").asText(""),
+                    x.path("name_cn").asText(""), pickImage(x.path("images")), null,
+                    parseDate(x.path("date").asText("")), null, "", tags));
+        }
+        return out;
+    }
+
+    private JsonNode getWithTimeout(String url, Duration timeout) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(timeout)
+                .header("User-Agent", UA)
+                .header("Accept", "application/json")
+                .GET().build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new IllegalStateException("Bangumi HTTP " + resp.statusCode());
+        }
+        return objectMapper.readTree(resp.body());
+    }
+
+    /** 严格标题匹配：精确归一化相等或长度≥4且二元组相似度≥0.72；季号一致优先。 */
+    static Subject pickBestBangumiSubject(String query, List<Subject> candidates) {
+        if (query == null || query.isBlank() || candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        int querySeason = extractSeasonNumber(query);
+        Subject best = null;
+        double bestScore = 0;
+        for (Subject c : candidates) {
+            double rawScore = Math.max(titleMatchScore(query, c.nameCn()), titleMatchScore(query, c.name()));
+            if (rawScore < 0.72) {
+                continue;
+            }
+            int candSeason = Math.max(extractSeasonNumber(c.nameCn()), extractSeasonNumber(c.name()));
+            double adjusted = rawScore;
+            if (querySeason > 0 && candSeason == querySeason) {
+                adjusted += 0.08;
+            } else if (querySeason > 0 && candSeason > 0 && candSeason != querySeason) {
+                adjusted -= 0.12;
+            }
+            if (adjusted > bestScore) {
+                bestScore = adjusted;
+                best = c;
+            }
+        }
+        return best;
+    }
+
+    /** 查询 AniList 免费公开 GraphQL 接口获取宽幅 Banner 与高清竖版封面。 */
+    AniListMedia queryAniListMedia(Duration timeout, String... rawKeywords) throws Exception {
+        List<String> queries = new ArrayList<>();
+        for (String kw : rawKeywords) {
+            if (kw != null && !kw.isBlank()) {
+                String t = kw.trim();
+                if (!queries.contains(t)) {
+                    queries.add(t);
+                }
+            }
+        }
+        if (queries.isEmpty()) {
+            return null;
+        }
+        AniListMedia fallbackCoverOnly = null;
+        for (String kw : queries) {
+            var payload = objectMapper.createObjectNode();
+            payload.put("query", ANILIST_SEARCH_QUERY);
+            payload.set("variables", objectMapper.createObjectNode().put("search", kw));
+            HttpRequest req = HttpRequest.newBuilder(URI.create(ANILIST_GRAPHQL_URL))
+                    .timeout(timeout)
+                    .header("User-Agent", UA)
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 429) {
+                log.warn("AniList rate limited (429), backing off 4s");
+                Thread.sleep(4000);
+                continue;
+            }
+            if (resp.statusCode() != 200) {
+                continue;
+            }
+            AniListMedia hit = parseBestAniListMatch(objectMapper.readTree(resp.body()), queries);
+            if (hit != null) {
+                if (hit.bannerImage() != null && !hit.bannerImage().isBlank()) {
+                    return hit;
+                }
+                if (fallbackCoverOnly == null && hit.coverExtraLarge() != null && !hit.coverExtraLarge().isBlank()) {
+                    fallbackCoverOnly = hit;
+                }
+            }
+        }
+        return fallbackCoverOnly;
+    }
+
+    /** 从 AniList Page.media 中选出与查询标题严格匹配的高清图资源（公开包级供单测）。 */
+    static AniListMedia parseBestAniListMatch(JsonNode root, List<String> queries) {
+        JsonNode mediaList = root.path("data").path("Page").path("media");
+        if (!mediaList.isArray() || queries == null || queries.isEmpty()) {
+            return null;
+        }
+        AniListMedia best = null;
+        double bestScore = 0;
+        for (JsonNode m : mediaList) {
+            List<String> titles = new ArrayList<>();
+            JsonNode titleNode = m.path("title");
+            for (String f : new String[]{"native", "romaji", "english"}) {
+                String v = titleNode.path(f).asText("").trim();
+                if (!v.isBlank()) titles.add(v);
+            }
+            m.path("synonyms").forEach(s -> {
+                String v = s.asText("").trim();
+                if (!v.isBlank()) titles.add(v);
+            });
+
+            double score = 0;
+            for (String q : queries) {
+                for (String t : titles) {
+                    score = Math.max(score, titleMatchScore(q, t));
+                }
+            }
+            if (score < 0.65) {
+                continue;
+            }
+            String banner = m.path("bannerImage").asText("").trim();
+            if (!isAllowedMediaImageUrl(banner)) {
+                banner = "";
+            }
+            String cover = m.path("coverImage").path("extraLarge").asText("").trim();
+            if (cover.isBlank()) {
+                cover = m.path("coverImage").path("large").asText("").trim();
+            }
+            if (!isAllowedMediaImageUrl(cover)) {
+                cover = "";
+            }
+            if (banner.isBlank() && cover.isBlank()) {
+                continue;
+            }
+            double ranked = score + (banner.isBlank() ? 0.0 : 0.05);
+            if (ranked > bestScore) {
+                bestScore = ranked;
+                best = new AniListMedia(banner.isBlank() ? null : banner, cover.isBlank() ? null : cover);
+            }
+        }
+        return best;
+    }
+
+    static double titleMatchScore(String a, String b) {
+        String na = normalizeTitle(a);
+        String nb = normalizeTitle(b);
+        if (na.length() < 2 || nb.length() < 2) {
+            return 0;
+        }
+        if (na.equals(nb)) {
+            return 1.0;
+        }
+        if (Math.min(na.length(), nb.length()) < 4) {
+            return 0;
+        }
+        return bigramSimilarity(na, nb);
+    }
+
+    static int extractSeasonNumber(String title) {
+        if (title == null || title.isBlank()) return 0;
+        var m = java.util.regex.Pattern.compile("(?i)(?:第\\s*([一二三四五六七八九十0-9]+)\\s*[季期部]|season\\s*([0-9]+))")
+                .matcher(title);
+        if (!m.find()) return 0;
+        String token = m.group(1) != null ? m.group(1) : m.group(2);
+        return switch (token) {
+            case "一", "1" -> 1;
+            case "二", "2" -> 2;
+            case "三", "3" -> 3;
+            case "四", "4" -> 4;
+            case "五", "5" -> 5;
+            case "六", "6" -> 6;
+            case "七", "7" -> 7;
+            case "八", "8" -> 8;
+            case "九", "9" -> 9;
+            case "十", "10" -> 10;
+            default -> {
+                try {
+                    yield Integer.parseInt(token);
+                } catch (NumberFormatException e) {
+                    yield 0;
+                }
+            }
+        };
+    }
+
+    private void markOnDemandNegative(UUID itemId) {
+        if (onDemandNegative.size() > 4096) {
+            Instant now = Instant.now();
+            onDemandNegative.entrySet().removeIf(e -> !now.isBefore(e.getValue()));
+            if (onDemandNegative.size() > 4096) {
+                onDemandNegative.clear();
+            }
+        }
+        onDemandNegative.put(itemId, Instant.now().plus(ON_DEMAND_NEGATIVE_TTL));
+    }
+
     // ── 内部 ──
 
     /** 优先大图（Banner 需要），回退 medium/common。 */
@@ -985,7 +1548,7 @@ public class BangumiService {
                     air_date = COALESCE(EXCLUDED.air_date, bangumi_subjects.air_date),
                     air_weekday = COALESCE(EXCLUDED.air_weekday, bangumi_subjects.air_weekday),
                     summary = CASE WHEN EXCLUDED.summary <> '' THEN EXCLUDED.summary ELSE bangumi_subjects.summary END,
-                    in_calendar = EXCLUDED.in_calendar,
+                    in_calendar = (bangumi_subjects.in_calendar OR EXCLUDED.in_calendar),
                     tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE bangumi_subjects.tags END,
                     synced_at = now()
                 """, s.subjectId(), s.name(), s.nameCn(), s.coverUrl(), s.rating(), s.airDate(),

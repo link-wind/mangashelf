@@ -76,6 +76,7 @@ public class SecurityConfig {
                                 "/api/v1/catalog-items", "/api/v1/catalog-items/**",
                                 "/api/v1/catalog-covers/**",
                                 "/api/v1/bangumi-covers/**",
+                                "/api/v1/bangumi-banners/**",
                                 "/api/v1/calendar", "/api/v1/calendar/seasons", "/api/v1/calendar/ics",
                                 "/api/v1/danmaku",
                                 "/api/v1/external-episodes/*/resolve",

@@ -239,6 +239,32 @@ public class ExternalController {
         return bangumi.enrichSubjectsMetadata(limit, force);
     }
 
+    /** 管理员批量补齐高清横幅（AniList 1900×400）与热门未关联动画高清封面。 */
+    @PostMapping("/admin/anime-hd-enrich")
+    public BangumiService.HdEnrichStats enrichAnimeHdAssets(
+            @AuthUser CurrentUser user,
+            @RequestParam(defaultValue = "60") int banners,
+            @RequestParam(defaultValue = "60") int catalog) {
+        if (!user.isAdmin()) {
+            throw new com.mangashelf.config.ApiException(403, "FORBIDDEN", "仅管理员可执行高清横幅与封面补齐。");
+        }
+        return bangumi.batchEnrichHdAssets(banners, catalog);
+    }
+
+    /** 高清宽幅横幅代理：/bangumi-banners/{subjectId}（仅读库内白名单 banner_url，防 SSRF），持久化缓存 + ETag/304。 */
+    @GetMapping("/bangumi-banners/{subjectId}")
+    public ResponseEntity<byte[]> bangumiBanner(
+            @OptionalAuthUser CurrentUser user,
+            @PathVariable long subjectId,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch)
+            throws Exception {
+        BangumiService.Cover banner = bangumi.fetchBanner(subjectId);
+        if (banner == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return serveCover(banner.bytes(), banner.contentType(), ifNoneMatch);
+    }
+
     /** Bangumi 封面代理：/bangumi-covers/{subjectId}（不接收任意 URL）；支持持久化缓存与 ETag/304。 */
     @GetMapping("/bangumi-covers/{subjectId}")
     public ResponseEntity<byte[]> bangumiCover(

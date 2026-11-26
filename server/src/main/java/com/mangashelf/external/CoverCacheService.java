@@ -81,6 +81,18 @@ public class CoverCacheService {
         return Files.isRegularFile(dataPath(bucket, key));
     }
 
+    /** 主动失效单条磁盘与负缓存（用于目录封面从低清升级到高清后立刻生效）。 */
+    public void evict(String bucket, String key) {
+        String cacheKey = bucket + ":" + key;
+        negativeCache.remove(cacheKey);
+        try {
+            Files.deleteIfExists(dataPath(bucket, key));
+            Files.deleteIfExists(metaPath(bucket, key));
+        } catch (IOException e) {
+            log.debug("cover cache evict failed for {}: {}", cacheKey, e.getMessage());
+        }
+    }
+
     /** 统一读盘 → 负缓存 → 单飞回源 → 原子落盘。 */
     public CoverData getOrFetch(String bucket, String key, Supplier<CoverData> remoteFetcher) {
         String cacheKey = bucket + ":" + key;
@@ -127,16 +139,26 @@ public class CoverCacheService {
         }
     }
 
-    /** 目录条目封面代理：仅从 external_catalog_items 查 cover_url，不接收任意 URL。 */
+    /** 目录条目封面代理：优先取高清 hd_cover_url，回退原 cover_url，不接收任意 URL。 */
     public CoverData fetchCatalogCover(UUID itemId) {
         return getOrFetch("catalog", itemId.toString(), () -> {
-            List<String> urls = jdbc.query(
-                    "SELECT cover_url FROM external_catalog_items WHERE id = ? AND cover_url <> ''",
-                    (rs, i) -> rs.getString("cover_url"), itemId);
-            if (urls.isEmpty()) {
+            List<String[]> rows = jdbc.query(
+                    "SELECT hd_cover_url, cover_url FROM external_catalog_items WHERE id = ?",
+                    (rs, i) -> new String[]{rs.getString("hd_cover_url"), rs.getString("cover_url")}, itemId);
+            if (rows.isEmpty()) {
                 return null;
             }
-            String primary = urls.get(0);
+            String hdUrl = rows.get(0)[0];
+            if (hdUrl != null && !hdUrl.isBlank()) {
+                CoverData hdData = downloadPublicImage(hdUrl);
+                if (hdData != null) {
+                    return hdData;
+                }
+            }
+            String primary = rows.get(0)[1];
+            if (primary == null || primary.isBlank()) {
+                return null;
+            }
             CoverData data = downloadPublicImage(primary);
             if (data != null) {
                 return data;

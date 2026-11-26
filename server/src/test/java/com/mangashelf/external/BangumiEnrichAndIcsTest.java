@@ -102,4 +102,49 @@ class BangumiEnrichAndIcsTest {
         assertTrue(!ics.contains("1002"), "无放送星期的条目不应生成循环事件");
         assertTrue(ics.endsWith("END:VCALENDAR\r\n"));
     }
+
+    @Test
+    void parseBestAniListMatchPicksBannerAndRejectsUnrelatedOrUnsafeUrls() throws Exception {
+        String json = """
+                {
+                  "data": {
+                    "Page": {
+                      "media": [
+                        {
+                          "id": 21,
+                          "title": { "romaji": "ONE PIECE", "english": "ONE PIECE", "native": "ONE PIECE" },
+                          "synonyms": ["航海王", "海贼王"],
+                          "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/21-wf37VakJmZqs.jpg",
+                          "coverImage": {
+                            "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx21-YCDoj1pSiOhg.jpg",
+                            "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/bx21.jpg"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+                """;
+        var hit = BangumiService.parseBestAniListMatch(mapper.readTree(json), List.of("ONE PIECE", "航海王"));
+        assertTrue(hit != null);
+        assertEquals("https://s4.anilist.co/file/anilistcdn/media/anime/banner/21-wf37VakJmZqs.jpg", hit.bannerImage());
+        assertEquals("https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx21-YCDoj1pSiOhg.jpg", hit.coverExtraLarge());
+
+        var miss = BangumiService.parseBestAniListMatch(mapper.readTree(json), List.of("完全不相关的作品名称"));
+        assertEquals(null, miss);
+
+        assertTrue(!BangumiService.isAllowedMediaImageUrl("http://127.0.0.1/evil.jpg"));
+        assertTrue(!BangumiService.isAllowedMediaImageUrl("https://evil.example.com/banner.jpg"));
+    }
+
+    @Test
+    void pickBestBangumiSubjectPrefersExactTitleAndMatchingSeason() {
+        var s1 = new BangumiService.Subject(1L, "呪術廻戦", "咒术回战", "https://lain.bgm.tv/pic/cover/l/1.jpg",
+                8.0, null, null, "", List.of());
+        var s2 = new BangumiService.Subject(2L, "呪術廻戦 第2期", "咒术回战 第二季", "https://lain.bgm.tv/pic/cover/l/2.jpg",
+                8.5, null, null, "", List.of());
+        var picked = BangumiService.pickBestBangumiSubject("咒术回战 第二季", List.of(s1, s2));
+        assertTrue(picked != null);
+        assertEquals(2L, picked.subjectId());
+    }
 }

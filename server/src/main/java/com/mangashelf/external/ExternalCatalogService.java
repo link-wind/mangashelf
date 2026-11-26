@@ -31,12 +31,15 @@ public class ExternalCatalogService {
     private final ObjectMapper objectMapper;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final HotspotCache hotspotCache;
+    private final BangumiService bangumi;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
                                   CatalogRepository catalog, JobCreationService jobCreation,
                                   TransactionTemplate tx, ObjectMapper objectMapper,
                                   org.springframework.jdbc.core.JdbcTemplate jdbc,
-                                  HotspotCache hotspotCache) {
+                                  HotspotCache hotspotCache,
+                                  BangumiService bangumi) {
         this.catalogItems = catalogItems;
         this.externals = externals;
         this.catalog = catalog;
@@ -45,6 +48,15 @@ public class ExternalCatalogService {
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
         this.hotspotCache = hotspotCache;
+        this.bangumi = bangumi;
+    }
+
+    ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
+                           CatalogRepository catalog, JobCreationService jobCreation,
+                           TransactionTemplate tx, ObjectMapper objectMapper,
+                           org.springframework.jdbc.core.JdbcTemplate jdbc,
+                           HotspotCache hotspotCache) {
+        this(catalogItems, externals, catalog, jobCreation, tx, objectMapper, jdbc, hotspotCache, null);
     }
 
     // ── 同步 ──
@@ -189,7 +201,13 @@ public class ExternalCatalogService {
     }
 
     private static ExternalCatalogItem rewriteCover(ExternalCatalogItem item) {
-        if (item == null || item.coverUrl() == null || item.coverUrl().isBlank()) {
+        if (item == null) {
+            return null;
+        }
+        if (item.bangumiSubjectId() != null) {
+            return item.withCoverUrl("/api/v1/bangumi-covers/" + item.bangumiSubjectId() + "?size=large");
+        }
+        if (item.coverUrl() == null || item.coverUrl().isBlank()) {
             return item;
         }
         if (item.coverUrl().startsWith("http://") || item.coverUrl().startsWith("https://")) {
@@ -209,6 +227,28 @@ public class ExternalCatalogService {
     public CatalogDetail itemDetail(CurrentUser user, UUID itemId) {
         ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
                 () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
+        String hdCoverUrl = "";
+        if (item.bangumiSubjectId() == null) {
+            List<String> hdRows = jdbc.query(
+                    "SELECT hd_cover_url FROM external_catalog_items WHERE id = ?",
+                    (rs, i) -> rs.getString("hd_cover_url"), itemId);
+            hdCoverUrl = hdRows.isEmpty() || hdRows.get(0) == null ? "" : hdRows.get(0);
+            if (hdCoverUrl.isBlank() && bangumi != null) {
+                try {
+                    BangumiService.OnDemandEnrichResult enriched =
+                            bangumi.enrichCatalogItemOnDemand(item.id(), item.name());
+                    if (enriched != null) {
+                        if (enriched.bangumiSubjectId() != null) {
+                            item = catalogItems.findItem(itemId).orElse(item);
+                        } else if (enriched.hdCoverUrl() != null) {
+                            hdCoverUrl = enriched.hdCoverUrl();
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 按需高清封面补齐失败不影响详情页返回
+                }
+            }
+        }
         // Bangumi 元数据（若已桥接）
         record B(String orig, String cn, Double rating, String summary, Integer weekday,
                  java.time.LocalDate airDate, List<String> tags) {}
@@ -242,7 +282,11 @@ public class ExternalCatalogService {
             mergedTags.addAll(b.tags());
         }
         mergedTags.addAll(catalogItems.findTags(itemId));
-        return new CatalogDetail(rewriteCover(item),
+        ExternalCatalogItem displayItem = rewriteCover(item);
+        if (displayItem.bangumiSubjectId() == null && !hdCoverUrl.isBlank()) {
+            displayItem = displayItem.withCoverUrl("/api/v1/catalog-covers/" + displayItem.id() + "?v=hd");
+        }
+        return new CatalogDetail(displayItem,
                 b == null ? null : b.orig(),
                 b == null ? null : b.cn(),
                 b == null ? null : b.rating(),

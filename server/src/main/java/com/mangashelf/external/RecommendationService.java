@@ -75,7 +75,17 @@ public class RecommendationService {
                                Double rating, Integer airWeekday, boolean covered,
                                String catalogItemId, String workId, String summary,
                                String remarks, Integer episodeCount, String categoryName,
-                               double rankScore) {}
+                               double rankScore, String bannerUrl) {
+        public SeasonalPick(long subjectId, String name, String nameCn, String coverUrl,
+                            Double rating, Integer airWeekday, boolean covered,
+                            String catalogItemId, String workId, String summary,
+                            String remarks, Integer episodeCount, String categoryName,
+                            double rankScore) {
+            this(subjectId, name, nameCn, coverUrl, rating, airWeekday, covered,
+                    catalogItemId, workId, summary, remarks, episodeCount, categoryName,
+                    rankScore, null);
+        }
+    }
 
     public record AnimeRecommendationResult(boolean personalized,
                                             List<String> topPreferences,
@@ -209,10 +219,11 @@ public class RecommendationService {
                     double airBonus = (c.airWeekday() != null
                             && (c.airWeekday() == todayDow || c.airWeekday() == yesterdayDow)) ? 0.10 : 0.0;
                     double epBonus = c.episodeCount() != null && c.episodeCount() > 0 ? 0.05 : 0.0;
-                    double rank = coveredBonus + 0.45 * bayes + airBonus + epBonus;
+                    double bannerBonus = (c.bannerUrl() != null && !c.bannerUrl().isBlank()) ? 0.12 : 0.0;
+                    double rank = coveredBonus + 0.45 * bayes + airBonus + epBonus + bannerBonus;
                     return new SeasonalPick(c.subjectId(), c.name(), c.nameCn(), c.coverUrl(),
                             c.rating(), c.airWeekday(), c.covered(), c.catalogItemId(), c.workId(),
-                            c.summary(), c.remarks(), c.episodeCount(), c.categoryName(), rank);
+                            c.summary(), c.remarks(), c.episodeCount(), c.categoryName(), rank, c.bannerUrl());
                 })
                 .sorted(Comparator.comparingDouble(SeasonalPick::rankScore).reversed())
                 .limit(12)

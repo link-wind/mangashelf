@@ -10,6 +10,7 @@ import { useCatalogFavorites } from '../useCatalogFavorites'
 
 interface CalendarEntry {
   subjectId: number; name: string; nameCn: string; coverUrl: string
+  bannerUrl?: string | null
   rating: number | null; airWeekday: number | null; covered: boolean
   catalogItemId: string | null; workId: string | null; summary: string | null
   remarks: string | null; episodeCount: number | null; categoryName: string | null
@@ -476,13 +477,24 @@ function HeroBanner({ items, favIds, onToggleFav }: {
   const isBusy = busy !== null && busy === it.catalogItemId
   const isFav = Boolean(it.catalogItemId && favIds.has(it.catalogItemId))
   const canPlay = Boolean(it.workId || it.catalogItemId)
+  const hasBanner = Boolean(it.bannerUrl)
+  const posterUrl = `/api/v1/bangumi-covers/${it.subjectId}?size=large`
+  const detailHref = it.workId ? `/works/${it.workId}` : (it.catalogItemId ? `/catalog/${it.catalogItemId}` : '/index')
   return (
-    <section className="hero-slide"
+    <section className={'hero-slide' + (hasBanner ? ' has-banner' : ' has-poster')}
              onMouseEnter={() => setPaused(true)}
              onMouseLeave={() => setPaused(false)}>
-      <div key={it.subjectId} className="hero-bg"
-           style={{ backgroundImage: `url(/api/v1/bangumi-covers/${it.subjectId}?size=large)` }} />
+      <div key={it.subjectId}
+           className={'hero-bg' + (hasBanner ? ' is-landscape' : ' is-ambient')}
+           style={{ backgroundImage: `url(${hasBanner ? it.bannerUrl : posterUrl})` }} />
       <div className="hero-shade" />
+
+      {!hasBanner && (
+        <Link to={detailHref} className="hero-poster-showcase"
+              aria-label={`查看《${it.nameCn || it.name}》详情`}>
+          <CoverImage src={posterUrl} alt={it.nameCn || it.name} loading="eager" fetchPriority="high" />
+        </Link>
+      )}
 
       <div className="hero-content">
         <div className="hero-badges">
@@ -522,7 +534,7 @@ function HeroBanner({ items, favIds, onToggleFav }: {
         {items.map((x, i) => (
           <button type="button" key={x.subjectId} className={'hero-thumb' + (i === idx ? ' on' : '')}
                   onClick={() => setIdx(i)} title={x.nameCn || x.name}>
-            <CoverImage src={`/api/v1/bangumi-covers/${x.subjectId}?size=large`}
+            <CoverImage src={x.bannerUrl || `/api/v1/bangumi-covers/${x.subjectId}?size=large`}
                         alt={x.nameCn || x.name} loading="eager" />
             <span className="hero-thumb-title">{x.nameCn || x.name}</span>
           </button>

@@ -138,6 +138,37 @@ button.ext-card:hover { background: var(--card); }
   filter: saturate(118%) brightness(.66);
   animation: heroFade .55s var(--ease-spring) both;
 }
+/* 真宽幅横幅（AniList 1900×400）：锐利全铺，不模糊拉伸 */
+.hero-bg.is-landscape {
+  background-position: center;
+  filter: saturate(112%) brightness(.76);
+}
+/* 竖版海报回退：柔化暗调氛围底图 + 右侧无拉伸高清立绘卡 */
+.hero-bg.is-ambient {
+  background-position: center 22%;
+  filter: blur(22px) saturate(128%) brightness(.44);
+  transform: scale(1.12);
+}
+.hero-poster-showcase {
+  position: absolute; right: 56px; top: 38px;
+  width: clamp(190px, 15.5vw, 224px); aspect-ratio: 3 / 4;
+  border-radius: 16px; overflow: hidden; z-index: 2;
+  border: 1px solid rgba(255, 255, 255, .24);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .08) inset;
+  background: #141920;
+  transition: transform .24s var(--ease-spring), box-shadow .24s ease;
+  animation: heroFade .5s var(--ease-spring) both;
+}
+.hero-poster-showcase:hover {
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 28px 56px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 255, 255, .18) inset;
+}
+.hero-poster-showcase img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+@media (max-width: 1080px) {
+  .hero-poster-showcase { display: none; }
+}
 .hero-shade {
   position: absolute; inset: 0;
   background:
