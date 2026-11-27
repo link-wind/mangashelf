@@ -54,10 +54,16 @@ public class SecurityConfig {
                         org.springframework.security.web.csrf.CsrfFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), CsrfCookieFilter.afterWhichFilter())
                 .authorizeHttpRequests(auth -> auth
-                        // 公开端点：健康检查与登录/注册/邮箱验证
+                        // 公开端点：健康检查、SEO 收录与登录/注册/邮箱验证
                         .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus",
                                 "/actuator/health/**", "/api/v1/auth/config", "/api/v1/auth/email-code",
                                 "/api/v1/auth/register", "/api/v1/auth/login")
+                        .permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/robots.txt", "/sitemap.xml", "/api/v1/seo/render")
+                        .permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.HEAD,
+                                "/robots.txt", "/sitemap.xml", "/api/v1/seo/render")
                         .permitAll()
                         // 访客浏览（DESIGN 3.1/3.2）：公开内容的只读端点无需登录。
                         // 数据层保证访客（viewerId=全零）只见 PUBLIC+PUBLISHED 内容。

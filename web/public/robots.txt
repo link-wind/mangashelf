@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /media/
+Disallow: /login
+Disallow: /me
+Disallow: /settings
+Disallow: /search
+Disallow: /uploads
+Disallow: /read/
+Disallow: /watch/
+Disallow: /browse/
+Disallow: /manga-ext/read/
+
+Sitemap: /sitemap.xml
