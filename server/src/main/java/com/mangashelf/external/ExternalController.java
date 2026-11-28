@@ -422,6 +422,12 @@ public class ExternalController {
         return catalog.browseEpisodes(user, id);
     }
 
+    @PostMapping("/catalog-items/{id}/extra-lines")
+    public ExternalCatalogService.ExtraLinesResult attachExtraLines(@OptionalAuthUser CurrentUser user,
+                                                                    @PathVariable UUID id) {
+        return catalog.attachExtraLines(user, id);
+    }
+
     @GetMapping("/catalog-items/{id}/play-target")
     public Map<String, Object> browsePlayTarget(@OptionalAuthUser CurrentUser user, @PathVariable UUID id) {
         UUID episodeId = catalog.browsePlayTarget(user, id);

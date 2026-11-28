@@ -33,7 +33,9 @@ public class RuleEngine {
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(HTTP_TIMEOUT).build();
+            .connectTimeout(HTTP_TIMEOUT)
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public record SearchResultItem(String name, String url) {
@@ -110,11 +112,24 @@ public class RuleEngine {
                 .GET();
         String referer = rules.path("referer").asText("");
         if (!referer.isEmpty()) builder.header("Referer", referer);
-        HttpResponse<String> resp = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
-            throw new RuleEngineException("外部站点返回 HTTP " + resp.statusCode());
+        HttpRequest req = builder.build();
+        IOException lastIo = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    throw new RuleEngineException("外部站点返回 HTTP " + resp.statusCode());
+                }
+                return Jsoup.parse(resp.body(), url);
+            } catch (IOException e) {
+                lastIo = e;
+                if (attempt < 2) {
+                    log.debug("rule fetchHtml retry {}/2 for {}: {}", attempt, url, e.getMessage());
+                    Thread.sleep(400L);
+                }
+            }
         }
-        return Jsoup.parse(resp.body(), url);
+        throw lastIo;
     }
 
     private String selectText(Element parent, JsonNode rules, String selectorField) {

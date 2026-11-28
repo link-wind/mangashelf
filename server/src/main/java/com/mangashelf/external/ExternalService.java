@@ -266,10 +266,12 @@ public class ExternalService {
                 stored.positionMs(), stored.durationMs(), stored.version(), stored.updatedAt());
     }
 
-    // ── 播放解析（M7 design.md D1/D4）──
+    // ── 播放解析（M7 design.md D1/D4 + 直链零等待/MacCMS 同步秒解）──
 
-    /** 解析结果新鲜窗口：源站 token 实测分钟级，4 分钟为保守值。 */
+    /** 无明确 Expires 参数的短时效解析结果窗口（保守 4 分钟）。 */
     private static final java.time.Duration RESOLVE_FRESH = java.time.Duration.ofMinutes(4);
+    /** 带明确 Expires 参数的签名直链最大缓存窗口（仍受 Expires 提前 120s 硬截断保护）。 */
+    private static final java.time.Duration SIGNED_RESOLVE_MAX_FRESH = java.time.Duration.ofMinutes(60);
     /** 幂等窗口（秒）：窗口内重复点击共享同一任务，过期允许重新解析。 */
     private static final long RESOLVE_DEDUP_WINDOW_SECONDS = 30;
 
@@ -278,10 +280,11 @@ public class ExternalService {
                                 java.time.Instant resolvedAt, String errorCode, String errorMessage) {
     }
 
-    private static final int RESOLVE_LIMIT_PER_MINUTE = 20;
+    private static final int RESOLVE_LIMIT_PER_MINUTE = 30;
     private final java.util.Map<UUID, java.util.ArrayDeque<Long>> resolveWindows = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<UUID, Object> fastResolveLocks = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** 解析限流：防止公开部署时被当作免费解析接口（每用户 20 次/分钟）。 */
+    /** 解析限流：防止公开部署时被当作免费解析接口（每用户 30 次/分钟，含预热）。 */
     private void checkResolveRate(CurrentUser user) {
         long now = System.currentTimeMillis();
         var window = resolveWindows.computeIfAbsent(user.id(), k -> new java.util.ArrayDeque<>());
@@ -298,6 +301,41 @@ public class ExternalService {
     public ResolveStatus resolvePlayback(CurrentUser user, UUID episodeId) {
         checkResolveRate(user);
         ExternalEpisode episode = requireVisibleEpisode(user, episodeId);
+
+        // 1. 剧集地址本身已是 .m3u8/.mp4 直链（如量子资源）：零队列、零 Python 毫秒级直出
+        String directKind = FastPlaybackResolver.directVideoKind(episode.episodeUrl());
+        if (directKind != null) {
+            return new ResolveStatus(null, "SUCCEEDED", episode.episodeUrl(), directKind,
+                    java.time.Instant.now(), null, null);
+        }
+
+        // 2. 已存在新鲜解析缓存，直接返回（避免重复打上游或建冗余任务）
+        ResolveStatus cached = statusOf(episode);
+        if (cached.playUrl() != null) {
+            return cached;
+        }
+
+        // 3. 标准 MacCMS 播放页（如 7sefun 七色B线）在 API 层同步秒解，省去 Outbox/MQ/Python 开销
+        Object lock = fastResolveLocks.computeIfAbsent(episodeId, k -> new Object());
+        synchronized (lock) {
+            ExternalEpisode refreshed = externals.findEpisode(episodeId).orElse(episode);
+            ResolveStatus afterLock = statusOf(refreshed);
+            if (afterLock.playUrl() != null) {
+                return afterLock;
+            }
+            ExternalSource source = externals.findSource(refreshed.sourceId()).orElse(null);
+            String referer = source != null ? source.baseUrl() : null;
+            String cookie = source != null ? source.cookie() : null;
+            var fast = FastPlaybackResolver.tryResolveMacCms(refreshed.episodeUrl(), referer, cookie);
+            if (fast.isPresent()) {
+                var media = fast.get();
+                externals.markResolved(refreshed.id(), media.playUrl(), media.playKind());
+                return new ResolveStatus(null, "SUCCEEDED", media.playUrl(), media.playKind(),
+                        java.time.Instant.now(), null, null);
+            }
+        }
+
+        // 4. 其余复杂页面回落至异步 Worker + Playwright 嗅探
         var latest = externals.findLatestResolveJob(episodeId);
         boolean active = latest.isPresent()
                 && (com.mangashelf.ingestion.Job.STATUS_QUEUED.equals(latest.get().status())
@@ -316,6 +354,12 @@ public class ExternalService {
 
     public ResolveStatus resolveStatus(CurrentUser user, UUID episodeId) {
         ExternalEpisode episode = requireVisibleEpisode(user, episodeId);
+        // 直链快路径：GET 时即刻返回，连 POST /resolve 都省去
+        String directKind = FastPlaybackResolver.directVideoKind(episode.episodeUrl());
+        if (directKind != null) {
+            return new ResolveStatus(null, "SUCCEEDED", episode.episodeUrl(), directKind,
+                    java.time.Instant.now(), null, null);
+        }
         return statusOf(episode);
     }
 
@@ -331,10 +375,14 @@ public class ExternalService {
         return episode;
     }
 
+    private static final java.util.regex.Pattern URL_EXPIRES_PARAM =
+            java.util.regex.Pattern.compile("(?:[?&])Expires=(\\d{9,12})(?:&|$)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final long SIGNED_URL_EXPIRY_MARGIN_SECONDS = 120L;
+
     private ResolveStatus statusOf(ExternalEpisode episode) {
         var job = externals.findLatestResolveJob(episode.id()).orElse(null);
-        boolean fresh = episode.resolvedAt() != null
-                && episode.resolvedAt().isAfter(java.time.Instant.now().minus(RESOLVE_FRESH));
+        java.time.Instant now = java.time.Instant.now();
+        boolean fresh = isResolvedFresh(episode.resolvedUrl(), episode.resolvedAt(), now);
         return new ResolveStatus(
                 job != null ? job.id() : null,
                 job != null ? job.status() : "NONE",
@@ -343,5 +391,28 @@ public class ExternalService {
                 episode.resolvedAt(),
                 job != null ? job.errorCode() : null,
                 job != null ? job.errorMessage() : null);
+    }
+
+    /** 判定已落库的直链是否仍新鲜：带 Expires 的签名直链最长可复用 60 分钟（距过期需留 ≥120s 余量），其余保守 4 分钟。 */
+    static boolean isResolvedFresh(String url, java.time.Instant resolvedAt, java.time.Instant now) {
+        if (url == null || url.isBlank() || resolvedAt == null) return false;
+        var m = URL_EXPIRES_PARAM.matcher(url);
+        if (m.find()) {
+            return resolvedAt.isAfter(now.minus(SIGNED_RESOLVE_MAX_FRESH)) && isUrlNotNearExpiry(url, now);
+        }
+        return resolvedAt.isAfter(now.minus(RESOLVE_FRESH));
+    }
+
+    /** 签名直链若带 Expires 参数，距过期不足 120 秒即视为失效，强制客户端触发重解析。 */
+    static boolean isUrlNotNearExpiry(String url, java.time.Instant now) {
+        if (url == null || url.isBlank()) return false;
+        var m = URL_EXPIRES_PARAM.matcher(url);
+        if (!m.find()) return true;
+        try {
+            long expiresEpoch = Long.parseLong(m.group(1));
+            return expiresEpoch > now.getEpochSecond() + SIGNED_URL_EXPIRY_MARGIN_SECONDS;
+        } catch (NumberFormatException ignored) {
+            return true;
+        }
     }
 }

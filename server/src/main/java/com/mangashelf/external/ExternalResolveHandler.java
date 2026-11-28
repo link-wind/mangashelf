@@ -24,7 +24,8 @@ import java.util.Map;
 public class ExternalResolveHandler implements JobHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ExternalResolveHandler.class);
-    private static final int SNIFF_TIMEOUT_SECONDS = 30;
+    /** Playwright 嗅探超时：正常站点 3–5s 出流，18s 收紧避免无流页面长时间阻塞队列。 */
+    private static final int SNIFF_TIMEOUT_SECONDS = 18;
 
     private final ExternalRepository externals;
     private final PythonTaskRunner python;

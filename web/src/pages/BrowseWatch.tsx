@@ -53,8 +53,22 @@ export default function BrowseWatch() {
   const [similar, setSimilar] = useState<SimilarAnime[]>([])
   const [displayTitle, setDisplayTitle] = useState('')
   const [overview, setOverview] = useState<PlayerWorkOverview | null>(null)
+  const [loadingExtra, setLoadingExtra] = useState(false)
+
+  const all = data?.lines.flatMap(l => l.episodes) ?? []
+  const current = all.find(e => e.id === episodeId) ?? null
+  const currentLineName = current?.lineName ?? line
+  const currentTab = current?.episodeType ?? tab
+  const currentLineEps = (data?.lines.find(l => l.name === currentLineName)?.episodes ?? [])
+    .filter(e => e.episodeType === currentTab)
+    .sort((a, b) => a.ordinal - b.ordinal)
+  const curIdx = current ? currentLineEps.findIndex(e => e.id === current.id) : -1
+  const nextEpisodeId = curIdx >= 0 && curIdx < currentLineEps.length - 1
+    ? currentLineEps[curIdx + 1].id
+    : undefined
+
   const { status, resumeMs, notice, resolve, saveProgress, resolving, failed } =
-    useEpisodePlayback(episodeId)
+    useEpisodePlayback(episodeId, nextEpisodeId)
 
   useEffect(() => {
     void (async () => {
@@ -118,8 +132,6 @@ export default function BrowseWatch() {
       .catch(() => { /* 无剧集时停留 */ })
   }, [itemId, episodeId, data, navigate])
 
-  const all = data?.lines.flatMap(l => l.episodes) ?? []
-  const current = all.find(e => e.id === episodeId) ?? null
   const finalTitle = displayTitle || data?.item.name || ''
 
   useEffect(() => {
@@ -172,8 +184,39 @@ export default function BrowseWatch() {
     }
   }
 
+  async function loadExtraLines() {
+    if (!itemId || loadingExtra) return
+    setLoadingExtra(true)
+    try {
+      const res = await api.post<{
+        added: boolean
+        addedEpisodes: number
+        lineName: string | null
+        message: string
+        episodes: BrowseEpisodes
+      }>(`/api/v1/catalog-items/${itemId}/extra-lines`, {})
+      if (res.episodes) setData(res.episodes)
+      showToast(res.message || (res.added ? '已加载高清备用线路' : '暂无新增备用线路'), res.added ? 'success' : 'info')
+      if (res.added && res.lineName && res.episodes) {
+        const addedLine = res.episodes.lines.find(l => l.name === res.lineName)
+        const targetEp = addedLine?.episodes.find(e => e.episodeType === tab && e.ordinal === current?.ordinal)
+          ?? addedLine?.episodes.find(e => e.episodeType === tab)
+          ?? addedLine?.episodes[0]
+        if (targetEp) {
+          setLine(res.lineName)
+          navigate(`/browse/${itemId}/${targetEp.id}`)
+        }
+      }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : '加载备用线路失败', 'error')
+    } finally {
+      setLoadingExtra(false)
+    }
+  }
+
   const lines = data?.lines ?? []
-  const displayLines = lines.map((l, idx) => ({ key: l.name, label: formatAnimeLine(idx) }))
+  const displayLines = lines.map((l, idx) => ({ key: l.name, label: formatAnimeLine(idx, l.name) }))
+  const hasBackupLine = lines.some(l => l.name === '7sefun_mp4' || l.name.startsWith('ext_'))
   const activeLineLabel = displayLines.find(l => l.key === line)?.label ?? '国内线路 1'
   const lineAllEpisodes = lines.find(l => l.name === line)?.episodes ?? []
   const mainCount = lineAllEpisodes.filter(e => e.episodeType !== 'EXTRA').length
@@ -210,6 +253,17 @@ export default function BrowseWatch() {
           ?? targetLine?.episodes.find(e => e.episodeType === tab)
         if (match) goto(match.id)
       }}
+      lineExtraAction={!hasBackupLine ? (
+        <button
+          type="button"
+          className="watch-line-pill"
+          disabled={loadingExtra}
+          onClick={() => void loadExtraLines()}
+          title="从备用高清源按需检索并加载 MP4 直连线路"
+        >
+          {loadingExtra ? '检索备用线…' : '+ 高清直连线'}
+        </button>
+      ) : null}
       hasExtra={lineAllEpisodes.some(e => e.episodeType === 'EXTRA')}
       mainCount={mainCount}
       extraCount={extraCount}

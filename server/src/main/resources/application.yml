@@ -75,7 +75,7 @@ mangashelf:
   jobs:
     lease-seconds: ${MANGASHELF_JOB_LEASE_SECONDS:120}
     heartbeat-seconds: 30
-    dispatch-interval-ms: 500
+    dispatch-interval-ms: 200
     recovery-interval-ms: 10000
     max-dispatch-attempts: 5
 

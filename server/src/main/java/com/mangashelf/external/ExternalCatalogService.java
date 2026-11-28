@@ -32,6 +32,9 @@ public class ExternalCatalogService {
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final HotspotCache hotspotCache;
     private final BangumiService bangumi;
+    private final RuleEngine ruleEngine;
+    private final java.util.Map<UUID, java.util.ArrayDeque<Long>> extraLineRateWindows = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<UUID, Long> extraLineItemCooldown = new java.util.concurrent.ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Autowired
     public ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
@@ -39,7 +42,8 @@ public class ExternalCatalogService {
                                   TransactionTemplate tx, ObjectMapper objectMapper,
                                   org.springframework.jdbc.core.JdbcTemplate jdbc,
                                   HotspotCache hotspotCache,
-                                  BangumiService bangumi) {
+                                  BangumiService bangumi,
+                                  RuleEngine ruleEngine) {
         this.catalogItems = catalogItems;
         this.externals = externals;
         this.catalog = catalog;
@@ -49,6 +53,7 @@ public class ExternalCatalogService {
         this.jdbc = jdbc;
         this.hotspotCache = hotspotCache;
         this.bangumi = bangumi;
+        this.ruleEngine = ruleEngine;
     }
 
     ExternalCatalogService(ExternalCatalogRepository catalogItems, ExternalRepository externals,
@@ -56,7 +61,7 @@ public class ExternalCatalogService {
                            TransactionTemplate tx, ObjectMapper objectMapper,
                            org.springframework.jdbc.core.JdbcTemplate jdbc,
                            HotspotCache hotspotCache) {
-        this(catalogItems, externals, catalog, jobCreation, tx, objectMapper, jdbc, hotspotCache, null);
+        this(catalogItems, externals, catalog, jobCreation, tx, objectMapper, jdbc, hotspotCache, null, null);
     }
 
     // ── 同步 ──
@@ -345,17 +350,167 @@ public class ExternalCatalogService {
                 .map(ExternalEpisode::id).orElse(null);
     }
 
-    /** 懒生成与追更：目录条目尚无剧集或资源站已更新更多集数时，按最新 play_groups 幂等补齐（保留已有集 ID 与进度）。 */
+    /** 懒生成与追更：目录条目尚无主源剧集或资源站已更新更多集数时，按最新 play_groups 幂等补齐（不影响附加备用线路）。 */
     private void ensureBrowseEpisodes(ExternalCatalogItem item) {
         List<Episode> parsed = parseEpisodes(item);
-        List<ExternalEpisode> existing = externals.listEpisodesByCatalogItem(item.id());
-        if (existing.size() >= parsed.size() && hasSameKeys(existing, parsed)) {
+        List<ExternalEpisode> existingPrimary = externals.listEpisodesByCatalogItem(item.id()).stream()
+                .filter(e -> item.sourceId().equals(e.sourceId()))
+                .toList();
+        if (existingPrimary.size() >= parsed.size() && hasSameKeys(existingPrimary, parsed)) {
             return;
         }
         for (var ep : parsed) {
             externals.insertCatalogEpisode(UUID.randomUUID(), item.id(), item.sourceId(),
                     ep.title(), ep.url(), ep.ordinal(), ep.lineName(), ep.lineRank(),
                     ep.episodeType());
+        }
+    }
+
+    // ── 按需挂载外部 HTML 规则源备用线路（如 7sefun 七色B线）──
+
+    public record ExtraLinesResult(boolean added, int addedEpisodes, String lineName,
+                                   String matchedTitle, String message, BrowseEpisodes episodes) {}
+
+    public ExtraLinesResult attachExtraLines(CurrentUser user, UUID itemId) {
+        if (ruleEngine == null) {
+            throw new ApiException(503, "RULE_ENGINE_UNAVAILABLE", "规则源引擎未启用。");
+        }
+        checkExtraLineRate(user);
+        ExternalCatalogItem item = catalogItems.findItem(itemId).orElseThrow(
+                () -> new ApiException(404, "ITEM_NOT_FOUND", "目录条目不存在。"));
+        ensureBrowseEpisodes(item);
+
+        List<ExternalSource> htmlSources = externals.listSources(true).stream()
+                .filter(this::isHtmlRuleSource)
+                .toList();
+        if (htmlSources.isEmpty()) {
+            return new ExtraLinesResult(false, 0, null, null, "暂无已启用的备用高清规则源。", browseEpisodes(user, itemId));
+        }
+
+        // 若该目录条目已挂载过全部启用的 HTML 备用源且已有剧集，直接返回避免重复打上游
+        List<ExternalEpisode> currentEps = externals.listEpisodesByCatalogItem(itemId);
+        List<ExternalSource> missingSources = htmlSources.stream()
+                .filter(s -> currentEps.stream().noneMatch(e -> s.id().equals(e.sourceId())))
+                .toList();
+        if (missingSources.isEmpty()) {
+            String existingLine = currentEps.stream()
+                    .filter(e -> !item.sourceId().equals(e.sourceId()))
+                    .map(ExternalEpisode::lineName)
+                    .findFirst().orElse(null);
+            return new ExtraLinesResult(false, 0, existingLine, item.name(),
+                    "该番剧已加载备用高清线路。", browseEpisodes(user, itemId));
+        }
+
+        long now = System.currentTimeMillis();
+        Long lastTry = extraLineItemCooldown.get(itemId);
+        if (lastTry != null && now - lastTry < 15_000L) {
+            return new ExtraLinesResult(false, 0, null, null,
+                    "刚刚已检索过备用线路，请稍后再试。", browseEpisodes(user, itemId));
+        }
+        extraLineItemCooldown.put(itemId, now);
+
+        String bangumiNameCn = loadBangumiNameCn(item.bangumiSubjectId());
+        List<String> targetTitles = new ArrayList<>();
+        if (bangumiNameCn != null && !bangumiNameCn.isBlank()) targetTitles.add(bangumiNameCn);
+        if (item.name() != null && !item.name().isBlank()) targetTitles.add(item.name());
+        List<String> keywords = RuleLineMatcher.searchKeywords(bangumiNameCn, item.name());
+
+        int totalAdded = 0;
+        String attachedLine = null;
+        String matchedTitle = null;
+        String lastFailure = null;
+        int rank = 10;
+
+        for (ExternalSource source : missingSources) {
+            String lineName = lineNameForRuleSource(source);
+            try {
+                RuleEngine.SearchResultItem hit = searchBestMatch(source, keywords, targetTitles);
+                if (hit == null) continue;
+                List<RuleEngine.EpisodeItem> parsed = ruleEngine.parseEpisodes(
+                        source.rules(), source.baseUrl(), hit.url());
+                if (parsed.isEmpty()) continue;
+
+                int ordinal = 0;
+                for (RuleEngine.EpisodeItem ep : parsed) {
+                    if (ep.url() == null || ep.url().isBlank()) continue;
+                    ordinal++;
+                    String title = (ep.title() == null || ep.title().isBlank()) ? ("第" + ordinal + "集") : ep.title();
+                    String type = EXTRA_PATTERN.matcher(title).find() ? "EXTRA" : "MAIN";
+                    externals.insertCatalogEpisode(UUID.randomUUID(), item.id(), source.id(),
+                            title, ep.url(), ordinal, lineName, rank, type);
+                }
+                if (ordinal > 0) {
+                    totalAdded += ordinal;
+                    attachedLine = lineName;
+                    matchedTitle = hit.name();
+                    rank++;
+                }
+            } catch (Exception e) {
+                lastFailure = e.getMessage();
+            }
+        }
+
+        BrowseEpisodes refreshed = browseEpisodes(user, itemId);
+        if (totalAdded > 0) {
+            return new ExtraLinesResult(true, totalAdded, attachedLine, matchedTitle,
+                    "已加载高清备用线路（共 " + totalAdded + " 集）。", refreshed);
+        }
+        String msg = lastFailure != null
+                ? "备用源请求波动，请稍后重试。"
+                : "备用源暂未收录该番剧或暂无可播直连线路。";
+        return new ExtraLinesResult(false, 0, null, null, msg, refreshed);
+    }
+
+    private RuleEngine.SearchResultItem searchBestMatch(ExternalSource source,
+                                                        List<String> keywords,
+                                                        List<String> targetTitles) {
+        for (String kw : keywords) {
+            List<RuleEngine.SearchResultItem> results = ruleEngine.search(source.rules(), source.baseUrl(), kw);
+            var hit = RuleLineMatcher.findBestMatch(targetTitles, results);
+            if (hit.isPresent()) {
+                return hit.get();
+            }
+        }
+        return null;
+    }
+
+    private boolean isHtmlRuleSource(ExternalSource source) {
+        try {
+            JsonNode rules = objectMapper.readTree(source.rules());
+            return "html".equalsIgnoreCase(rules.path("searchMode").asText("html"))
+                    && !rules.path("episodeListSelector").asText("").isBlank();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String lineNameForRuleSource(ExternalSource source) {
+        String base = source.baseUrl() == null ? "" : source.baseUrl().toLowerCase();
+        if (base.contains("7sefun")) {
+            return "7sefun_mp4";
+        }
+        return "ext_" + source.id().toString().substring(0, 8);
+    }
+
+    private String loadBangumiNameCn(Long subjectId) {
+        if (subjectId == null) return null;
+        List<String> rows = jdbc.query(
+                "SELECT name_cn FROM bangumi_subjects WHERE subject_id = ?",
+                (rs, i) -> rs.getString("name_cn"), subjectId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private void checkExtraLineRate(CurrentUser user) {
+        UUID key = user == null ? new UUID(0L, 0L) : user.id();
+        long now = System.currentTimeMillis();
+        var window = extraLineRateWindows.computeIfAbsent(key, k -> new java.util.ArrayDeque<>());
+        synchronized (window) {
+            long cutoff = now - 60_000L;
+            while (!window.isEmpty() && window.peekFirst() < cutoff) window.pollFirst();
+            if (window.size() >= 12) {
+                throw new ApiException(429, "EXTRA_LINE_RATE_LIMITED", "加载备用线路过于频繁，请稍后再试。");
+            }
+            window.addLast(now);
         }
     }
 

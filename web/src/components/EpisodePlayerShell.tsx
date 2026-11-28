@@ -86,6 +86,7 @@ interface EpisodePlayerShellProps {
   lines: ShellLine[]
   activeLine: string
   onSelectLine: (lineKey: string) => void
+  lineExtraAction?: ReactNode
   hasExtra: boolean
   mainCount?: number
   extraCount?: number
@@ -128,7 +129,7 @@ function fmtShortTime(ms: number): string {
 export default function EpisodePlayerShell({
   title, current, activeLineLabel, backLinkTo, backLinkLabel, notice,
   status, resumeMs, resolving, failed, onProgress, onResolve,
-  lines, activeLine, onSelectLine, hasExtra, mainCount, extraCount, tab, onSelectTab,
+  lines, activeLine, onSelectLine, lineExtraAction, hasExtra, mainCount, extraCount, tab, onSelectTab,
   episodes, onSelectEpisode, extraActions, similar = [], overview, danmaku,
 }: EpisodePlayerShellProps) {
   const { showToast } = useToast()
@@ -707,6 +708,7 @@ export default function EpisodePlayerShell({
                       {l.label}
                     </button>
                   ))}
+                  {lineExtraAction}
                 </div>
               </div>
             )}

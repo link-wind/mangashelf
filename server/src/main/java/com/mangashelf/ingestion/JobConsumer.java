@@ -34,7 +34,8 @@ public class JobConsumer {
         this.metrics = metrics;
     }
 
-    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_RESOLVE, ackMode = "MANUAL")
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE_CONTENT_RESOLVE, ackMode = "MANUAL",
+            concurrency = "${mangashelf.jobs.resolve-concurrency:2}")
     public void onContentResolveMessage(Message message, Channel channel) throws IOException {
         consume(message, channel);
     }

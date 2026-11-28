@@ -117,7 +117,7 @@ export default function ExternalWatch() {
   const rawLines = [...new Map(episodes.map(e => [e.lineName, e.lineRank])).entries()]
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name)
-  const displayLines = rawLines.map((key, idx) => ({ key, label: formatAnimeLine(idx) }))
+  const displayLines = rawLines.map((key, idx) => ({ key, label: formatAnimeLine(idx, key) }))
   const activeLineLabel = displayLines.find(l => l.key === lineName)?.label ?? '国内线路 1'
 
   const lineAll = episodes.filter(e => e.lineName === lineName)
