@@ -6,7 +6,7 @@ import { ToastProvider } from './components/Toast'
 import BrandLogo from './components/ui/BrandLogo'
 import CommandPalette, { pushRecentSearch } from './components/ui/CommandPalette'
 import UserPopover from './components/UserPopover'
-import { BRAND_NAME, BRAND_NAME_ZH, BRAND_TITLE_FULL, pageTitle } from './lib/brand'
+import { BRAND_NAME, BRAND_NAME_ZH, BRAND_SEO_TITLE, pageTitle } from './lib/brand'
 import {
   BookmarkIcon, CloseIcon, LogOutIcon, MenuIcon, MoonIcon,
   SearchIcon, SettingsIcon, SunIcon,
@@ -40,12 +40,12 @@ const NAV_ENTRIES = [
 ]
 
 const PAGE_TITLES: Array<[RegExp, string]> = [
-  [/^\/$/, pageTitle('番剧')],
+  [/^\/$/, BRAND_SEO_TITLE],
   [/^\/login$/, pageTitle('登录')],
-  [/^\/manga$/, pageTitle('漫画')],
-  [/^\/index$/, pageTitle('索引')],
-  [/^\/anime$/, pageTitle('索引')],
-  [/^\/schedule$/, pageTitle('新番时刻表')],
+  [/^\/manga$/, pageTitle('高分漫画精选与日漫国漫韩漫目录')],
+  [/^\/index$/, pageTitle('高分日漫、国漫、韩漫番剧索引与评分排行')],
+  [/^\/anime$/, pageTitle('高分日漫、国漫、韩漫番剧索引与评分排行')],
+  [/^\/schedule$/, pageTitle('每周新番时刻表与放送日历')],
   [/^\/me$/, pageTitle('个人空间')],
   [/^\/search$/, pageTitle('搜索')],
   [/^\/settings$/, pageTitle('设置')],
@@ -190,16 +190,21 @@ export default function App() {
   const location = useLocation()
 
   useEffect(() => {
-    const titleFromQuery = new URLSearchParams(location.search).get('title')?.trim()
+    const searchParams = new URLSearchParams(location.search)
+    const titleFromQuery = searchParams.get('title')?.trim()
     if (titleFromQuery && /^\/manga-ext/.test(location.pathname)) {
       document.title = pageTitle(titleFromQuery)
+      return
+    }
+    if (location.pathname === '/index' && searchParams.get('kind') === 'manga') {
+      document.title = pageTitle('高分漫画索引与评分排行')
       return
     }
     if (SELF_TITLED_ROUTES.test(location.pathname)) {
       return
     }
     const matched = PAGE_TITLES.find(([re]) => re.test(location.pathname))
-    document.title = matched ? matched[1] : BRAND_TITLE_FULL
+    document.title = matched ? matched[1] : BRAND_SEO_TITLE
   }, [location.pathname, location.search])
 
   if (loading) {

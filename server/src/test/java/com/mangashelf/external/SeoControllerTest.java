@@ -76,6 +76,25 @@ class SeoControllerTest {
     }
 
     @Test
+    void crawlerRenderOutputsRecommendedSeoTitlesForCoreRoutes() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        SeoController controller = new SeoController(jdbc);
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/seo/render");
+        req.addHeader("X-Forwarded-Proto", "https");
+        req.addHeader("Host", "gemineko.top");
+
+        assertThat(controller.renderForCrawler(req, "/", null, null).getBody())
+                .contains("<title>GemiNeko（杰米猫）· 番剧与漫画空间 - 每周新番时刻表与高分索引</title>");
+        assertThat(controller.renderForCrawler(req, "/schedule", null, null).getBody())
+                .contains("<title>每周新番时刻表与放送日历 · GemiNeko</title>");
+        assertThat(controller.renderForCrawler(req, "/index", "manga", null).getBody())
+                .contains("<title>高分漫画索引与评分排行 · GemiNeko</title>")
+                .contains("<link rel=\"canonical\" href=\"https://gemineko.top/index?kind=manga\" />");
+    }
+
+    @Test
     void jsonAndHtmlEscapingPreventScriptBreakout() {
         assertThat(SeoController.escapeJson("</script><img src=\"x\">&"))
                 .doesNotContain("</script>")

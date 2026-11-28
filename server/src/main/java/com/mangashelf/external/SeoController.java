@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 public class SeoController {
 
     private static final String SITE_NAME = "GemiNeko";
-    private static final String SITE_TITLE = "GemiNeko · 杰米猫番漫空间";
+    private static final String SITE_TITLE = "GemiNeko（杰米猫）· 番剧与漫画空间 - 每周新番时刻表与高分索引";
     private static final String SITE_DESC = "GemiNeko（杰米猫）——无广告的番剧追更、每周新番时刻表、日漫国漫韩漫高分索引与跨源漫画阅读空间，支持 Bangumi / AniList 口碑评分与进度同步。";
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneOffset.UTC);
     private static final Pattern SAFE_HOST = Pattern.compile("^[A-Za-z0-9.\\-:]{1,253}$");
@@ -219,7 +219,7 @@ public class SeoController {
             body.append(" <span>").append(escapeHtml(day + score)).append("</span></li>");
         }
         body.append("</ul></section>");
-        return buildPage(base, "/schedule", "新番时刻表 · " + SITE_NAME, desc,
+        return buildPage(base, "/schedule", "每周新番时刻表与放送日历 · " + SITE_NAME, desc,
                 base + "/brand-icon.png", "website", false, buildWebSiteJsonLd(base), body.toString());
     }
 
@@ -227,7 +227,7 @@ public class SeoController {
         String desc = "GemiNeko 番剧与动画索引：按日漫、国漫、韩漫、欧美地区与 Bangumi/AniList 口碑评分、题材、年代快速筛选高分动画。";
         StringBuilder body = new StringBuilder("<p>").append(escapeHtml(desc)).append("</p>");
         appendSectionLinks(body, "推荐番剧索引", queryTopAnimeLinks(40));
-        return buildPage(base, "/index", "番剧索引 · " + SITE_NAME, desc,
+        return buildPage(base, "/index", "高分日漫、国漫、韩漫番剧索引与评分排行 · " + SITE_NAME, desc,
                 base + "/brand-icon.png", "website", false, buildWebSiteJsonLd(base), body.toString());
     }
 
@@ -235,7 +235,11 @@ public class SeoController {
         String desc = "GemiNeko 漫画发现与跨源索引：汇聚日漫、国漫、韩漫口碑高分精选与多源聚合目录，支持进度同步与无广告沉浸阅读。";
         StringBuilder body = new StringBuilder("<p>").append(escapeHtml(desc)).append("</p>");
         appendSectionLinks(body, "精选漫画目录", queryTopMangaLinks(40));
-        return buildPage(base, path, "漫画 · " + SITE_NAME, desc,
+        String title = "/index".equals(path)
+                ? "高分漫画索引与评分排行 · " + SITE_NAME
+                : "高分漫画精选与日漫国漫韩漫目录 · " + SITE_NAME;
+        String canonical = "/index".equals(path) ? "/index?kind=manga" : path;
+        return buildPage(base, canonical, title, desc,
                 base + "/brand-icon.png", "website", false, buildWebSiteJsonLd(base), body.toString());
     }
 
@@ -274,7 +278,7 @@ public class SeoController {
             return renderHome(base);
         }
         AnimeDetail d = list.getFirst();
-        String title = d.title() + " · " + SITE_NAME;
+        String title = "《" + d.title() + "》评分、简介与剧集目录 · " + SITE_NAME;
         String desc = buildAnimeDescription(d.title(), d.region(), d.remarks(), d.episodes(), d.rating(), d.summary());
         String image = d.subjectId() != null
                 ? base + "/api/v1/bangumi-covers/" + d.subjectId() + "?size=large"
@@ -345,7 +349,7 @@ public class SeoController {
             return renderMangaHub(base, "/manga");
         }
         MangaDetail d = list.getFirst();
-        String title = d.title() + " · " + SITE_NAME;
+        String title = "《" + d.title() + "》评分、题材与章节目录 · " + SITE_NAME;
         String desc = buildMangaDescription(d.title(), d.author(), d.region(), d.remarks(), d.rating(), d.tags());
         String canonicalPath = "/manga-ext/" + encodePathSegment(d.sourceItemId())
                 + "?source=" + encodeQueryValue(d.source());
