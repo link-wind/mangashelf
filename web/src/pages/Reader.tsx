@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, mediaUrl } from '../api'
 import { useAuth } from '../auth'
+import { useReaderChrome } from '../lib/useReaderChrome'
 
 const AUTO_NEXT_KEY = 'ms-local-reader-autonext'
 
@@ -76,8 +77,12 @@ export default function Reader() {
   const [tocOpen, setTocOpen] = useState(false)
   const [tocAsc, setTocAsc] = useState(true)
   const [autoNext, setAutoNext] = useState<boolean>(loadAutoNext)
+  const chrome = useReaderChrome({ resetKey: revisionId ?? '', locked: tocOpen, scrollAutoHide: false })
   const loadedRef = useRef(false)
   const wheelLockRef = useRef(0)
+  const gestureRef = useRef<{ x: number; y: number; t: number; pointerId: number } | null>(null)
+  const activePointersRef = useRef<Set<number>>(new Set())
+  const multiTouchRef = useRef(false)
   const pagesRef = useRef<Record<number, PageView>>({})
   const prefetchedUrlsRef = useRef<Set<string>>(new Set())
   const inflightCursorsRef = useRef<Set<number>>(new Set())
@@ -215,13 +220,18 @@ export default function Reader() {
       .catch(() => setChapters([]))
   }, [workId])
 
-  // 键盘与滚轮导航（←→↑↓ 与滚轮）：单页翻页器，方向键语义一致
+  // 键盘与滚轮导航（←→↑↓ 与滚轮、Esc 逐层退出）：单页翻页器，方向键语义一致
   useEffect(() => {
     const onNavKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Escape') {
+        if (tocOpen) { setTocOpen(false); chrome.show() }
+        else if (!chrome.showUi) chrome.show()
+        return
+      }
       if (tocOpen) return
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); void go(1) }
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); void go(-1) }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); chrome.hide(); void go(1) }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); chrome.hide(); void go(-1) }
     }
     const onWheel = (e: WheelEvent) => {
       if (tocOpen) return
@@ -322,14 +332,62 @@ export default function Reader() {
     return () => document.body.classList.remove('reader-open')
   }, [])
 
+  function onStagePointerDown(e: React.PointerEvent) {
+    if (e.target instanceof Element && e.target.closest('button, a, input')) return
+    activePointersRef.current.add(e.pointerId)
+    if (activePointersRef.current.size > 1 || !e.isPrimary) {
+      multiTouchRef.current = true
+      gestureRef.current = null
+      return
+    }
+    gestureRef.current = { x: e.clientX, y: e.clientY, t: Date.now(), pointerId: e.pointerId }
+  }
+
+  function onStagePointerCancel(e: React.PointerEvent) {
+    activePointersRef.current.delete(e.pointerId)
+    if (gestureRef.current?.pointerId === e.pointerId) gestureRef.current = null
+    if (activePointersRef.current.size === 0) multiTouchRef.current = false
+  }
+
+  function onStagePointerUp(e: React.PointerEvent) {
+    activePointersRef.current.delete(e.pointerId)
+    const wasMulti = multiTouchRef.current
+    if (activePointersRef.current.size === 0) multiTouchRef.current = false
+    const g = gestureRef.current
+    if (g?.pointerId === e.pointerId) gestureRef.current = null
+    if (wasMulti || !g || g.pointerId !== e.pointerId) return
+    if (e.target instanceof Element && e.target.closest('button, a, input')) return
+
+    const dx = e.clientX - g.x
+    const dy = e.clientY - g.y
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    const dt = Date.now() - g.t
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+
+    if (Math.max(absX, absY) < 12 && dt < 300) {
+      if (tocOpen) { setTocOpen(false); return }
+      const ratio = (e.clientX - rect.left) / Math.max(1, rect.width)
+      if (ratio < 0.3) { chrome.hide(); void go(-1) }
+      else if (ratio >= 0.7) { chrome.hide(); void go(1) }
+      else chrome.toggle()
+      return
+    }
+
+    if (!tocOpen && absX > 48 && absX > absY * 1.2) {
+      chrome.hide()
+      void go(dx < 0 ? 1 : -1)
+    }
+  }
+
   const progressPct = pageCount > 0 ? Math.min(100, Math.max(2, Math.round((current / pageCount) * 100))) : 0
 
   return (
-    <div className="reader-full local-reader show-ui">
+    <div className={'reader-full local-reader' + (chrome.showUi ? ' show-ui' : '')}>
       <div className="reader-progress-bar" aria-hidden="true">
         <div className="reader-progress-fill" style={{ width: `${progressPct}%` }} />
       </div>
-      <header className="rf-top">
+      <header className="rf-top" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <Link to="/manga" className="rf-icon" aria-label="返回">←</Link>
         <div className="rf-title">
           <span className="rf-comic">{titles.work}</span>
@@ -347,7 +405,7 @@ export default function Reader() {
       </header>
 
       {tocOpen && (
-        <div className="rf-sheet rf-toc" onClick={e => e.stopPropagation()}>
+        <div className="rf-sheet rf-toc" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
           <div className="rf-sheet-row">
             <span>目录（{chapters.length} 话）</span>
             <button className="mini ghost" onClick={() => setTocAsc(v => !v)}>
@@ -369,18 +427,21 @@ export default function Reader() {
 
       {error && <p className="error" style={{ padding: '80px 24px 0' }}>{error}</p>}
 
-      <div className="local-stage" onClick={() => void go(1)}>
-        <button className="rf-hit rf-hit-left" onClick={e => { e.stopPropagation(); void go(-1) }}
+      <div className="local-stage"
+           onPointerDown={onStagePointerDown}
+           onPointerUp={onStagePointerUp}
+           onPointerCancel={onStagePointerCancel}>
+        <button className="rf-hit rf-hit-left" onClick={e => { e.stopPropagation(); chrome.hide(); void go(-1) }}
                 disabled={current <= 1} aria-label="上一页">‹</button>
         {currentUrl
           ? <img className="local-page" src={mediaUrl(currentUrl)} alt={`第 ${current} 页`} />
           : <p className="muted">加载中…</p>}
-        <button className="rf-hit rf-hit-right" onClick={e => { e.stopPropagation(); void go(1) }}
+        <button className="rf-hit rf-hit-right" onClick={e => { e.stopPropagation(); chrome.hide(); void go(1) }}
                 disabled={current >= pageCount && !(autoNext && nextCh)} aria-label="下一页">›</button>
       </div>
 
       {pageCount > 0 && current >= pageCount && nextCh && !tocOpen && (
-        <div className="rf-auto-pill" onClick={e => e.stopPropagation()}>
+        <div className="rf-auto-pill" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
           <span>
             {autoNext
               ? `已到末页 · 继续翻页自动进入第 ${nextCh.ordinal} 话`
@@ -392,7 +453,7 @@ export default function Reader() {
         </div>
       )}
 
-      <footer className="rf-bottom">
+      <footer className="rf-bottom" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <button className="rf-text-btn" onClick={() => void go(-1)} disabled={current <= 1}>上一页</button>
         <div className="rf-progress">
           <span className="rf-page">{current} / {pageCount}</span>

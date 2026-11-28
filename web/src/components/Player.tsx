@@ -4,6 +4,14 @@ import {
   SkipForward, Volume1, Volume2, VolumeX,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  loadSrMode,
+  saveSrMode,
+  startSuperResolution,
+  type SrController,
+  type SrMode,
+  type SrStats,
+} from '../lib/superResolution'
 
 export interface DanmakuItem {
   id: string
@@ -35,6 +43,11 @@ const DM_SETTINGS_KEY = 'ms-danmaku-settings:v1'
 const VOL_KEY = 'ms-player-vol'
 const SPEED_KEY = 'ms-player-speed'
 const SPEEDS = [2, 1.5, 1.25, 1, 0.75, 0.5]
+const SR_OPTIONS: { value: SrMode; label: string }[] = [
+  { value: 'off', label: '关闭' },
+  { value: 'fast', label: '效率' },
+  { value: 'quality', label: '质量' },
+]
 const LANES = 8
 
 export function loadDanmakuSettings(): DanmakuSettings {
@@ -126,12 +139,16 @@ export default function Player({
   onTimeTick, onProgress, onEnded, onFatal, danmaku,
 }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const srCanvasRef = useRef<HTMLCanvasElement>(null)
+  const srCtrlRef = useRef<SrController | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const hideTimer = useRef<number | null>(null)
   const hudTimer = useRef<number | null>(null)
   const draggingRef = useRef(false)
+  const splitDraggingRef = useRef(false)
+  const controlsHoverRef = useRef(false)
   const onEndedRef = useRef(onEnded)
   const onProgressRef = useRef(onProgress)
   const onTimeTickRef = useRef(onTimeTick)
@@ -148,6 +165,14 @@ export default function Player({
   const [muted, setMuted] = useState(false)
   const [speed, setSpeed] = useState<number>(loadSavedSpeed)
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
+  const [srMode, setSrMode] = useState<SrMode>(loadSrMode)
+  const [srMenuOpen, setSrMenuOpen] = useState(false)
+  const [srStats, setSrStats] = useState<SrStats | null>(null)
+  const [srCompare, setSrCompare] = useState(false)
+  const [srSplit, setSrSplit] = useState(0.5)
+  const [srFailedSrc, setSrFailedSrc] = useState<string | null>(null)
+  const [inPip, setInPip] = useState(false)
+  const [subtitleCues, setSubtitleCues] = useState<string[]>([])
   const [controlsVisible, setControlsVisible] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
   const [hoverSeek, setHoverSeek] = useState<{ ratio: number; time: number } | null>(null)
@@ -263,20 +288,167 @@ export default function Player({
     }
   }, [src])
 
-  // 全屏状态同步
+  // 全屏与画中画状态同步
   useEffect(() => {
     const onFs = () => setFullscreen(!!document.fullscreenElement)
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
   }, [])
 
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onEnterPip = () => setInPip(true)
+    const onLeavePip = () => setInPip(false)
+    v.addEventListener('enterpictureinpicture', onEnterPip)
+    v.addEventListener('leavepictureinpicture', onLeavePip)
+    return () => {
+      v.removeEventListener('enterpictureinpicture', onEnterPip)
+      v.removeEventListener('leavepictureinpicture', onLeavePip)
+    }
+  }, [])
+
+  const srActive = srMode !== 'off' && Boolean(src) && hasFrame && !inPip && srFailedSrc !== src
+
+  // 实时超清管线生命周期（WebGPU Anime4K + WebGL2 CAS 降级）
+  useEffect(() => {
+    if (srMode === 'off' || !srActive) {
+      srCtrlRef.current?.destroy()
+      srCtrlRef.current = null
+      setSrStats(null)
+      return
+    }
+    const video = videoRef.current
+    const canvas = srCanvasRef.current
+    if (!video || !canvas) return
+
+    let cancelled = false
+    let localCtrl: SrController | null = null
+
+    void startSuperResolution({
+      video,
+      canvas,
+      mode: srMode,
+      splitRatio: srCompare ? srSplit : null,
+      onStats: (stats) => {
+        if (!cancelled) setSrStats(stats)
+      },
+      onError: (code, msg) => {
+        if (cancelled) return
+        if (code === 'cors' && src) setSrFailedSrc(src)
+        else {
+          setSrMode('off')
+          saveSrMode('off')
+        }
+        setSrStats(null)
+        showHud(msg)
+      },
+      onAutoDowngrade: (msg) => {
+        if (cancelled) return
+        setSrMode('fast')
+        saveSrMode('fast')
+        showHud(msg)
+      },
+    }).then((ctrl) => {
+      if (cancelled) {
+        ctrl.destroy()
+        return
+      }
+      localCtrl = ctrl
+      srCtrlRef.current = ctrl
+    }).catch(() => {
+      if (!cancelled && src) setSrFailedSrc(src)
+    })
+
+    return () => {
+      cancelled = true
+      localCtrl?.destroy()
+      if (srCtrlRef.current === localCtrl) srCtrlRef.current = null
+    }
+    // splitRatio 通过 setSplitRatio 热更新，不重建 GPU 管线
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srActive, srMode, src])
+
+  // 热更新分屏对比比例（零重建、暂停时也可实时拖动）
+  useEffect(() => {
+    srCtrlRef.current?.setSplitRatio(srCompare ? srSplit : null)
+  }, [srCompare, srSplit])
+
+  // 超清 Canvas 覆在 <video> 上时同步渲染外置 WebVTT 字幕，避免遮挡原生字幕轨
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !subtitleUrl || !srActive) {
+      setSubtitleCues([])
+      return
+    }
+    const track = v.textTracks[0]
+    if (!track) return
+    const prevMode = track.mode
+    track.mode = 'hidden'
+    const syncCues = () => {
+      const list = track.activeCues
+      if (!list || list.length === 0) {
+        setSubtitleCues([])
+        return
+      }
+      const lines: string[] = []
+      for (let i = 0; i < list.length; i++) {
+        const cue = list[i] as VTTCue
+        if (cue?.text) lines.push(cue.text)
+      }
+      setSubtitleCues(lines)
+    }
+    syncCues()
+    track.addEventListener('cuechange', syncCues)
+    return () => {
+      track.removeEventListener('cuechange', syncCues)
+      track.mode = prevMode === 'hidden' ? 'showing' : prevMode
+      setSubtitleCues([])
+    }
+  }, [subtitleUrl, srActive, src])
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimer.current) {
+      window.clearTimeout(hideTimer.current)
+      hideTimer.current = null
+    }
+  }, [])
+
+  const scheduleHide = useCallback(() => {
+    clearHideTimer()
+    hideTimer.current = window.setTimeout(() => {
+      if (
+        !videoRef.current?.paused
+        && !speedMenuOpen
+        && !srMenuOpen
+        && !controlsHoverRef.current
+        && !draggingRef.current
+      ) {
+        setControlsVisible(false)
+      }
+    }, 2500)
+  }, [clearHideTimer, speedMenuOpen, srMenuOpen])
+
   const poke = useCallback(() => {
     setControlsVisible(true)
-    if (hideTimer.current) window.clearTimeout(hideTimer.current)
-    hideTimer.current = window.setTimeout(() => {
-      if (!videoRef.current?.paused && !speedMenuOpen) setControlsVisible(false)
-    }, 2600)
-  }, [speedMenuOpen])
+    scheduleHide()
+  }, [scheduleHide])
+
+  // 播放状态 / 全屏 / 弹层变化时同步控制条自动隐藏
+  useEffect(() => {
+    if (!playing) {
+      clearHideTimer()
+      setControlsVisible(true)
+      return
+    }
+    if (speedMenuOpen || srMenuOpen) {
+      clearHideTimer()
+      setControlsVisible(true)
+      return
+    }
+    scheduleHide()
+    return clearHideTimer
+  }, [playing, fullscreen, speedMenuOpen, srMenuOpen, scheduleHide, clearHideTimer])
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current
@@ -321,6 +493,22 @@ export default function Player({
     try { localStorage.setItem(SPEED_KEY, String(nextSpeed)) } catch { /* ignore */ }
     showHud(`倍速 ${nextSpeed}x`)
   }, [showHud])
+
+  const pickSrMode = useCallback((nextMode: SrMode) => {
+    setSrMode(nextMode)
+    saveSrMode(nextMode)
+    setSrFailedSrc(null)
+    if (nextMode === 'off') setSrCompare(false)
+    setSrMenuOpen(false)
+    const label = nextMode === 'off' ? '超清：关' : nextMode === 'fast' ? '超清：效率' : '超清：质量'
+    showHud(label)
+  }, [showHud])
+
+  const cycleSrMode = useCallback(() => {
+    const order: SrMode[] = ['off', 'fast', 'quality']
+    const next = order[(order.indexOf(srMode) + 1) % order.length]
+    pickSrMode(next)
+  }, [srMode, pickSrMode])
 
   const toggleFullscreen = useCallback(() => {
     const el = shellRef.current
@@ -382,6 +570,9 @@ export default function Player({
       } else if ((e.key === 'd' || e.key === 'D') && danmaku) {
         e.preventDefault()
         danmaku.onCycleMode()
+      } else if (e.key === 'u' || e.key === 'U') {
+        e.preventDefault()
+        cycleSrMode()
       } else if (e.shiftKey && (e.key === 'N' || e.key === 'n') && onNext) {
         e.preventDefault()
         onNext()
@@ -395,7 +586,7 @@ export default function Player({
   }, [
     togglePlay, seekTo, changeVolume, toggleMute, toggleFullscreen,
     onToggleWidescreen, onToggleLightsOff, widescreen, lightsOff,
-    danmaku, onNext, onPrev, volume, muted, showHud,
+    danmaku, cycleSrMode, onNext, onPrev, volume, muted, showHud,
   ])
 
   // 拖拽进度条
@@ -428,20 +619,54 @@ export default function Player({
     window.addEventListener('pointerup', onUp)
   }
 
+  // 拖拽原画 / 超清分屏滑块
+  function handleSplitPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    const canvas = srCanvasRef.current ?? shellRef.current
+    if (!canvas) return
+    splitDraggingRef.current = true
+    const updateFromClientX = (clientX: number) => {
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width <= 0) return
+      const ratio = Math.max(0.05, Math.min(0.95, (clientX - rect.left) / rect.width))
+      setSrSplit(ratio)
+    }
+    updateFromClientX(e.clientX)
+    const onMove = (ev: PointerEvent) => updateFromClientX(ev.clientX)
+    const onUp = () => {
+      splitDraggingRef.current = false
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   const pct = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0
   const bufPct = duration > 0 ? Math.min(100, Math.max(0, (buffered / duration) * 100)) : 0
   const canPip = typeof document !== 'undefined' && Boolean(document.pictureInPictureEnabled) && Boolean(src)
   const dmMode = danmaku?.settings.mode ?? 'off'
   const showPosterBg = Boolean(poster && (!hasFrame || !src || overlay))
+  const srBtnLabel = srMode === 'quality' ? '超清+' : '超清'
+  const srTitle = srStats
+    ? `超清：${srMode === 'quality' ? '质量' : '效率'} · ${srStats.sourceHeight}p→${srStats.outputHeight}p (U)`
+    : srFailedSrc === src && src
+      ? '当前线路受跨域限制'
+      : '超清增强 (U)'
+  const showUi = controlsVisible || speedMenuOpen || srMenuOpen || !playing
 
   return (
     <div
       ref={shellRef}
-      className={'ms-player' + (controlsVisible || speedMenuOpen ? ' show-ui' : '')}
+      className={'ms-player' + (showUi ? ' show-ui' : '') + (fullscreen ? ' is-fullscreen' : '')}
       tabIndex={0}
       onMouseMove={poke}
       onMouseLeave={() => {
+        controlsHoverRef.current = false
+        clearHideTimer()
         setSpeedMenuOpen(false)
+        setSrMenuOpen(false)
         setHoverSeek(null)
         if (playing) setControlsVisible(false)
       }}
@@ -465,6 +690,41 @@ export default function Player({
         )}
       </video>
 
+      {srActive && (
+        <canvas
+          key={`${srMode}:${src ?? ''}`}
+          ref={srCanvasRef}
+          className="mp-sr-canvas"
+          aria-hidden="true"
+        />
+      )}
+
+      {srActive && srCompare && (
+        <>
+          <span className="mp-sr-badge is-left">原画</span>
+          <span className="mp-sr-badge is-right">超清</span>
+          <div
+            className="mp-sr-split"
+            style={{ left: `${srSplit * 100}%` }}
+            onPointerDown={handleSplitPointerDown}
+            onClick={e => e.stopPropagation()}
+            role="slider"
+            aria-label="拖动对比原画与超清"
+            aria-valuemin={5}
+            aria-valuemax={95}
+            aria-valuenow={Math.round(srSplit * 100)}
+          >
+            <span className="mp-sr-split-knob">⇆</span>
+          </div>
+        </>
+      )}
+
+      {srActive && subtitleCues.length > 0 && (
+        <div className="mp-sr-subtitles" aria-live="polite">
+          {subtitleCues.map((line, idx) => <span key={idx}>{line}</span>)}
+        </div>
+      )}
+
       {danmaku && dmMode !== 'off' && src && (
         <DanmakuLayer items={danmaku.items} current={current} settings={danmaku.settings} />
       )}
@@ -481,7 +741,18 @@ export default function Player({
 
       {overlay}
 
-      <div className="mp-controls" onClick={e => e.stopPropagation()}>
+      <div
+        className="mp-controls"
+        onClick={e => e.stopPropagation()}
+        onMouseEnter={() => {
+          controlsHoverRef.current = true
+          clearHideTimer()
+        }}
+        onMouseLeave={() => {
+          controlsHoverRef.current = false
+          if (playing) scheduleHide()
+        }}
+      >
         <div
           ref={progressRef}
           className="mp-progress"
@@ -535,12 +806,68 @@ export default function Player({
             />
           </div>
 
+          {/* 超清画质增强菜单（Anime4K WebGPU / WebGL2 降级） */}
+          <div className="mp-speed-wrap">
+            <button
+              type="button"
+              className={'mp-icon mp-text' + (srMode !== 'off' ? ' on' : '')}
+              onClick={() => {
+                setSrMenuOpen(v => !v)
+                setSpeedMenuOpen(false)
+              }}
+              title={srTitle}
+              aria-expanded={srMenuOpen}
+            >
+              {srBtnLabel}
+            </button>
+            {srMenuOpen && (
+              <div className="mp-speed-menu mp-sr-menu" role="menu">
+                {srFailedSrc === src && src && (
+                  <span className="mp-sr-tip">线路不支持</span>
+                )}
+                {SR_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={srMode === opt.value}
+                    className={'mp-speed-opt' + (srMode === opt.value ? ' is-active' : '')}
+                    onClick={() => pickSrMode(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {srActive && (
+                  <>
+                    <div className="mp-sr-divider" />
+                    <button
+                      type="button"
+                      className={'mp-speed-opt' + (srCompare ? ' is-active' : '')}
+                      onClick={() => {
+                        setSrCompare(prev => {
+                          const next = !prev
+                          showHud(next ? '对比：开' : '对比：关')
+                          return next
+                        })
+                      }}
+                    >
+                      对比
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 倍速悬浮直选菜单 */}
           <div className="mp-speed-wrap">
             <button
               type="button"
               className={'mp-icon mp-text' + (speed !== 1 ? ' on' : '')}
-              onClick={() => setSpeedMenuOpen(v => !v)}
+              onClick={() => {
+                setSpeedMenuOpen(v => !v)
+                setSrMenuOpen(false)
+              }}
               title="播放倍速"
               aria-expanded={speedMenuOpen}
             >

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api'
 import ExternalMangaPage from '../components/ExternalMangaPage'
+import { useReaderChrome } from '../lib/useReaderChrome'
 import { loadPageSizes, savePageSizes, type PageSizes } from '../readerPageSizes'
 
 interface Pages {
@@ -42,9 +43,13 @@ function loadSettings(): ReaderSettings {
   return { dir: 'ltr', pageMode: 'single', anim: 'fade', hd: false, autoNext: true }
 }
 
-/* ── 手势判定（阈值规则移植 HOMURA-reader readerGestures）── */
+/* ── 手势判定（阈值规则移植 HOMURA-reader readerGestures，放宽移动端点击容差）── */
 const TAP_MAX_DURATION = 300
-const TAP_MAX_DISTANCE = 8
+const TAP_MAX_DISTANCE = 12
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, label'))
+}
 
 function tapZone(x: number, width: number): 'left' | 'right' | 'center' {
   const ratio = x / Math.max(1, width)
@@ -109,8 +114,8 @@ export default function ExternalMangaReader() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<ResolveStatus | null>(null)
-  const [uiVisible, setUiVisible] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tocOpen, setTocOpen] = useState(false)
   const [spread, setSpread] = useState(0)
   const [page, setPage] = useState(1)
   const [restoredData, setRestoredData] = useState<Pages | null>(null)
@@ -123,7 +128,9 @@ export default function ExternalMangaReader() {
   const pageSizes = measured.key === sizeKey ? measured.sizes : {}
 
   const stageRef = useRef<HTMLDivElement>(null)
-  const gestureRef = useRef<{ x: number; y: number; t: number } | null>(null)
+  const gestureRef = useRef<{ x: number; y: number; t: number; pointerId: number } | null>(null)
+  const activePointersRef = useRef<Set<number>>(new Set())
+  const multiTouchRef = useRef(false)
   const lastSaveRef = useRef(0)
   const lastSavedPageRef = useRef(0)
   // 进度版本（unify-progress-conflict-and-search）：单飞行写入 + 最新位置合并。
@@ -132,7 +139,6 @@ export default function ExternalMangaReader() {
   const savingRef = useRef(false)
   const lastConflictAtRef = useRef(0)
   const [progressNotice, setProgressNotice] = useState('')
-  const [tocOpen, setTocOpen] = useState(false)
   const [tocAsc, setTocAsc] = useState(true)
   const [autoNextCountdown, setAutoNextCountdown] = useState<number | null>(null)
   const [autoNextCancelled, setAutoNextCancelled] = useState(false)
@@ -157,6 +163,11 @@ export default function ExternalMangaReader() {
 
   // 长条漫 → 滚动模式；手动选择优先
   const effectiveMode: PageMode = manualMode ?? (longStrip ? 'single' : settings.pageMode)
+  const chrome = useReaderChrome({
+    resetKey: sizeKey,
+    locked: tocOpen || settingsOpen,
+    scrollAutoHide: effectiveMode === 'single',
+  })
 
   // 沉浸模式：隐藏站点导航与页脚
   useEffect(() => {
@@ -380,6 +391,7 @@ export default function ExternalMangaReader() {
       const base = effectiveMode === 'double-cover' ? 1 : 0
       setSpread(Math.max(0, Math.floor((p - 1 - base) / 2) + base))
       if (effectiveMode === 'single' && p > 1) {
+        chrome.suppressScrollHide(450)
         stageRef.current?.querySelectorAll('[data-reader-page]')[p - 1]?.scrollIntoView()
       }
       setRestoredData(data)
@@ -392,14 +404,14 @@ export default function ExternalMangaReader() {
 
   const backTo = source === 'bilibili' && !detail ? '/history' : `/manga-ext/${mangaId}?lang=${lang}&source=${source}`
 
-  // Esc 逐层退出：设置 → 浮层 → 返回章节列表；F 全屏
+  // Esc 逐层退出：设置 → 目录 → 唤出浮层 → 返回章节列表；F 全屏
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') {
-        if (settingsOpen) { setSettingsOpen(false); setUiVisible(true) }
-        else if (tocOpen) { setTocOpen(false); setUiVisible(true) }
-        else if (!uiVisible) setUiVisible(true)
+        if (settingsOpen) { setSettingsOpen(false); chrome.show() }
+        else if (tocOpen) { setTocOpen(false); chrome.show() }
+        else if (!chrome.showUi) chrome.show()
         else navigate(backTo)
       }
       if (e.key === 'f' || e.key === 'F') {
@@ -410,7 +422,7 @@ export default function ExternalMangaReader() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [settingsOpen, tocOpen, uiVisible, navigate, backTo])
+  }, [settingsOpen, tocOpen, chrome, navigate, backTo])
 
 
   const list: (string | null)[] = data
@@ -431,10 +443,14 @@ export default function ExternalMangaReader() {
     const anchor = layoutAnchor.current
     if (anchor) {
       const target = stageRef.current?.querySelector(`[data-reader-page="${anchor.ordinal}"]`)
-      if (target) window.scrollBy(0, target.getBoundingClientRect().top - anchor.top)
+      if (target) {
+        chrome.suppressScrollHide(300)
+        window.scrollBy(0, target.getBoundingClientRect().top - anchor.top)
+      }
       layoutAnchor.current = null
     }
     if (pendingScroll.current !== null) {
+      chrome.suppressScrollHide(450)
       stageRef.current?.querySelectorAll('[data-reader-page]')[pendingScroll.current - 1]?.scrollIntoView()
       pendingScroll.current = null
     }
@@ -601,6 +617,7 @@ export default function ExternalMangaReader() {
     }
     const next = Math.max(1, Math.min(total, index))
     if (next === page || !list[next - 1]) return
+    chrome.suppressScrollHide(450)
     stageRef.current?.querySelectorAll('[data-reader-page]')[next - 1]?.scrollIntoView({ block: 'center' })
     setPage(next)
     saveProgress(next, total)
@@ -614,6 +631,7 @@ export default function ExternalMangaReader() {
       }
       if (spreads[effSpread + delta]?.some(i => !list[i])) return
       jumpSpread(effSpread + delta)
+      chrome.hide()
       return
     }
     if (delta > 0 && page + delta > total) {
@@ -625,26 +643,56 @@ export default function ExternalMangaReader() {
   }
 
   function tapAction(zone: 'left' | 'right' | 'center') {
-    if (zone === 'center') { setUiVisible(v => !v); return }
+    if (zone === 'center') { chrome.toggle(); return }
     // LTR：右 = 前进；RTL：左 = 前进
     flip(settings.dir === 'rtl' ? (zone === 'left' ? 1 : -1) : (zone === 'right' ? 1 : -1))
   }
 
-  // 指针手势（tap / swipe 判定移植 HOMURA 阈值）
-  function onPointerDown(e: React.PointerEvent) {
-    gestureRef.current = { x: e.clientX, y: e.clientY, t: Date.now() }
+  // 指针手势（支持多指捏合缩放防误触；滚动模式轻点切浮层，分页模式左右翻页+中区切浮层）
+  function onStagePointerDown(e: React.PointerEvent) {
+    if (isInteractiveTarget(e.target)) return
+    activePointersRef.current.add(e.pointerId)
+    if (activePointersRef.current.size > 1 || !e.isPrimary) {
+      multiTouchRef.current = true
+      gestureRef.current = null
+      return
+    }
+    gestureRef.current = { x: e.clientX, y: e.clientY, t: Date.now(), pointerId: e.pointerId }
   }
-  function onPointerUp(e: React.PointerEvent) {
+  function onStagePointerCancel(e: React.PointerEvent) {
+    activePointersRef.current.delete(e.pointerId)
+    if (gestureRef.current?.pointerId === e.pointerId) gestureRef.current = null
+    if (activePointersRef.current.size === 0) multiTouchRef.current = false
+  }
+  function onStagePointerUp(e: React.PointerEvent) {
+    activePointersRef.current.delete(e.pointerId)
+    const wasMulti = multiTouchRef.current
+    if (activePointersRef.current.size === 0) multiTouchRef.current = false
     const g = gestureRef.current
-    gestureRef.current = null
-    if (!g) return
+    if (g?.pointerId === e.pointerId) gestureRef.current = null
+    if (wasMulti || !g || g.pointerId !== e.pointerId || isInteractiveTarget(e.target)) return
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const result = classifyGesture({
       dx: e.clientX - g.x, dy: e.clientY - g.y, duration: Date.now() - g.t,
       width: rect.width, x: e.clientX - rect.left,
     })
+
+    // 抽屉开着时，轻点阅读区优先关闭抽屉，不翻页不误切工具栏
+    if (tocOpen || settingsOpen) {
+      if (result.type === 'tap') {
+        setTocOpen(false)
+        setSettingsOpen(false)
+      }
+      return
+    }
+
+    if (effectiveMode === 'single') {
+      if (result.type === 'tap') chrome.toggle()
+      return
+    }
+
     if (result.type === 'tap') {
-      if (result.zone === 'center') { setUiVisible(v => !v); return }
       tapAction(result.zone)
       return
     }
@@ -749,7 +797,7 @@ export default function ExternalMangaReader() {
   const progressPct = total > 0 ? Math.min(100, Math.max(2, Math.round((progressNo / total) * 100))) : 0
 
   return (
-    <div className={'reader-full' + (uiVisible ? ' show-ui' : '')} onClick={pokeUi}>
+    <div className={'reader-full' + (chrome.showUi ? ' show-ui' : '')}>
       <div className="reader-progress-bar" aria-hidden="true">
         <div className="reader-progress-fill" style={{ width: `${progressPct}%` }} />
       </div>
@@ -761,7 +809,7 @@ export default function ExternalMangaReader() {
           border: '1px solid rgba(255,255,255,.16)', boxShadow: '0 8px 24px rgba(0,0,0,.4)',
         }}>{progressNotice}</div>
       )}
-      <header className="rf-top">
+      <header className="rf-top" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <Link to={backTo} className="rf-icon" aria-label="返回">←</Link>
         <div className="rf-title">
           <span className="rf-comic">{comicTitle}</span>
@@ -771,13 +819,16 @@ export default function ExternalMangaReader() {
           {longStrip && <span className="rf-strip-hint">长条漫 · 滚动</span>}
         </div>
         <button className="rf-icon" aria-label="目录"
-                onClick={e => { e.stopPropagation(); setTocOpen(v => !v); pokeUi() }}>☰</button>
+                onClick={e => { e.stopPropagation(); setSettingsOpen(false); setTocOpen(v => !v) }}>☰</button>
         <button className="rf-icon" aria-label="设置"
-                onClick={e => { e.stopPropagation(); setSettingsOpen(v => !v); pokeUi() }}>⚙</button>
+                onClick={e => { e.stopPropagation(); setTocOpen(false); setSettingsOpen(v => !v) }}>⚙</button>
       </header>
 
       {singleMode ? (
-        <div ref={stageRef} className="rf-stage">
+        <div ref={stageRef} className="rf-stage"
+             onPointerDown={onStagePointerDown}
+             onPointerUp={onStagePointerUp}
+             onPointerCancel={onStagePointerCancel}>
           {list.map((src, i) => src ? (
             <ExternalMangaPage key={`${source}-${chapterId}-${i}`} src={src} ordinal={i + 1}
                                {...pageSize(i)} active={isRestored}
@@ -788,7 +839,10 @@ export default function ExternalMangaReader() {
             </div>
           ))}
 
-          <div ref={endSentinelRef} className="rf-chapter-end" onClick={e => e.stopPropagation()}>
+          <div ref={endSentinelRef} className="rf-chapter-end"
+               onClick={e => e.stopPropagation()}
+               onPointerDown={e => e.stopPropagation()}
+               onPointerUp={e => e.stopPropagation()}>
             <span className="rf-chapter-end-meta">
               {chapter ? `本话已读完 · ${formatChapterLabel(chapter)}` : '本话已读完'}
             </span>
@@ -838,7 +892,9 @@ export default function ExternalMangaReader() {
       ) : (
         <div className={'rf-paged' + (settings.anim === 'fade' ? ' rf-fade' : '')}
              key={animKey}
-             onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+             onPointerDown={onStagePointerDown}
+             onPointerUp={onStagePointerUp}
+             onPointerCancel={onStagePointerCancel}>
           {displayPages.map(pageNo => list[pageNo] ? (
             <ExternalMangaPage key={`${source}-${chapterId}-${pageNo}`} src={list[pageNo] as string}
                                ordinal={pageNo + 1} {...pageSize(pageNo)} active={isRestored} paged
@@ -941,7 +997,7 @@ export default function ExternalMangaReader() {
         </div>
       )}
 
-      <footer className="rf-bottom">
+      <footer className="rf-bottom" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
         <button className="rf-text-btn" disabled={!prevCh} onClick={() => prevCh && jumpChapter(prevCh.id)}>
           上一话
         </button>
@@ -951,6 +1007,7 @@ export default function ExternalMangaReader() {
           </span>
           {singleMode ? (
             <input type="range" min={1} max={Math.max(total, 1)} value={page}
+                   onPointerDown={() => chrome.suppressScrollHide(800)}
                    onPointerUp={e => e.currentTarget.blur()}
                    onChange={e => jumpPage(Number(e.target.value))} />
           ) : (
@@ -975,11 +1032,3 @@ interface ResolveStatus {
 
 const RESOLVE_POLL_MS = 2000
 const RESOLVE_MAX_MS = 90_000
-
-function pokeUi() {
-  const root = document.querySelector('.reader-full')
-  root?.classList.add('show-ui')
-  window.clearTimeout((root as unknown as { _hideTimer?: number })._hideTimer)
-  ;(root as unknown as { _hideTimer?: number })._hideTimer =
-    window.setTimeout(() => root?.classList.remove('show-ui'), 2200)
-}

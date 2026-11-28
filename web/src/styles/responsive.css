@@ -238,7 +238,11 @@
   .set-import-grid,
   .search-discover-grid { grid-template-columns: 1fr; }
 
-  /* 阅读器底部栏 & Toast */
+  /* 阅读器移动端沉浸排版与安全区 */
+  .rf-stage { padding: 0 0 48px; }
+  .local-stage { padding: 0; gap: 0; }
+  .local-page { max-width: 100vw; max-height: 100dvh; }
+  .rf-hit { display: none; }
   .rf-bottom { padding: 8px 12px; }
   .rf-text-btn { padding: 6px 8px; font-size: 12px; }
   .rf-progress { flex: 1; }
@@ -286,13 +290,13 @@
 
   h1 { font-size: 20px; }
   .muted { font-size: 12px; }
-  .rf-top { padding: 8px 10px; left: 8px; right: 8px; top: 8px; }
+  .rf-top { padding: 8px 10px; left: 8px; right: 8px; top: calc(8px + env(safe-area-inset-top, 0px)); }
   .rf-comic { font-size: 14px; max-width: 40vw; }
   .rf-chapter { font-size: 12px; max-width: 40vw; }
   .rf-icon { width: 32px; height: 32px; }
-  .rf-bottom { padding: 6px 10px; left: 8px; right: 8px; bottom: 8px; }
+  .rf-bottom { padding: 6px 10px; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   .rf-page { font-size: 12px; }
-  .rf-sheet { left: 8px; right: 8px; bottom: 68px; }
+  .rf-sheet { left: 8px; right: 8px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
   .rf-toc-list { max-height: 56vh; }
   .rf-toc-item { padding: 8px 10px; font-size: 13px; }
   .local-adaptations { left: 10px; right: 10px; }
