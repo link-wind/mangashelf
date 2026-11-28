@@ -91,6 +91,8 @@
 html {
   scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  overflow-x: clip;
 }
 
 body {
@@ -99,6 +101,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-size: 14px;
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
   transition: background-color .18s ease, color .18s ease;
 }

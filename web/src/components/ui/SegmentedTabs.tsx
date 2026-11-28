@@ -29,18 +29,20 @@ interface PillRect {
 
 /**
  * 基于 ResizeObserver 实时测量 + Motion 弹簧过渡的分段切换栏：
- * 当异步计数（如搜索命中数 0 → 23）导致标签宽度变化时自动对齐，零错位。
+ * - 用户切换选中项时播放顺滑弹簧动画；
+ * - 窗口缩放或异步计数变更触发 ResizeObserver 时通过 rAF 合并并 0ms 瞬时贴合，彻底避免缩窗闪烁抖动。
  */
 export default function SegmentedTabs<T extends string = string>({
   items, value, onChange, ariaLabel, tone = 'cyan', size = 'md', className = '',
 }: SegmentedTabsProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-  const hasMeasuredRef = useRef(false)
+  const prevValueRef = useRef<T | null>(null)
+  const rafRef = useRef<number | null>(null)
   const [pill, setPill] = useState<PillRect | null>(null)
   const [animatePill, setAnimatePill] = useState(false)
 
-  const measure = useCallback(() => {
+  const measure = useCallback((shouldAnimate: boolean) => {
     const activeBtn = tabRefs.current.get(value)
     if (!activeBtn) return
     const next: PillRect = {
@@ -49,31 +51,42 @@ export default function SegmentedTabs<T extends string = string>({
       width: activeBtn.offsetWidth,
       height: activeBtn.offsetHeight,
     }
+    setAnimatePill(shouldAnimate)
     setPill(prev => {
       if (prev && prev.x === next.x && prev.y === next.y && prev.width === next.width && prev.height === next.height) {
         return prev
       }
       return next
     })
-    if (hasMeasuredRef.current) {
-      setAnimatePill(true)
-    } else {
-      hasMeasuredRef.current = true
-    }
   }, [value])
 
   // 每次选中项、计数或文案变化后同步测量
   const signature = items.map(it => `${it.value}:${it.label}:${it.count ?? ''}`).join('|')
 
   useLayoutEffect(() => {
-    measure()
+    const isValueSwitch = prevValueRef.current !== null && prevValueRef.current !== value
+    prevValueRef.current = value
+    measure(isValueSwitch)
+
     const el = containerRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => measure())
+    const ro = new ResizeObserver(() => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        measure(false)
+      })
+    })
     ro.observe(el)
     tabRefs.current.forEach(btn => ro.observe(btn))
-    return () => ro.disconnect()
-  }, [measure, signature])
+    return () => {
+      ro.disconnect()
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
+  }, [measure, signature, value])
 
   return (
     <div

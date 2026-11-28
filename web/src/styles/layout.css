@@ -32,6 +32,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--glass-border-subtle);
   box-shadow: var(--glass-highlight), 0 4px 20px rgba(15, 23, 42, 0.04);
+  transform: translateZ(0);
 }
 .nav .brand {
   display: inline-flex; align-items: center; gap: 9px;
@@ -379,7 +380,6 @@ a.up-tile:hover {
   max-width: var(--container-max); margin: 0 auto; padding: 28px var(--page-gutter) 36px;
   display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 22px;
 }
-@media (max-width: 760px) { .footer-inner { grid-template-columns: 1fr 1fr; } }
 .footer-col { display: flex; flex-direction: column; gap: 8px; }
 .footer-col h3 { margin: 0 0 4px; font-size: 14px; color: var(--ink); }
 .footer-col a { color: var(--muted); text-decoration: none; font-size: 13px; display: inline-block; padding: 4px 0; }
@@ -444,97 +444,4 @@ a.up-tile:hover {
 }
 .nav-mobile-sep { height: 1px; background: var(--glass-border-subtle); margin: 6px 4px; }
 
-/* ── 响应式体系（统一 7→5→4→2 列）── */
-@media (max-width: 1279px) {
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 460px; }
-  .manga-hero-inner { padding: 32px 34px; }
-  .manga-hero-cover { width: 176px; height: 235px; }
-  .card-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .card-grid.card-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .hscroll .work-card { min-width: 172px; max-width: 172px; }
-}
-
-@media (max-width: 1023px) {
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 400px; }
-  .manga-hero-cover { width: 148px; height: 197px; }
-  .manga-hero-info h2 { font-size: 26px; }
-  .card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px 12px; }
-  .card-grid.card-grid-4 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .hscroll .work-card { min-width: 164px; max-width: 164px; }
-}
-
-@media (max-width: 960px) {
-  .nav { gap: 10px; padding: 0 14px; }
-  .nav .brand { font-size: 16px; }
-  .nav nav a { padding: 5px 8px; font-size: 13px; }
-  .search { width: 100%; max-width: 420px; }
-  .page { padding: 16px 14px; }
-  .detail-hero { grid-template-columns: 196px minmax(0, 1fr); gap: 18px; }
-  .watch-title h1 { font-size: 20px; }
-  .watch-layout { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 767px) {
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 340px; }
-  .manga-hero-inner { padding: 22px; gap: 16px; }
-  .manga-hero-cover { width: 112px; height: 149px; }
-  .manga-hero-info h2 { font-size: 21px; }
-  .mh-author { display: none; }
-  .card-grid, .card-grid.card-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
-  .hscroll .work-card { min-width: 150px; max-width: 150px; }
-  .manga-row { grid-auto-columns: 150px; }
-  .mt-cover { width: 150px; height: 200px; }
-}
-
-/* ≤720px：收纳顶栏全部次级导航与重复操作，启用液态玻璃悬浮菜单（保留快捷搜索图标） */
-@media (max-width: 720px) {
-  .nav > nav, .nav .nav-search, .nav .nav-actions { display: none; }
-  .nav-mobile-search { display: inline-flex; }
-  .nav-fab { display: inline-flex; }
-  .work-card-title { font-size: 13px; }
-  .manga-index-bar { gap: 6px; }
-  .manga-index-bar .search { flex: 1 1 100%; max-width: none; }
-  .chapter-grid { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
-  .manga-hero { grid-template-columns: 1fr; }
-  .detail-hero { grid-template-columns: 1fr; }
-  .detail-cover { max-width: 210px; }
-  .hero-thumbs { position: static; max-width: none; padding: 0 20px 18px; overflow-x: auto; }
-  .hero-slide { flex-direction: column; align-items: stretch; justify-content: flex-end; }
-  .hero-content { padding: 22px 20px 14px; }
-  .hero-content h1 { font-size: 24px; }
-  .rf-bottom { padding: 8px 12px; }
-  .rf-text-btn { padding: 6px 8px; font-size: 12px; }
-  .rf-progress { flex: 1; }
-}
-
-@media (min-width: 721px) {
-  .nav-mobile-search { display: none; }
-}
-
-@media (max-width: 480px) {
-  .home-page, .watch-page { padding: 14px 12px 32px; }
-  .page { padding: 12px 10px; }
-  .manga-hero-banner, .manga-hero-inner, .hero-slide { min-height: 300px; }
-  .manga-hero-inner { padding: 16px; gap: 12px; }
-  .manga-hero-cover { width: 96px; height: 128px; }
-  .manga-hero-info h2 { font-size: 19px; }
-  .mh-chips { gap: 4px; }
-  .card-grid, .card-grid.card-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 10px; }
-  .hscroll .work-card { min-width: 140px; max-width: 140px; }
-  .manga-row { grid-auto-columns: 140px; gap: 10px; }
-  .mt-cover { width: 140px; height: 187px; }
-  .manga-tile { min-width: 140px; }
-  h1 { font-size: 20px; }
-  .muted { font-size: 12px; }
-  .rf-top { padding: 8px 10px; left: 8px; right: 8px; top: 8px; }
-  .rf-comic { font-size: 14px; max-width: 40vw; }
-  .rf-chapter { font-size: 12px; max-width: 40vw; }
-  .rf-icon { width: 32px; height: 32px; }
-  .rf-bottom { padding: 6px 10px; left: 8px; right: 8px; bottom: 8px; }
-  .rf-page { font-size: 12px; }
-  .rf-sheet { left: 8px; right: 8px; bottom: 68px; }
-  .rf-toc-list { max-height: 56vh; }
-  .rf-toc-item { padding: 8px 10px; font-size: 13px; }
-  .local-adaptations { left: 10px; right: 10px; }
-  .row-inline { row-gap: 6px; }
-}
+/* 全部跨模块响应式断点统一收口至最后加载的 responsive.css，避免被 components.css / pages.css 同优先级规则覆盖。 */
