@@ -25,6 +25,8 @@ class SeoControllerTest {
         var resp = controller.robots(req);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
         assertThat(resp.getBody())
+                .contains("Allow: /api/v1/bangumi-covers/")
+                .contains("Allow: /api/v1/catalog-covers/")
                 .contains("Sitemap: https://gemineko.top/sitemap.xml")
                 .contains("Disallow: /api/")
                 .contains("Disallow: /me")
@@ -85,8 +87,13 @@ class SeoControllerTest {
         req.addHeader("X-Forwarded-Proto", "https");
         req.addHeader("Host", "gemineko.top");
 
-        assertThat(controller.renderForCrawler(req, "/", null, null).getBody())
-                .contains("<title>GemiNeko（杰米猫）· 番剧与漫画空间 - 每周新番时刻表与高分索引</title>");
+        var homeResp = controller.renderForCrawler(req, "/", null, null);
+        assertThat(homeResp.getHeaders().getFirst("Cache-Control"))
+                .isEqualTo("public, max-age=0, must-revalidate");
+        assertThat(homeResp.getBody())
+                .contains("<title>GemiNeko（杰米猫）· 番剧与漫画空间 - 每周新番时刻表与高分索引</title>")
+                .contains("关于 GemiNeko（杰米猫）")
+                .contains("<footer>");
         assertThat(controller.renderForCrawler(req, "/schedule", null, null).getBody())
                 .contains("<title>每周新番时刻表与放送日历 · GemiNeko</title>");
         assertThat(controller.renderForCrawler(req, "/index", "manga", null).getBody())

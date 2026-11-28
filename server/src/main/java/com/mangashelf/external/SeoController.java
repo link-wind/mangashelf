@@ -25,9 +25,10 @@ import java.util.regex.Pattern;
 
 /**
  * 搜索引擎收录与社交卡片基础设施：
- * 1) GET /robots.txt：动态输出当前域名的 Sitemap 地址与抓取边界；
+ * 1) GET /robots.txt：动态输出当前域名的 Sitemap 地址、公开封面放行与抓取边界；
  * 2) GET /sitemap.xml：输出核心入口页 + 热门番剧与去重漫画详情页（最多 ~1,000 条高价值 URL）；
- * 3) GET /api/v1/seo/render：仅在 Nginx 识别搜索引擎/社交预览爬虫时调用，输出带真实 TDK、Open Graph 与 JSON-LD 的轻量语义 HTML。
+ * 3) GET /api/v1/seo/render：仅在 Nginx 识别搜索引擎/社交预览爬虫时调用，输出带真实 TDK、Open Graph、
+ *    JSON-LD 与完整语义正文/排版的轻量 HTML，满足 Google / Bing / 百度可读性与质量规范。
  */
 @RestController
 @Profile("api")
@@ -35,11 +36,32 @@ public class SeoController {
 
     private static final String SITE_NAME = "GemiNeko";
     private static final String SITE_TITLE = "GemiNeko（杰米猫）· 番剧与漫画空间 - 每周新番时刻表与高分索引";
-    private static final String SITE_DESC = "GemiNeko（杰米猫）——无广告的番剧追更、每周新番时刻表、日漫国漫韩漫高分索引与跨源漫画阅读空间，支持 Bangumi / AniList 口碑评分与进度同步。";
+    private static final String SITE_DESC = "GemiNeko（杰米猫）——无广告的番剧追更、每周新番时刻表、日漫国漫韩漫高分索引与跨源漫画阅读空间，支持 Bangumi / AniList 口碑评分与跨设备进度同步。";
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneOffset.UTC);
     private static final Pattern SAFE_HOST = Pattern.compile("^[A-Za-z0-9.\\-:]{1,253}$");
     private static final Pattern CATALOG_PATH = Pattern.compile("^/catalog/([0-9a-fA-F\\-]{36})/?$");
     private static final Pattern MANGA_EXT_PATH = Pattern.compile("^/manga-ext/([^/]+)/?$");
+
+    private static final String INLINE_CSS = """
+            body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.7;color:#1f2937;background:#f8fafc}
+            header,main,footer{max-width:980px;margin:0 auto;padding:16px 20px}
+            header{border-bottom:1px solid #e5e7eb;background:#fff}
+            nav{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+            nav a{color:#0284c7;text-decoration:none;font-weight:600}
+            main{background:#fff;margin-top:16px;margin-bottom:16px;border:1px solid #e5e7eb;border-radius:12px}
+            h1{font-size:24px;line-height:1.35;margin:0 0 12px;color:#0f172a}
+            h2{font-size:18px;margin:24px 0 10px;color:#0f172a;border-left:3px solid #00aeec;padding-left:10px}
+            p{margin:8px 0 12px;color:#334155}
+            ul{padding-left:20px;margin:8px 0 16px}
+            li{margin:6px 0}
+            li a{color:#0369a1;text-decoration:none;font-weight:500}
+            .meta{color:#64748b;font-size:14px;margin-left:6px}
+            .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;list-style:none;padding:0}
+            .card{border:1px solid #e2e8f0;border-radius:10px;padding:12px;background:#f8fafc}
+            .card strong{display:block;color:#0f172a;margin-bottom:4px}
+            footer{font-size:13px;color:#64748b;border-top:1px solid #e5e7eb}
+            footer a{color:#475569;text-decoration:none;margin-right:12px}
+            """;
 
     private final JdbcTemplate jdbc;
 
@@ -53,6 +75,8 @@ public class SeoController {
         String body = """
                 User-agent: *
                 Allow: /
+                Allow: /api/v1/bangumi-covers/
+                Allow: /api/v1/catalog-covers/
                 Disallow: /api/
                 Disallow: /media/
                 Disallow: /login
@@ -130,8 +154,8 @@ public class SeoController {
     }
 
     /**
-     * 爬虫轻量预渲染入口：返回带完整语义标题、描述、Open Graph、JSON-LD 与站内可抓取链接的 HTML。
-     * 带 Vary: User-Agent 与 no-cache，避免 CDN 误把爬虫 HTML 缓存给普通浏览器用户。
+     * 爬虫轻量预渲染入口：返回带完整语义标题、描述、Open Graph、JSON-LD 与站内可抓取正文的 HTML。
+     * 带 Vary: User-Agent 与 public, max-age=0, must-revalidate，既满足搜索引擎公开收录要求，又防止 CDN 串缓存。
      */
     @GetMapping(value = "/api/v1/seo/render", produces = "text/html; charset=utf-8")
     public ResponseEntity<String> renderForCrawler(
@@ -174,10 +198,39 @@ public class SeoController {
     }
 
     private String renderHome(String base) {
-        List<LinkItem> anime = queryTopAnimeLinks(24);
-        List<LinkItem> manga = queryTopMangaLinks(24);
+        List<CalendarPreviewRow> calendar = queryCalendarPreview(12);
+        List<LinkItem> anime = queryTopAnimeLinks(20);
+        List<LinkItem> manga = queryTopMangaLinks(20);
         StringBuilder body = new StringBuilder();
         body.append("<p>").append(escapeHtml(SITE_DESC)).append("</p>");
+        body.append("""
+                <section>
+                  <h2>关于 GemiNeko（杰米猫）</h2>
+                  <p>GemiNeko 面向动漫与漫画爱好者提供清爽、无广告的追更与索引体验。站点整合了每周新番放送时间表、日漫/国漫/韩漫/欧美地区分级、Bangumi 与 AniList 多源口碑评分，以及跨源漫画书架与观看阅读进度同步。</p>
+                  <ul class="grid">
+                    <li class="card"><strong>每周新番时刻表</strong>按周一至周日整理当季在播番剧与口碑评分，支持导出标准 .ics 日历文件订阅提醒。</li>
+                    <li class="card"><strong>多源评分与地区索引</strong>按日漫、国漫、韩漫、欧美地区及贝叶斯评分、题材与年代筛选高分作品。</li>
+                    <li class="card"><strong>番剧与漫画双空间</strong>统一管理个人在追番剧、漫画收藏、续看进度与浏览足迹，多设备无缝衔接。</li>
+                    <li class="card"><strong>简洁无广告界面</strong>桌面端与移动端自适应排版，支持明暗双主题，专注内容发现与阅读观看本身。</li>
+                  </ul>
+                </section>
+                """);
+        if (!calendar.isEmpty()) {
+            body.append("<section><h2>本周在播新番速览</h2><ul>");
+            for (CalendarPreviewRow r : calendar) {
+                String day = weekdayLabel(r.weekday());
+                String score = r.rating() != null && r.rating() > 0 ? String.format(" ★%.1f", r.rating()) : "";
+                body.append("<li>");
+                if (r.catalogId() != null && !r.catalogId().isBlank()) {
+                    body.append("<a href=\"/catalog/").append(escapeHtml(r.catalogId())).append("\">")
+                            .append(escapeHtml(r.name())).append("</a>");
+                } else {
+                    body.append(escapeHtml(r.name()));
+                }
+                body.append("<span class=\"meta\">").append(escapeHtml((day + score).trim())).append("</span></li>");
+            }
+            body.append("</ul><p><a href=\"/schedule\">查看完整每周新番时刻表与日历订阅 →</a></p></section>");
+        }
         appendSectionLinks(body, "精选推荐番剧", anime);
         appendSectionLinks(body, "热门高分漫画", manga);
         return buildPage(base, "/", SITE_TITLE, SITE_DESC, base + "/brand-icon.png",
@@ -185,28 +238,13 @@ public class SeoController {
     }
 
     private String renderSchedule(String base) {
-        record CalRow(String name, Double rating, Integer weekday, String catalogId) {}
-        List<CalRow> rows = jdbc.query("""
-                SELECT COALESCE(NULLIF(b.name_cn, ''), b.name) AS title,
-                       b.rating,
-                       b.air_weekday,
-                       (SELECT e.id::text FROM external_catalog_items e
-                         WHERE e.bangumi_subject_id = b.subject_id
-                         ORDER BY e.episode_count DESC LIMIT 1) AS catalog_id
-                  FROM bangumi_subjects b
-                 WHERE b.in_calendar = true
-                 ORDER BY b.air_weekday ASC NULLS LAST, b.rating DESC NULLS LAST
-                 LIMIT 60
-                """, (rs, i) -> new CalRow(
-                rs.getString("title"),
-                rs.getObject("rating") == null ? null : rs.getDouble("rating"),
-                rs.getObject("air_weekday") == null ? null : rs.getInt("air_weekday"),
-                rs.getString("catalog_id")));
-
+        List<CalendarPreviewRow> rows = queryCalendarPreview(60);
         String desc = "GemiNeko 每周新番放送时刻表：按星期查看本季在播番剧、Bangumi 评分，支持一键导出 .ics 日历订阅追番提醒。";
         StringBuilder body = new StringBuilder();
-        body.append("<p>").append(escapeHtml(desc)).append("</p><section><h2>本季新番放送表</h2><ul>");
-        for (CalRow r : rows) {
+        body.append("<p>").append(escapeHtml(desc)).append("</p>");
+        body.append("<p>通过新番时刻表可按周一到周日追踪本季热播日本动画、国产动画与剧场版更新节奏，并将个人在追列表导出为 iCalendar（.ics）订阅到手机或桌面日历。</p>");
+        body.append("<section><h2>本季新番放送表</h2><ul>");
+        for (CalendarPreviewRow r : rows) {
             String day = weekdayLabel(r.weekday());
             String score = r.rating() != null && r.rating() > 0 ? String.format(" ★%.1f", r.rating()) : "";
             body.append("<li>");
@@ -216,7 +254,7 @@ public class SeoController {
             } else {
                 body.append(escapeHtml(r.name()));
             }
-            body.append(" <span>").append(escapeHtml(day + score)).append("</span></li>");
+            body.append("<span class=\"meta\">").append(escapeHtml((day + score).trim())).append("</span></li>");
         }
         body.append("</ul></section>");
         return buildPage(base, "/schedule", "每周新番时刻表与放送日历 · " + SITE_NAME, desc,
@@ -226,6 +264,7 @@ public class SeoController {
     private String renderAnimeHub(String base) {
         String desc = "GemiNeko 番剧与动画索引：按日漫、国漫、韩漫、欧美地区与 Bangumi/AniList 口碑评分、题材、年代快速筛选高分动画。";
         StringBuilder body = new StringBuilder("<p>").append(escapeHtml(desc)).append("</p>");
+        body.append("<p>索引支持按综合推荐、贝叶斯口碑评分与最近更新排序，帮助快速发现各地区与各年代的高分番剧作品。</p>");
         appendSectionLinks(body, "推荐番剧索引", queryTopAnimeLinks(40));
         return buildPage(base, "/index", "高分日漫、国漫、韩漫番剧索引与评分排行 · " + SITE_NAME, desc,
                 base + "/brand-icon.png", "website", false, buildWebSiteJsonLd(base), body.toString());
@@ -234,6 +273,7 @@ public class SeoController {
     private String renderMangaHub(String base, String path) {
         String desc = "GemiNeko 漫画发现与跨源索引：汇聚日漫、国漫、韩漫口碑高分精选与多源聚合目录，支持进度同步与无广告沉浸阅读。";
         StringBuilder body = new StringBuilder("<p>").append(escapeHtml(desc)).append("</p>");
+        body.append("<p>漫画空间按日漫、国漫、韩漫与欧美地区整理跨源去重目录，结合 Bangumi 与 AniList 评分筛选编辑精选与口碑佳作。</p>");
         appendSectionLinks(body, "精选漫画目录", queryTopMangaLinks(40));
         String title = "/index".equals(path)
                 ? "高分漫画索引与评分排行 · " + SITE_NAME
@@ -304,11 +344,22 @@ public class SeoController {
 
         StringBuilder body = new StringBuilder();
         if (!d.origName().isBlank() && !d.origName().equals(d.title())) {
-            body.append("<p>原名：").append(escapeHtml(d.origName())).append("</p>");
+            body.append("<p><strong>原名：</strong>").append(escapeHtml(d.origName())).append("</p>");
         }
-        body.append("<p>").append(escapeHtml(desc)).append("</p>");
+        String reg = regionLabel(d.region());
+        List<String> infoBits = new ArrayList<>();
+        if (!reg.isBlank()) infoBits.add("地区：" + reg);
+        if (d.rating() != null && d.rating() > 0) {
+            infoBits.add("口碑评分：" + String.format(java.util.Locale.ROOT, "%.1f", d.rating()));
+        }
+        if (d.remarks() != null && !d.remarks().isBlank()) infoBits.add("更新状态：" + d.remarks());
+        else if (d.episodes() > 0) infoBits.add("总集数：" + d.episodes() + " 集");
+        if (!infoBits.isEmpty()) {
+            body.append("<p>").append(escapeHtml(String.join(" · ", infoBits))).append("</p>");
+        }
+        body.append("<section><h2>作品简介</h2><p>").append(escapeHtml(desc)).append("</p></section>");
         if (!d.tags().isEmpty()) {
-            body.append("<p>题材标签：").append(escapeHtml(String.join(" / ", d.tags()))).append("</p>");
+            body.append("<p><strong>题材标签：</strong>").append(escapeHtml(String.join(" / ", d.tags()))).append("</p>");
         }
         return buildPage(base, canonicalPath, title, desc, image, "video.tv_show", false, jsonLd.toString(), body.toString());
     }
@@ -374,19 +425,40 @@ public class SeoController {
 
         StringBuilder body = new StringBuilder();
         if (d.author() != null && !d.author().isBlank()) {
-            body.append("<p>作者：").append(escapeHtml(d.author())).append("</p>");
+            body.append("<p><strong>作者：</strong>").append(escapeHtml(d.author())).append("</p>");
         }
-        body.append("<p>").append(escapeHtml(desc)).append("</p>");
+        body.append("<section><h2>作品信息</h2><p>").append(escapeHtml(desc)).append("</p></section>");
         if (!d.tags().isEmpty()) {
-            body.append("<p>题材：").append(escapeHtml(String.join(" / ", d.tags()))).append("</p>");
+            body.append("<p><strong>题材标签：</strong>").append(escapeHtml(String.join(" / ", d.tags()))).append("</p>");
         }
         return buildPage(base, canonicalPath, title, desc, image, "book", false, jsonLd.toString(), body.toString());
+    }
+
+    private List<CalendarPreviewRow> queryCalendarPreview(int limit) {
+        return jdbc.query("""
+                SELECT COALESCE(NULLIF(b.name_cn, ''), b.name) AS title,
+                       b.rating,
+                       b.air_weekday,
+                       (SELECT e.id::text FROM external_catalog_items e
+                         WHERE e.bangumi_subject_id = b.subject_id
+                         ORDER BY e.episode_count DESC LIMIT 1) AS catalog_id
+                  FROM bangumi_subjects b
+                 WHERE b.in_calendar = true
+                 ORDER BY b.air_weekday ASC NULLS LAST, b.rating DESC NULLS LAST
+                 LIMIT ?
+                """, (rs, i) -> new CalendarPreviewRow(
+                rs.getString("title"),
+                rs.getObject("rating") == null ? null : rs.getDouble("rating"),
+                rs.getObject("air_weekday") == null ? null : rs.getInt("air_weekday"),
+                rs.getString("catalog_id")), limit);
     }
 
     private List<LinkItem> queryTopAnimeLinks(int limit) {
         return jdbc.query("""
                 SELECT e.id::text AS id,
                        COALESCE(NULLIF(b.name_cn, ''), e.name) AS title,
+                       e.region,
+                       e.remarks,
                        COALESCE(e.external_rating, b.rating) AS score
                   FROM external_catalog_items e
                   LEFT JOIN bangumi_subjects b ON b.subject_id = e.bangumi_subject_id
@@ -394,9 +466,14 @@ public class SeoController {
                  ORDER BY e.region_rank ASC, e.recommend_score DESC, e.id DESC
                  LIMIT ?
                 """, (rs, i) -> {
+            List<String> bits = new ArrayList<>();
+            String reg = regionLabel(rs.getString("region"));
+            if (!reg.isBlank()) bits.add(reg);
             Double s = rs.getObject("score") == null ? null : rs.getDouble("score");
-            String meta = s != null && s > 0 ? String.format("★%.1f", s) : "";
-            return new LinkItem("/catalog/" + rs.getString("id"), rs.getString("title"), meta);
+            if (s != null && s > 0) bits.add(String.format(java.util.Locale.ROOT, "★%.1f", s));
+            String rem = rs.getString("remarks");
+            if (rem != null && !rem.isBlank()) bits.add(rem);
+            return new LinkItem("/catalog/" + rs.getString("id"), rs.getString("title"), String.join(" · ", bits));
         }, limit);
     }
 
@@ -404,22 +481,27 @@ public class SeoController {
         return jdbc.query("""
                 WITH dedup AS (
                     SELECT DISTINCT ON (COALESCE(NULLIF(title_key, ''), source || ':' || source_item_id))
-                           source, source_item_id, name, rating, region_rank, recommend_score, synced_at
+                           source, source_item_id, name, region, remarks, rating, region_rank, recommend_score, synced_at
                       FROM manga_catalog_items
                      ORDER BY COALESCE(NULLIF(title_key, ''), source || ':' || source_item_id),
                               CASE source WHEN 'copymanga' THEN 0 WHEN 'tencent' THEN 1 WHEN 'bilibili' THEN 2 ELSE 3 END,
                               synced_at DESC
                 )
-                SELECT source, source_item_id, name, rating
+                SELECT source, source_item_id, name, region, remarks, rating
                   FROM dedup
                  ORDER BY region_rank ASC, recommend_score DESC, synced_at DESC
                  LIMIT ?
                 """, (rs, i) -> {
+            List<String> bits = new ArrayList<>();
+            String reg = regionLabel(rs.getString("region"));
+            if (!reg.isBlank()) bits.add(reg);
             Double s = rs.getObject("rating") == null ? null : rs.getDouble("rating");
-            String meta = s != null && s > 0 ? String.format("★%.1f", s) : "";
+            if (s != null && s > 0) bits.add(String.format(java.util.Locale.ROOT, "★%.1f", s));
+            String rem = rs.getString("remarks");
+            if (rem != null && !rem.isBlank()) bits.add(rem);
             String href = "/manga-ext/" + encodePathSegment(rs.getString("source_item_id"))
                     + "?source=" + encodeQueryValue(rs.getString("source"));
-            return new LinkItem(href, rs.getString("name"), meta);
+            return new LinkItem(href, rs.getString("name"), String.join(" · ", bits));
         }, limit);
     }
 
@@ -430,7 +512,7 @@ public class SeoController {
             body.append("<li><a href=\"").append(escapeHtml(it.href())).append("\">")
                     .append(escapeHtml(it.title())).append("</a>");
             if (!it.meta().isBlank()) {
-                body.append(" <span>").append(escapeHtml(it.meta())).append("</span>");
+                body.append("<span class=\"meta\">").append(escapeHtml(it.meta())).append("</span>");
             }
             body.append("</li>");
         }
@@ -441,7 +523,7 @@ public class SeoController {
         return ResponseEntity.ok()
                 .contentType(new MediaType("text", "html", StandardCharsets.UTF_8))
                 .header("Vary", "User-Agent")
-                .header("Cache-Control", "no-cache")
+                .header("Cache-Control", "public, max-age=0, must-revalidate")
                 .body(html);
     }
 
@@ -473,21 +555,33 @@ public class SeoController {
                   <meta name="twitter:title" content="%s" />
                   <meta name="twitter:description" content="%s" />
                   <meta name="twitter:image" content="%s" />
+                  <style>%s</style>
                   <script type="application/ld+json">%s</script>
                 </head>
                 <body>
                   <header>
-                    <nav>
-                      <a href="/">GemiNeko 首页</a> ·
-                      <a href="/schedule">新番时刻表</a> ·
-                      <a href="/index">番剧索引</a> ·
+                    <nav aria-label="主导航">
+                      <a href="/">GemiNeko 首页</a>
+                      <a href="/schedule">每周新番时刻表</a>
+                      <a href="/index">番剧索引</a>
                       <a href="/manga">漫画空间</a>
+                      <a href="/index?kind=manga">漫画索引</a>
                     </nav>
                   </header>
                   <main>
                     <h1>%s</h1>
                     %s
                   </main>
+                  <footer>
+                    <p>GemiNeko（杰米猫）· 简洁无广告的番剧时刻表与漫画索引空间。作品信息与口碑评分参考 Bangumi 与 AniList 公开数据。</p>
+                    <p>
+                      <a href="/">首页</a>
+                      <a href="/schedule">新番时刻表</a>
+                      <a href="/index">番剧索引</a>
+                      <a href="/manga">漫画精选</a>
+                      <a href="/sitemap.xml">站点地图</a>
+                    </p>
+                  </footer>
                 </body>
                 </html>
                 """.formatted(
@@ -495,6 +589,7 @@ public class SeoController {
                 escapeHtml(base), escapeHtml(ogType), SITE_NAME,
                 escapeHtml(title), escapeHtml(description), escapeHtml(canonical), escapeHtml(image),
                 escapeHtml(title), escapeHtml(description), escapeHtml(image),
+                INLINE_CSS,
                 jsonLd,
                 escapeHtml(title), bodyHtml);
     }
@@ -503,6 +598,7 @@ public class SeoController {
         return "{\"@context\":\"https://schema.org\",\"@type\":\"WebSite\","
                 + "\"name\":\"GemiNeko\","
                 + "\"alternateName\":\"杰米猫\","
+                + "\"inLanguage\":\"zh-CN\","
                 + "\"url\":\"" + escapeJson(base + "/") + "\","
                 + "\"description\":\"" + escapeJson(SITE_DESC) + "\"}";
     }
@@ -688,4 +784,5 @@ public class SeoController {
 
     private record SitemapRow(String path, Instant updatedAt) {}
     private record LinkItem(String href, String title, String meta) {}
+    private record CalendarPreviewRow(String name, Double rating, Integer weekday, String catalogId) {}
 }
