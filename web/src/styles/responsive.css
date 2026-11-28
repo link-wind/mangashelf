@@ -229,6 +229,10 @@
   .watch-ep-grid-v2 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .watch-similar-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 10px; }
   .mp-vol-range { display: none; }
+  .mp-controls { left: 6px; right: 6px; bottom: 6px; padding: 8px 10px; border-radius: 12px; }
+  .mp-bar { gap: 4px; }
+  .mp-time { font-size: 11.5px; }
+  .mp-icon.mp-text { padding: 4px 6px; min-width: 30px; font-size: 12px; }
 
   /* 个人空间 / 设置页 */
   .space-id-actions { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }

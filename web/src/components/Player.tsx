@@ -146,9 +146,12 @@ export default function Player({
   const hlsRef = useRef<Hls | null>(null)
   const hideTimer = useRef<number | null>(null)
   const hudTimer = useRef<number | null>(null)
+  const tapTimer = useRef<number | null>(null)
+  const lastTouchTapRef = useRef(0)
   const draggingRef = useRef(false)
   const splitDraggingRef = useRef(false)
   const controlsHoverRef = useRef(false)
+  const lastPointerTypeRef = useRef<string>('mouse')
   const onEndedRef = useRef(onEnded)
   const onProgressRef = useRef(onProgress)
   const onTimeTickRef = useRef(onTimeTick)
@@ -163,6 +166,8 @@ export default function Player({
   const [buffered, setBuffered] = useState(0)
   const [volume, setVolume] = useState<number>(loadSavedVol)
   const [muted, setMuted] = useState(false)
+  const [volMenuOpen, setVolMenuOpen] = useState(false)
+  const [volReadonly, setVolReadonly] = useState(false)
   const [speed, setSpeed] = useState<number>(loadSavedSpeed)
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
   const [srMode, setSrMode] = useState<SrMode>(loadSrMode)
@@ -175,6 +180,7 @@ export default function Player({
   const [subtitleCues, setSubtitleCues] = useState<string[]>([])
   const [controlsVisible, setControlsVisible] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false)
   const [hoverSeek, setHoverSeek] = useState<{ ratio: number; time: number } | null>(null)
   const [hudText, setHudText] = useState('')
 
@@ -306,12 +312,31 @@ export default function Player({
     }
   }, [src])
 
-  // 全屏与画中画状态同步
+  // 全屏与画中画状态同步（兼容标准与 WebKit 全屏事件）
   useEffect(() => {
-    const onFs = () => setFullscreen(!!document.fullscreenElement)
+    const getFsEl = () =>
+      document.fullscreenElement
+      ?? (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+      ?? null
+    const onFs = () => {
+      controlsHoverRef.current = false
+      setFullscreen(Boolean(getFsEl()))
+    }
     document.addEventListener('fullscreenchange', onFs)
-    return () => document.removeEventListener('fullscreenchange', onFs)
+    document.addEventListener('webkitfullscreenchange', onFs)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs)
+      document.removeEventListener('webkitfullscreenchange', onFs)
+    }
   }, [])
+
+  // 伪全屏时锁定背景滚动，退出时恢复
+  useEffect(() => {
+    if (!pseudoFullscreen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [pseudoFullscreen])
 
   useEffect(() => {
     const v = videoRef.current
@@ -439,18 +464,22 @@ export default function Player({
         !videoRef.current?.paused
         && !speedMenuOpen
         && !srMenuOpen
+        && !volMenuOpen
         && !controlsHoverRef.current
         && !draggingRef.current
       ) {
         setControlsVisible(false)
       }
     }, 2500)
-  }, [clearHideTimer, speedMenuOpen, srMenuOpen])
+  }, [clearHideTimer, speedMenuOpen, srMenuOpen, volMenuOpen])
 
   const poke = useCallback(() => {
     setControlsVisible(true)
     scheduleHide()
   }, [scheduleHide])
+
+  const anyMenuOpen = speedMenuOpen || srMenuOpen || volMenuOpen
+  const isFs = fullscreen || pseudoFullscreen
 
   // 播放状态 / 全屏 / 弹层变化时同步控制条自动隐藏
   useEffect(() => {
@@ -459,14 +488,18 @@ export default function Player({
       setControlsVisible(true)
       return
     }
-    if (speedMenuOpen || srMenuOpen) {
+    if (anyMenuOpen) {
       clearHideTimer()
       setControlsVisible(true)
       return
     }
     scheduleHide()
     return clearHideTimer
-  }, [playing, fullscreen, speedMenuOpen, srMenuOpen, scheduleHide, clearHideTimer])
+  }, [playing, isFs, anyMenuOpen, scheduleHide, clearHideTimer])
+
+  useEffect(() => () => {
+    if (tapTimer.current) window.clearTimeout(tapTimer.current)
+  }, [])
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current
@@ -491,6 +524,19 @@ export default function Player({
 
   const changeVolume = useCallback((nextVol: number) => {
     const clamped = Math.max(0, Math.min(1, Math.round(nextVol * 100) / 100))
+    const v = videoRef.current
+    if (v) {
+      try {
+        v.volume = clamped
+        v.muted = clamped === 0
+        // iOS Safari 中 video.volume 恒为只读 1.0，检测后提示使用侧边音量键
+        if (clamped < 0.99 && clamped > 0 && Math.abs(v.volume - clamped) > 0.05) {
+          setVolReadonly(true)
+        }
+      } catch {
+        setVolReadonly(true)
+      }
+    }
     setVolume(clamped)
     setMuted(clamped === 0)
     try { localStorage.setItem(VOL_KEY, String(clamped)) } catch { /* ignore */ }
@@ -500,10 +546,26 @@ export default function Player({
   const toggleMute = useCallback(() => {
     setMuted(prev => {
       const next = !prev
-      showHud(next ? '已静音' : `音量 ${Math.round(volume * 100)}%`)
+      if (!next && volume === 0) {
+        setVolume(0.7)
+        try { localStorage.setItem(VOL_KEY, '0.7') } catch { /* ignore */ }
+      }
+      showHud(next ? '已静音' : `音量 ${Math.round((volume || 0.7) * 100)}%`)
       return next
     })
   }, [volume, showHud])
+
+  const handleVolumeBtnClick = useCallback(() => {
+    const isNarrow = typeof window !== 'undefined' && window.innerWidth <= 767
+    const isTouch = lastPointerTypeRef.current === 'touch' || lastPointerTypeRef.current === 'pen'
+    if (isNarrow || isTouch) {
+      setVolMenuOpen(v => !v)
+      setSpeedMenuOpen(false)
+      setSrMenuOpen(false)
+      return
+    }
+    toggleMute()
+  }, [toggleMute])
 
   const pickSpeed = useCallback((nextSpeed: number) => {
     setSpeed(nextSpeed)
@@ -529,11 +591,40 @@ export default function Player({
   }, [srMode, pickSrMode])
 
   const toggleFullscreen = useCallback(() => {
-    const el = shellRef.current
+    const el = shellRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null
     if (!el) return
-    if (document.fullscreenElement) void document.exitFullscreen()
-    else void el.requestFullscreen().catch(() => {})
-  }, [])
+    controlsHoverRef.current = false
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null
+      webkitExitFullscreen?: () => Promise<void> | void
+    }
+    if (pseudoFullscreen) {
+      setPseudoFullscreen(false)
+      return
+    }
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (doc.exitFullscreen) void doc.exitFullscreen().catch(() => {})
+      else doc.webkitExitFullscreen?.()
+      return
+    }
+    if (typeof el.requestFullscreen === 'function') {
+      void el.requestFullscreen().catch(() => {
+        setPseudoFullscreen(true)
+      })
+    } else if (typeof el.webkitRequestFullscreen === 'function') {
+      try {
+        const ret = el.webkitRequestFullscreen()
+        if (ret && typeof (ret as Promise<void>).catch === 'function') {
+          void (ret as Promise<void>).catch(() => setPseudoFullscreen(true))
+        }
+      } catch {
+        setPseudoFullscreen(true)
+      }
+    } else {
+      // iPhone Safari 等不支持容器 Fullscreen API 的环境使用页面内全屏，保留完整控制栏与超清
+      setPseudoFullscreen(true)
+    }
+  }, [pseudoFullscreen])
 
   const togglePip = useCallback(() => {
     const v = videoRef.current
@@ -583,6 +674,8 @@ export default function Player({
         e.preventDefault()
         onToggleLightsOff()
         showHud(lightsOff ? '已开灯' : '关灯沉浸模式')
+      } else if (e.key === 'Escape' && pseudoFullscreen) {
+        setPseudoFullscreen(false)
       } else if (e.key === 'Escape' && lightsOff && onToggleLightsOff) {
         onToggleLightsOff()
       } else if ((e.key === 'd' || e.key === 'D') && danmaku) {
@@ -603,7 +696,7 @@ export default function Player({
     return () => window.removeEventListener('keydown', onKey)
   }, [
     togglePlay, seekTo, changeVolume, toggleMute, toggleFullscreen,
-    onToggleWidescreen, onToggleLightsOff, widescreen, lightsOff,
+    onToggleWidescreen, onToggleLightsOff, widescreen, lightsOff, pseudoFullscreen,
     danmaku, cycleSrMode, onNext, onPrev, volume, muted, showHud,
   ])
 
@@ -630,6 +723,8 @@ export default function Player({
       draggingRef.current = false
       const ratio = calcRatio(ev.clientX)
       seekTo(ratio * duration)
+      setHoverSeek(null)
+      if (!videoRef.current?.paused) scheduleHide()
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
@@ -672,19 +767,73 @@ export default function Player({
     : srFailedSrc === src && src
       ? '当前线路受跨域限制'
       : '超清增强 (U)'
-  const showUi = controlsVisible || speedMenuOpen || srMenuOpen || !playing
+  // 区分鼠标与触屏点击画面：
+  // - 触屏：单点切换控制条显隐（若菜单打开先关菜单），双击播放/暂停；
+  // - 鼠标：单击播放/暂停（若菜单打开先关菜单），双击全屏。
+  const handleVideoClick = useCallback(() => {
+    if (anyMenuOpen) {
+      setSpeedMenuOpen(false)
+      setSrMenuOpen(false)
+      setVolMenuOpen(false)
+      return
+    }
+    const isTouch = lastPointerTypeRef.current === 'touch' || lastPointerTypeRef.current === 'pen'
+    if (!isTouch) {
+      togglePlay()
+      return
+    }
+    const now = Date.now()
+    if (now - lastTouchTapRef.current < 280) {
+      lastTouchTapRef.current = 0
+      if (tapTimer.current) {
+        window.clearTimeout(tapTimer.current)
+        tapTimer.current = null
+      }
+      togglePlay()
+      return
+    }
+    lastTouchTapRef.current = now
+    if (tapTimer.current) window.clearTimeout(tapTimer.current)
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = null
+      setControlsVisible(prev => {
+        const next = !prev
+        if (next) scheduleHide()
+        else clearHideTimer()
+        return next
+      })
+    }, 220)
+  }, [anyMenuOpen, togglePlay, scheduleHide, clearHideTimer])
+
+  const handleVideoDoubleClick = useCallback(() => {
+    const isTouch = lastPointerTypeRef.current === 'touch' || lastPointerTypeRef.current === 'pen'
+    if (isTouch) return
+    toggleFullscreen()
+  }, [toggleFullscreen])
+
+  const showUi = controlsVisible || anyMenuOpen || !playing
 
   return (
     <div
       ref={shellRef}
-      className={'ms-player' + (showUi ? ' show-ui' : '') + (fullscreen ? ' is-fullscreen' : '')}
+      className={
+        'ms-player'
+        + (showUi ? ' show-ui' : '')
+        + (isFs ? ' is-fullscreen' : '')
+        + (pseudoFullscreen ? ' is-pseudo-fs' : '')
+      }
       tabIndex={0}
-      onMouseMove={poke}
-      onMouseLeave={() => {
+      onPointerDown={e => { lastPointerTypeRef.current = e.pointerType || 'mouse' }}
+      onPointerMove={e => {
+        if (e.pointerType === 'mouse') poke()
+      }}
+      onPointerLeave={e => {
+        if (e.pointerType !== 'mouse') return
         controlsHoverRef.current = false
         clearHideTimer()
         setSpeedMenuOpen(false)
         setSrMenuOpen(false)
+        setVolMenuOpen(false)
         setHoverSeek(null)
         if (playing) setControlsVisible(false)
       }}
@@ -700,8 +849,8 @@ export default function Player({
       <video
         ref={videoRef}
         playsInline
-        onClick={togglePlay}
-        onDoubleClick={toggleFullscreen}
+        onClick={handleVideoClick}
+        onDoubleClick={handleVideoDoubleClick}
       >
         {subtitleUrl && (
           <track kind="subtitles" label="中文字幕" srcLang="zh-CN" src={subtitleUrl} default />
@@ -762,11 +911,13 @@ export default function Player({
       <div
         className="mp-controls"
         onClick={e => e.stopPropagation()}
-        onMouseEnter={() => {
+        onPointerEnter={e => {
+          if (e.pointerType !== 'mouse') return
           controlsHoverRef.current = true
           clearHideTimer()
         }}
-        onMouseLeave={() => {
+        onPointerLeave={e => {
+          if (e.pointerType !== 'mouse') return
           controlsHoverRef.current = false
           if (playing) scheduleHide()
         }}
@@ -807,9 +958,16 @@ export default function Player({
 
           <span className="mp-spacer" />
 
-          {/* 音量控制 */}
+          {/* 音量控制（桌面端横向滑块；移动端/触控点击弹出音量面板） */}
           <div className="mp-vol-wrap">
-            <button type="button" className="mp-icon" onClick={toggleMute} aria-label={muted || volume === 0 ? '取消静音' : '静音'} title="静音切换 (M)">
+            <button
+              type="button"
+              className={'mp-icon' + (volMenuOpen ? ' on' : '')}
+              onClick={handleVolumeBtnClick}
+              aria-label={muted || volume === 0 ? '取消静音' : '音量'}
+              title="音量 / 静音 (M)"
+              aria-expanded={volMenuOpen}
+            >
               {muted || volume === 0 ? <VolumeX size={17} /> : volume < 0.5 ? <Volume1 size={17} /> : <Volume2 size={17} />}
             </button>
             <input
@@ -822,6 +980,31 @@ export default function Player({
               aria-label="音量"
               onChange={e => changeVolume(Number(e.target.value))}
             />
+            {volMenuOpen && (
+              <div className="mp-speed-menu mp-vol-menu" role="dialog" aria-label="音量调节">
+                <span className="mp-vol-pct tabular-nums">
+                  {muted || volume === 0 ? '静音' : `${Math.round(volume * 100)}%`}
+                </span>
+                <input
+                  type="range"
+                  className="mp-vol-slider-mobile"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={muted ? 0 : volume}
+                  aria-label="拖动调节音量"
+                  onChange={e => changeVolume(Number(e.target.value))}
+                />
+                {volReadonly && <span className="mp-sr-tip">请用侧边键调音量</span>}
+                <button
+                  type="button"
+                  className={'mp-speed-opt' + (muted || volume === 0 ? ' is-active' : '')}
+                  onClick={toggleMute}
+                >
+                  {muted || volume === 0 ? '取消静音' : '静音'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 超清画质增强菜单（Anime4K WebGPU / WebGL2 降级） */}
@@ -832,6 +1015,7 @@ export default function Player({
               onClick={() => {
                 setSrMenuOpen(v => !v)
                 setSpeedMenuOpen(false)
+                setVolMenuOpen(false)
               }}
               title={srTitle}
               aria-expanded={srMenuOpen}
@@ -885,6 +1069,7 @@ export default function Player({
               onClick={() => {
                 setSpeedMenuOpen(v => !v)
                 setSrMenuOpen(false)
+                setVolMenuOpen(false)
               }}
               title="播放倍速"
               aria-expanded={speedMenuOpen}
@@ -941,8 +1126,8 @@ export default function Player({
             </button>
           )}
 
-          <button type="button" className="mp-icon" onClick={toggleFullscreen} aria-label={fullscreen ? '退出全屏' : '全屏'} title="全屏 (F)">
-            {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
+          <button type="button" className="mp-icon" onClick={toggleFullscreen} aria-label={isFs ? '退出全屏' : '全屏'} title="全屏 (F)">
+            {isFs ? <Minimize size={17} /> : <Maximize size={17} />}
           </button>
         </div>
       </div>
