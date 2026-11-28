@@ -208,7 +208,17 @@ export default function Player({
     setBuffered(0)
     if (!v || !src) return
     let hls: Hls | null = null
+    let triedCors = false
+    let loaded = false
+    const onCorsFallback = () => {
+      if (!triedCors || loaded) return
+      triedCors = false
+      v.removeAttribute('crossorigin')
+      v.src = src
+      v.load()
+    }
     if (kind === 'hls' && Hls.isSupported()) {
+      v.removeAttribute('crossorigin')
       hls = new Hls({ enableWorker: true })
       hlsRef.current = hls
       hls.loadSource(src)
@@ -218,9 +228,15 @@ export default function Player({
         onFatal?.()
       })
     } else {
+      // 优先以 anonymous CORS 加载直链 MP4/原生 HLS 以支持 WebGPU/WebGL 超清；
+      // 若上游未返回 CORS 头导致加载报错，自动去掉 crossOrigin 无感回退原画播放。
+      triedCors = true
+      v.crossOrigin = 'anonymous'
+      v.addEventListener('error', onCorsFallback)
       v.src = src
     }
     const tryPlay = () => {
+      loaded = true
       setHasFrame(true)
       v.playbackRate = speed
       v.volume = volume
@@ -230,8 +246,10 @@ export default function Player({
     v.addEventListener('loadeddata', tryPlay, { once: true })
     return () => {
       v.removeEventListener('loadeddata', tryPlay)
+      v.removeEventListener('error', onCorsFallback)
       hls?.destroy()
       hlsRef.current = null
+      v.removeAttribute('crossorigin')
       v.removeAttribute('src')
       v.load()
     }
