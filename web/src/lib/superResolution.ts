@@ -82,7 +82,12 @@ async function getSharedGpuDevice(): Promise<GPUDevice | null> {
   return sharedDevicePromise
 }
 
-/** 计算封顶后的输出分辨率：保持视频宽高比，最多 2× 源分辨率且不超过 4K（3840×2160）。 */
+/**
+ * 计算与容器物理像素 1:1 对齐的目标分辨率：
+ * - 消除“先强制放大再缩小、最后又被浏览器二次缩放”的双重模糊损耗；
+ * - 源分辨率已覆盖显示物理像素时保持 1× 原分辨率精修，把算力集中用于去块与线条恢复；
+ * - 需要放大时（720p 或 2K/4K 全屏）精准对齐容器物理像素，封顶 2× 源分辨率且不超过 4K。
+ */
 function computeTargetSize(
   srcW: number,
   srcH: number,
@@ -91,14 +96,22 @@ function computeTargetSize(
 ): { width: number; height: number } {
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const rect = canvas.getBoundingClientRect()
-  const boxW = Math.max(srcW, Math.round((rect.width || srcW) * dpr))
-  const boxH = Math.max(srcH, Math.round((rect.height || srcH) * dpr))
+  const boxW = rect.width > 0 ? Math.round(rect.width * dpr) : srcW
+  const boxH = rect.height > 0 ? Math.round(rect.height * dpr) : srcH
+  const fitScale = Math.min(boxW / srcW, boxH / srcH)
 
-  // 质量档允许最高 2× 放大以充分呈现 Anime4K CNNx2 细节；效率档在源已 ≥1080p 时以去噪修线为主
-  const maxScale = mode === 'quality' ? 2 : (srcW >= 1920 ? 1.25 : 2)
+  // 源像素已足够覆盖显示区域：保持 1× 原分辨率，避免无意义的多次重采样
+  if (fitScale <= 1.06) {
+    return {
+      width: Math.max(2, Math.round(srcW / 2) * 2),
+      height: Math.max(2, Math.round(srcH / 2) * 2),
+    }
+  }
+
+  const maxScale = mode === 'quality' ? 2 : (srcW >= 1920 ? 1.5 : 2)
   const desiredScale = Math.min(
     maxScale,
-    Math.max(1.25, Math.min(boxW / srcW, boxH / srcH)),
+    fitScale,
     3840 / srcW,
     2160 / srcH,
   )
@@ -114,18 +127,18 @@ function isSecurityLikeError(err: unknown): boolean {
   return /tainted|cross-?origin|securityerror|origin-clean/i.test(msg)
 }
 
-// ── WebGPU Blit Shader（同时支持全屏超清与原画/超清实时分屏对比）──
+// ── WebGPU Blit Shader（零额外 Pass 叠加轻度 CAS 对比度自适应锐化 + 原画/超清实时分屏对比）──
 const WEBGPU_BLIT_WGSL = /* wgsl */ `
 struct VsOut {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
 };
 
-struct SplitUniform {
+struct BlitUniform {
   splitX: f32,
+  sharpness: f32,
   _pad0: f32,
   _pad1: f32,
-  _pad2: f32,
 };
 
 @vertex
@@ -147,16 +160,30 @@ fn vsMain(@builtin(vertex_index) idx: u32) -> VsOut {
 @group(0) @binding(0) var linearSampler: sampler;
 @group(0) @binding(1) var originalTex: texture_2d<f32>;
 @group(0) @binding(2) var enhancedTex: texture_2d<f32>;
-@group(0) @binding(3) var<uniform> splitCfg: SplitUniform;
+@group(0) @binding(3) var<uniform> blitCfg: BlitUniform;
 
 @fragment
 fn fsMain(in: VsOut) -> @location(0) vec4f {
+  let dim = vec2f(textureDimensions(enhancedTex));
+  let texel = vec2f(1.0) / max(dim, vec2f(1.0));
+
   let orig = textureSample(originalTex, linearSampler, in.uv);
-  let enh = textureSample(enhancedTex, linearSampler, in.uv);
-  if (splitCfg.splitX >= 0.0 && in.uv.x < splitCfg.splitX) {
-    return orig;
-  }
-  return enh;
+  let e = clamp(textureSample(enhancedTex, linearSampler, in.uv).rgb, vec3f(0.0), vec3f(1.0));
+  let b = clamp(textureSample(enhancedTex, linearSampler, clamp(in.uv + vec2f(0.0, -texel.y), vec2f(0.0), vec2f(1.0))).rgb, vec3f(0.0), vec3f(1.0));
+  let d = clamp(textureSample(enhancedTex, linearSampler, clamp(in.uv + vec2f(-texel.x, 0.0), vec2f(0.0), vec2f(1.0))).rgb, vec3f(0.0), vec3f(1.0));
+  let f = clamp(textureSample(enhancedTex, linearSampler, clamp(in.uv + vec2f(texel.x, 0.0), vec2f(0.0), vec2f(1.0))).rgb, vec3f(0.0), vec3f(1.0));
+  let h = clamp(textureSample(enhancedTex, linearSampler, clamp(in.uv + vec2f(0.0, texel.y), vec2f(0.0), vec2f(1.0))).rgb, vec3f(0.0), vec3f(1.0));
+
+  // 对比度自适应锐化（CAS）：专拉低对比度动态发糊边缘，自动抑制高对比白边与过锐锯齿
+  let mn = min(min(min(d, e), min(f, b)), h);
+  let mx = max(max(max(d, e), max(f, b)), h);
+  let amp = sqrt(clamp(min(mn, vec3f(1.0) - mx) / max(mx, vec3f(0.0001)), vec3f(0.0), vec3f(1.0)));
+  let peak = -mix(0.08, 0.17, clamp(blitCfg.sharpness, 0.0, 1.0));
+  let w = amp * peak;
+  let sharpened = clamp((e + (b + d + f + h) * w) / (vec3f(1.0) + 4.0 * w), vec3f(0.0), vec3f(1.0));
+
+  let enh = vec4f(select(e, sharpened, blitCfg.sharpness > 0.0), 1.0);
+  return select(enh, orig, blitCfg.splitX >= 0.0 && in.uv.x < blitCfg.splitX);
 }
 `
 
@@ -281,14 +308,15 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
     ctx.configure({ device: gpuDevice, format: canvasFormat, alphaMode: 'opaque' })
 
     const sampler = gpuDevice.createSampler({ magFilter: 'linear', minFilter: 'linear' })
-    const splitBuf = gpuDevice.createBuffer({
+    const casSharpness = mode === 'quality' ? 0.55 : 0.35
+    const blitBuf = gpuDevice.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
-    const writeSplit = () => {
-      gpuDevice.queue.writeBuffer(splitBuf, 0, new Float32Array([splitRatio ?? -1, 0, 0, 0]))
+    const writeBlitUniform = () => {
+      gpuDevice.queue.writeBuffer(blitBuf, 0, new Float32Array([splitRatio ?? -1, casSharpness, 0, 0]))
     }
-    writeSplit()
+    writeBlitUniform()
 
     const blitModule = gpuDevice.createShaderModule({ code: WEBGPU_BLIT_WGSL })
     const blitBindLayout = gpuDevice.createBindGroupLayout({
@@ -373,7 +401,7 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
           { binding: 0, resource: sampler },
           { binding: 1, resource: inputTexture.createView() },
           { binding: 2, resource: finalTex.createView() },
-          { binding: 3, resource: { buffer: splitBuf } },
+          { binding: 3, resource: { buffer: blitBuf } },
         ],
       })
       hasUploadedFrame = false
@@ -382,13 +410,23 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
 
     const frameTimes: number[] = []
     let lastStatAt = 0
+    let gpuBusy = false
+    let pendingForce = false
+    let pendingForceUpload = false
 
-    const renderOnce = (uploadVideo: boolean) => {
+    const renderOnce = (uploadVideo: boolean, force = false) => {
       if (destroyed) return
       if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0) return
+      // 单帧 GPU 并发闸门：上一帧未算完时跳过常规帧，避免动态高帧率场景 GPU 队列积压拖影
+      if (gpuBusy) {
+        if (force) {
+          pendingForce = true
+          pendingForceUpload = pendingForceUpload || uploadVideo
+        }
+        return
+      }
       if (!rebuildPipelines() || !inputTexture || !blitBindGroup) return
 
-      const t0 = performance.now()
       if (uploadVideo || !hasUploadedFrame) {
         try {
           gpuDevice.queue.copyExternalImageToTexture(
@@ -427,54 +465,76 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
       pass.setBindGroup(0, blitBindGroup)
       pass.draw(6)
       pass.end()
+
+      const submitAt = performance.now()
+      gpuBusy = true
       gpuDevice.queue.submit([encoder.finish()])
 
-      const dt = performance.now() - t0
-      if (uploadVideo) {
-        frameTimes.push(dt)
-        if (frameTimes.length > 30) frameTimes.shift()
-        const now = performance.now()
-        if (now - lastStatAt > 600) {
-          lastStatAt = now
-          const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
-          onStats?.({
-            backend: 'webgpu',
-            mode,
-            sourceWidth: srcW,
-            sourceHeight: srcH,
-            outputWidth: outW,
-            outputHeight: outH,
-            avgFrameMs: Math.round(avg * 10) / 10,
-          })
-          // 连续 30 帧平均提交+主线程耗时严重超标时提醒降级
-          if (!downgraded && mode === 'quality' && frameTimes.length >= 25 && avg > 42) {
-            downgraded = true
-            onAutoDowngrade?.('当前设备负载较高，已自动降档至「效率」超清')
+      void gpuDevice.queue.onSubmittedWorkDone().then(() => {
+        gpuBusy = false
+        if (destroyed) return
+        if (uploadVideo) {
+          const gpuMs = performance.now() - submitAt
+          frameTimes.push(gpuMs)
+          if (frameTimes.length > 30) frameTimes.shift()
+          const now = performance.now()
+          if (now - lastStatAt > 600) {
+            lastStatAt = now
+            const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
+            onStats?.({
+              backend: 'webgpu',
+              mode,
+              sourceWidth: srcW,
+              sourceHeight: srcH,
+              outputWidth: outW,
+              outputHeight: outH,
+              avgFrameMs: Math.round(avg * 10) / 10,
+            })
+            // 连续真实 GPU 帧耗时严重超标（稳不住 24fps）时自动降档至效率
+            if (!downgraded && mode === 'quality' && frameTimes.length >= 25 && avg > 38) {
+              downgraded = true
+              onAutoDowngrade?.('当前设备负载较高，已自动降档至「效率」超清')
+            }
           }
         }
-      }
+        if (pendingForce) {
+          const nextUpload = pendingForceUpload
+          pendingForce = false
+          pendingForceUpload = false
+          renderOnce(nextUpload, true)
+        }
+      }).catch(() => {
+        gpuBusy = false
+      })
     }
 
     const tick = () => {
       if (destroyed) return
-      renderOnce(true)
+      renderOnce(true, false)
       if (!destroyed) {
         pendingFrame = scheduleNextFrame(video, tick)
       }
     }
 
-    const onRefresh = () => renderOnce(true)
+    let resizeTimer: number | null = null
+    const onRefresh = () => renderOnce(true, true)
     const onResize = () => {
-      if (rebuildPipelines()) renderOnce(true)
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null
+        if (!destroyed && rebuildPipelines()) renderOnce(true, true)
+      }, 150)
     }
 
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null
+    ro?.observe(canvas)
     video.addEventListener('seeked', onRefresh)
     video.addEventListener('loadeddata', onRefresh)
     video.addEventListener('resize', onResize)
     window.addEventListener('resize', onResize)
 
     // 先立刻刷首帧，再进入帧回调循环
-    renderOnce(true)
+    renderOnce(true, true)
     if (!destroyed) {
       pendingFrame = scheduleNextFrame(video, tick)
     }
@@ -484,12 +544,14 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
       destroyed = true
       pendingFrame?.cancel()
       pendingFrame = null
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer)
+      ro?.disconnect()
       video.removeEventListener('seeked', onRefresh)
       video.removeEventListener('loadeddata', onRefresh)
       video.removeEventListener('resize', onResize)
       window.removeEventListener('resize', onResize)
       inputTexture?.destroy()
-      splitBuf.destroy()
+      blitBuf.destroy()
       inputTexture = null
       pipelines = []
       blitBindGroup = null
@@ -499,8 +561,8 @@ export async function startSuperResolution(opts: StartSrOptions): Promise<SrCont
       setSplitRatio(ratio) {
         splitRatio = ratio
         if (destroyed) return
-        writeSplit()
-        renderOnce(false)
+        writeBlitUniform()
+        renderOnce(false, true)
       },
       destroy: cleanup,
     }
